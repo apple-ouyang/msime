@@ -131,7 +131,8 @@ impl InputSession {
             return self.english_ai_query(&self.dedicated_english_preedit);
         }
         if self.local_mode == LocalInputMode::TemporaryEnglish {
-            return self.english_ai_query(self.local_mode.without_entry_marker(&self.local_preedit));
+            return self
+                .english_ai_query(self.local_mode.without_entry_marker(&self.local_preedit));
         }
         if self.local_mode != LocalInputMode::None {
             return None;
