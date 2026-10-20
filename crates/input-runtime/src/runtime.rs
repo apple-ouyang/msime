@@ -2778,11 +2778,13 @@ impl<E: InputEngine> Runtime<E> {
 
     /// 本次按键是否以唯一五笔候选被提交收尾。读缓存快照，所以 refresh 前后的两处调用会故意看到不同代。
     fn wubi_should_auto_commit(&self, character_action: bool) -> bool {
-        self.wubi_auto_commit_unique
-            && character_action
-            && self.snapshot_valid
-            && self.cached.wubi_unique_four_code
-            && self.phrase_prefix.is_empty()
+        wubi_auto_commit_on_fourth_key(&WubiAutoCommitRequest {
+            auto_commit_enabled: self.wubi_auto_commit_unique,
+            character_action,
+            snapshot_valid: self.snapshot_valid,
+            unique_four_code: self.cached.wubi_unique_four_code,
+            phrase_prefix_empty: self.phrase_prefix.is_empty(),
+        })
     }
 }
 
@@ -2827,6 +2829,31 @@ fn key_grid_name(grid: Option<KeyGrid>) -> &'static str {
         Some(KeyGrid::FourteenKey) => "fourteen_key",
         Some(KeyGrid::NineKeyShuangpin(_)) => "nine_key_shuangpin",
     }
+}
+
+/// 四码唯一自动上屏的五项输入。
+pub(crate) struct WubiAutoCommitRequest {
+    /// 用户开着「五笔四码唯一候选自动上屏」。
+    pub auto_commit_enabled: bool,
+    /// 这一键是字符键：退格、方向键和恢复组字都不该触发上屏。
+    pub character_action: bool,
+    /// 快照还没失效，`unique_four_code` 是这一代的答案。
+    pub snapshot_valid: bool,
+    /// 引擎答过的完整四码，且整个候选列表只有这一个词。
+    pub unique_four_code: bool,
+    /// 没有暂存的词段：造词时 raw 还是正在拼的前缀，提交它会提前结束这个词。
+    pub phrase_prefix_empty: bool,
+}
+
+/// 第四键是否把唯一候选自动上屏。
+///
+/// 五项全是用户或引擎给出的事实，判定本身不再问任何状态，宿主重排、插件和平台适配都不参与。
+pub(crate) fn wubi_auto_commit_on_fourth_key(request: &WubiAutoCommitRequest) -> bool {
+    request.auto_commit_enabled
+        && request.character_action
+        && request.snapshot_valid
+        && request.unique_four_code
+        && request.phrase_prefix_empty
 }
 
 /// The reference Engine's `wubi_four_code_is_complete`, read off the snapshot this Engine already

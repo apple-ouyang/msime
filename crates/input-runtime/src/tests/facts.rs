@@ -330,6 +330,42 @@ fn a_letter_after_a_complete_wubi_code_is_a_top_commit() {
 }
 
 #[test]
+fn the_wubi_auto_commit_decision_needs_all_five_facts() {
+    let allowed = WubiAutoCommitRequest {
+        auto_commit_enabled: true,
+        character_action: true,
+        snapshot_valid: true,
+        unique_four_code: true,
+        phrase_prefix_empty: true,
+    };
+    assert!(wubi_auto_commit_on_fourth_key(&allowed));
+    for blocked in [
+        WubiAutoCommitRequest {
+            auto_commit_enabled: false,
+            ..allowed
+        },
+        WubiAutoCommitRequest {
+            character_action: false,
+            ..allowed
+        },
+        WubiAutoCommitRequest {
+            snapshot_valid: false,
+            ..allowed
+        },
+        WubiAutoCommitRequest {
+            unique_four_code: false,
+            ..allowed
+        },
+        WubiAutoCommitRequest {
+            phrase_prefix_empty: false,
+            ..allowed
+        },
+    ] {
+        assert!(!wubi_auto_commit_on_fourth_key(&blocked));
+    }
+}
+
+#[test]
 fn a_unique_four_letter_wubi_code_commits_itself() {
     let mut runtime = focused(FactEngine {
         scheme: 2,
