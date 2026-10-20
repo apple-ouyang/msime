@@ -2601,9 +2601,11 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     NSInteger size = _sharedFontSize ? _sharedFontSize.integerValue : [_defaults integerForKey:FontKey];
     return size >= 12 && size <= 32 ? size : 18;
 }
+// 共享默认（client-core 的 `default_candidate_font_family`）是 Noto Sans SC，React 页也用它。旧回退值
+// `Segoe UI` 是 Windows 的字体，在 macOS 上落到系统字体，正是这里要避免的分叉。
 - (NSString *)fontFamily {
     id value = _sharedFontFamily ?: [_defaults objectForKey:FontFamilyKey];
-    return ValidFontFamily(value) ? value : @"Segoe UI";
+    return ValidFontFamily(value) ? value : @"Noto Sans SC";
 }
 - (NSString *)candidateEnglishFont {
     id value = _sharedCandidateEnglishFont ?: [_defaults objectForKey:CandidateEnglishFontKey];
@@ -2806,13 +2808,15 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     if (_silent) return;
     [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEAppearanceDidChangeNotification object:self];
 }
+// 与共享默认（client-core 的 `default_candidate_preedit_font_size`，15）、React 页和 Windows 的
+// 「预编辑字号」一致；旧的 16 只在这一个宿主上。
 - (NSUInteger)preeditFontSize {
     NSInteger size = _sharedPreeditFontSize ? _sharedPreeditFontSize.integerValue : [_defaults integerForKey:PreeditFontKey];
-    return size >= 12 && size <= 32 ? size : 16;
+    return size >= 12 && size <= 32 ? size : 15;
 }
 - (void)setPreeditFontSize:(NSUInteger)value {
     _sharedPreeditFontSize = nil;
-    [_defaults setInteger:value >= 12 && value <= 32 ? value : 16 forKey:PreeditFontKey];
+    [_defaults setInteger:value >= 12 && value <= 32 ? value : 15 forKey:PreeditFontKey];
     [self preferencesChanged];
 }
 - (NSInteger)candidateScalePercent {
