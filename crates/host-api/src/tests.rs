@@ -256,6 +256,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         autocorrect_neighbor: false,
         fuzzy_pinyin_rules: 0,
         wubi_mixed_pinyin: false,
+        wubi_z_wildcard: false,
         wubi_profile: 0,
         helpcode: false,
         show_helpcode: false,

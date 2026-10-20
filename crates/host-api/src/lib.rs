@@ -647,6 +647,7 @@ impl HostSession {
         options.autocorrect_neighbor = preferences.quanpin.autocorrect_neighbor;
         options.fuzzy_pinyin_rules = preferences.fuzzy_pinyin.active_rules();
         options.wubi_mixed_pinyin = preferences.wubi_mixed_pinyin;
+        options.wubi_z_wildcard = preferences.wubi_z_wildcard;
         options.wubi_profile = wubi_profile_code(preferences.wubi_profile);
         options.frequency_mode = preferences.frequency.mode.as_str().into();
         options.frequency_trigger_count = preferences.frequency.trigger_count;
@@ -1795,6 +1796,7 @@ impl HostOptions {
             autocorrect_neighbor: self.preferences.quanpin.autocorrect_neighbor,
             fuzzy_pinyin_rules: self.preferences.fuzzy_pinyin.active_rules(),
             wubi_mixed_pinyin: self.preferences.wubi_mixed_pinyin,
+            wubi_z_wildcard: self.preferences.wubi_z_wildcard,
             wubi_profile: wubi_profile_code(self.preferences.wubi_profile),
             frequency_mode: self.preferences.frequency.mode.as_str().into(),
             frequency_trigger_count: self.preferences.frequency.trigger_count,

@@ -35,6 +35,16 @@ test("Wubi section renders the enabled defaults", () => {
   expect((screen.getByLabelText("五笔四码唯一候选自动上屏") as HTMLInputElement).checked).toBe(
     true,
   );
+  // z 通配是来源出厂关着的那一项。
+  expect((screen.getByLabelText("z 键通配") as HTMLInputElement).checked).toBe(false);
+});
+
+test("五笔 z 通配写共享偏好", () => {
+  const onChange = vi.fn();
+  render(<WubiSection preferences={{ wubi_z_wildcard: false }} onChange={onChange} />);
+
+  fireEvent.click(screen.getByLabelText("z 键通配"));
+  expect(onChange).toHaveBeenLastCalledWith({ wubi_z_wildcard: true });
 });
 
 test("Wubi section writes the auto-commit preference through the shared patch", () => {

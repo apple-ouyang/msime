@@ -822,6 +822,31 @@ fn wubi_auto_commit_unique_defaults_on_and_roundtrips() {
 }
 
 #[test]
+fn wubi_z_wildcard_defaults_off_and_roundtrips() {
+    let defaults = Preferences::default();
+    // 来源出厂 `wubi_z_mode = "off"`：新键的缺省必须跟它一致。
+    assert!(!defaults.wubi_z_wildcard);
+
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    legacy.as_object_mut().unwrap().remove("wubi_z_wildcard");
+    assert!(
+        !serde_json::from_value::<Preferences>(legacy)
+            .unwrap()
+            .wubi_z_wildcard
+    );
+
+    let enabled = Preferences {
+        wubi_z_wildcard: true,
+        ..defaults
+    };
+    assert!(
+        serde_json::from_str::<Preferences>(&serde_json::to_string(&enabled).unwrap())
+            .unwrap()
+            .wubi_z_wildcard
+    );
+}
+
+#[test]
 fn wubi_mixed_pinyin_defaults_off_and_roundtrips() {
     let defaults = Preferences::default();
     assert!(!defaults.wubi_mixed_pinyin);
