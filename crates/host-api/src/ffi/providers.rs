@@ -98,7 +98,7 @@ pub unsafe extern "C" fn msime_client_ai_request_for_query(
                 context: query.ai_context,
                 candidate_limit: config.candidate_limit,
                 mode: match query.mode {
-                    msime_engine::types::OnlineQueryMode::English => {
+                    msime_engine::OnlineQueryMode::English => {
                         msime_client_providers::ai::AiCandidateMode::English
                     }
                     _ => msime_client_providers::ai::AiCandidateMode::Pinyin,
