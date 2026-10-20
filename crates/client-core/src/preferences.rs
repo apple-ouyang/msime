@@ -1182,6 +1182,10 @@ pub struct VoiceInputPreferences {
     pub end_sound: bool,
     #[serde(default = "source_voice_default")]
     pub mute_system_audio: bool,
+    /// 识别语言：系统识别器用 BCP 47 区域形式（`zh-CN`、`en-US`），其他识别服务用短形式
+    /// （`zh-cn`、`en`、`ja`、`auto`）。出厂默认取 `zh-CN`，与共享设置页（React 的
+    /// `defaultVoiceInput`）和 macOS 原生回退窗口一致；缺字段的旧文档仍由各宿主自己的回退处理，
+    /// 读盘和界面比较都不区分大小写。
     #[serde(default)]
     pub language: String,
     /// Empty values inherit the user-managed Linux recording service defaults.
@@ -1286,7 +1290,7 @@ impl Default for VoiceInputPreferences {
             start_sound: true,
             end_sound: true,
             mute_system_audio: source_voice_default(),
-            language: "zh-cn".into(),
+            language: "zh-CN".into(),
             capture_backend: String::new(),
             capture_device: String::new(),
             commit_mode: "tsf".into(),

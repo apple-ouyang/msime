@@ -2570,8 +2570,11 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     [_defaults setBool:value forKey:VoiceHotkeyCtrlF9Key];
     [self preferencesChanged];
 }
-// The three modifier holds are off unless they were asked for, which is what MSIMEVoiceHoldShortcut is handed in InputController: a modifier combination that starts recording on its own is not something to turn on for a user who never asked for it.
-- (BOOL)voiceHotkeyRightAlt { return [_defaults boolForKey:VoiceHotkeyRightAltKey]; }
+// 三个按住录音的组合键里只有「按住右 Option」（`hotkey_ralt`）默认打开，与共享默认
+// `VoiceInputPreferences::default()`、Windows、Linux 和共享设置页一致；另外两个默认关。设置窗口是独立
+// 进程，可能在输入法把共享文档写进本机键之前打开；旧回退把缺键读作关，窗口于是显示「未启用」，而
+// 输入法载入文档后已按打开的默认值录音。
+- (BOOL)voiceHotkeyRightAlt { return [_defaults objectForKey:VoiceHotkeyRightAltKey] == nil || [_defaults boolForKey:VoiceHotkeyRightAltKey]; }
 - (void)setVoiceHotkeyRightAlt:(BOOL)value {
     [_defaults setBool:value forKey:VoiceHotkeyRightAltKey];
     [self preferencesChanged];

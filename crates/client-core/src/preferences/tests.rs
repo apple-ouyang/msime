@@ -707,6 +707,34 @@ fn candidate_translations_keep_legacy_and_explicit_choices() {
 }
 
 #[test]
+fn voice_language_default_uses_the_bcp47_region_form() {
+    // 共享设置页（React 的 `defaultVoiceInput`）和 macOS 原生回退窗口都写 `zh-CN`。共享默认以前是
+    // 小写的 `zh-cn`，同一份文档因此可能带着两种写法，界面和读盘比较只能靠不区分大小写兜住。
+    // 统一成区域形式后，宿主和页面显示的是同一个码。
+    let defaults = Preferences::default();
+    assert_eq!(defaults.voice_input.language, "zh-CN");
+    let serialized = serde_json::to_value(&defaults).unwrap();
+    assert_eq!(serialized["voice_input"]["language"], "zh-CN");
+    assert_eq!(
+        serde_json::from_value::<Preferences>(serialized)
+            .unwrap()
+            .voice_input
+            .language,
+        "zh-CN"
+    );
+    // 只改出厂值：用户或旧版本写下的短形式原样保留，不在这里做迁移改写。
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    legacy["voice_input"]["language"] = "zh-cn".into();
+    assert_eq!(
+        serde_json::from_value::<Preferences>(legacy)
+            .unwrap()
+            .voice_input
+            .language,
+        "zh-cn"
+    );
+}
+
+#[test]
 fn translation_account_is_an_explicit_choice_on_every_platform() {
     let defaults = Preferences::default();
     assert!(!defaults.translation_account);
