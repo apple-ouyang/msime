@@ -1171,6 +1171,14 @@ pub struct Preferences {
     /// gloss column never includes it.
     #[serde(default)]
     pub candidate_pronunciation: bool,
+    /// 候选译文中显示 n.、v. 等词性标记；关闭后只显示释义。出厂默认对齐 Windows v0.11.1 的
+    /// `candidate_translation_show_pos = true`。
+    #[serde(default = "enabled_by_default")]
+    pub candidate_translation_show_pos: bool,
+    /// 候选译文只显示第一条释义，关闭时显示全部释义。出厂默认对齐 Windows v0.11.1 的
+    /// `candidate_translation_single_sense = false`。
+    #[serde(default)]
+    pub candidate_translation_single_sense: bool,
     /// Show read-only English word completions in direct English touch input.
     /// Hosts without a direct English suggestion surface preserve this value.
     #[serde(default = "enabled_by_default")]
@@ -2524,6 +2532,9 @@ impl Default for Preferences {
             candidate_translations: false,
             candidate_english_gloss: false,
             candidate_pronunciation: false,
+            // 候选释义的显示默认值对齐 Windows v0.11.1 的出厂配置。
+            candidate_translation_show_pos: true,
+            candidate_translation_single_sense: false,
             english_suggestions: true,
             translation_target_language: TranslationTargetLanguage::default(),
             translation_secondary_language: None,

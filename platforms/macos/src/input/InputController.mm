@@ -51,6 +51,7 @@
 #include "../candidate/CandidatePageSize.h"
 #include "../../../../shared/candidate/CandidateExpandedGrid.h"
 #import "../core/ChineseTextConversion.h"
+#include "../core/CandidateTranslationDisplay.h"
 #include "../core/FullWidthInput.h"
 #include "InputControllerPhysicalKeys.h"
 #include "InputSchemeTraits.h"
@@ -428,6 +429,8 @@ struct MSIMECandidatePageGeometry {
     NSArray<NSString *> *texts = @[];
     NSArray<NSString *> *annotations = @[];
     NSArray<NSString *> *displays = @[];
+    // 每个候选按偏好整理后的释义（不含读音与插件注释），按钮绘制取它；测量仍用循环里拼好的完整释义行。
+    NSArray<NSString *> *translations = @[];
     // The reading each row draws on its gloss run above any translation (a Korean Hanja's 훈음, empty elsewhere), and the tooltip that shows the row's text with everything under it.
     NSArray<NSString *> *readings = @[];
     // 每一行脚本插件的注释（MSIMECandidateScriptAnnotationRun 收拾过的），没有时为空串；它算进释义行的量高，由按钮画在释义行的最后一行。
@@ -473,6 +476,17 @@ static NSString *const MSIMEGlossLineSeparator = @"\u2028";
 static NSString *CandidateTranslation(NSDictionary *candidate) {
     id text = candidate[@"translation"];
     return [text isKindOfClass:NSString.class] ? [text stringByReplacingOccurrencesOfString:MSIMEGlossLineSeparator withString:@"\n"] : @"";
+}
+
+// 绘制用的释义：按 `candidate_translation_show_pos` / `candidate_translation_single_sense` 整理词性标记与义项。
+// 上屏的义项仍取未整理的 CandidateTranslation（Ctrl+Enter 的释义页、Ctrl+数字的释义列都不受这里影响）。
+static NSString *CandidateDisplayTranslation(NSDictionary *candidate, BOOL showPos, BOOL singleSense) {
+    NSString *gloss = CandidateTranslation(candidate);
+    if (gloss.length == 0) return @"";
+    const char *utf8 = gloss.UTF8String;
+    const std::string formatted = msime::mac::format_translation_for_display(utf8 ? utf8 : "", showPos, singleSense);
+    NSString *display = [[NSString alloc] initWithBytes:formatted.data() length:formatted.size() encoding:NSUTF8StringEncoding];
+    return display ?: gloss;
 }
 
 // 交给会话的释义。来源自带的 U+2028、U+2029 先折成空格：词典、账号和自定义接口都可能原样带着它，不折掉的话读回时会多出一行，第二语言的释义被挤到第三行，按列上屏也会取错列。
@@ -1373,6 +1387,9 @@ static NSImage *MSIMECandidateLogoImage() {
     NSNumber *_glossEnabled;
     NSString *_glossTargetLanguage;
     NSArray<NSString *> *_glossTargetLanguages;
+    // 候选释义的显示开关，来自共享偏好；缺省对齐 Windows v0.11.1 出厂配置（显示词性、显示全部释义）。
+    BOOL _glossShowPos;
+    BOOL _glossSingleSense;
     NSArray<NSDictionary *> *_glossResults;
     NSOperationQueue *_targetGlossQueue;
     NSDictionary *_targetGlossRequest;
@@ -3497,6 +3514,8 @@ static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
 - (void)ensureAppearance {
     if (_appearance) return;
     _wubiCodeHintEnabled = YES;
+    _glossShowPos = YES;
+    _glossSingleSense = NO;
     _appearance = [MSIMEAppearancePreferences sharedPreferences];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(appearanceChanged:) name:MSIMEAppearanceDidChangeNotification object:_appearance];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(translationPreferencesSaved:) name:MSIMETranslationPreferencesDidSaveNotification object:_appearance];
@@ -5734,6 +5753,15 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         translationChanged |= ![_glossTargetLanguages isEqual:targets];
         _glossTargetLanguages = [targets copy];
     }
+    // 释义显示只改画法，不换请求：只记下开关，下一次画候选时按它整理释义。缺键时保留出厂默认。
+    id showPos = preferences[@"candidate_translation_show_pos"];
+    if ([showPos isKindOfClass:NSNumber.class] &&
+        CFGetTypeID((__bridge CFTypeRef)showPos) == CFBooleanGetTypeID())
+        _glossShowPos = [showPos boolValue];
+    id singleSense = preferences[@"candidate_translation_single_sense"];
+    if ([singleSense isKindOfClass:NSNumber.class] &&
+        CFGetTypeID((__bridge CFTypeRef)singleSense) == CFBooleanGetTypeID())
+        _glossSingleSense = [singleSense boolValue];
     NSDictionary *custom = preferences[@"custom_translation"];
     if ([custom isKindOfClass:NSDictionary.class]) {
         if (_customTranslationConfig && ![_customTranslationConfig isEqual:custom]) [[MSIMETranslationCache sharedCache] clear];
@@ -7310,6 +7338,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     NSMutableArray<NSString *> *annotations = [NSMutableArray arrayWithCapacity:candidates.count];
     NSMutableArray<NSString *> *displays = [NSMutableArray arrayWithCapacity:candidates.count];
     NSMutableArray<NSString *> *translations = [NSMutableArray arrayWithCapacity:candidates.count];
+    NSMutableArray<NSString *> *displayTranslations = [NSMutableArray arrayWithCapacity:candidates.count];
     NSMutableArray<NSString *> *readings = [NSMutableArray arrayWithCapacity:candidates.count];
     NSMutableArray<NSString *> *scriptAnnotations = [NSMutableArray arrayWithCapacity:candidates.count];
     NSMutableArray<NSString *> *tooltips = [NSMutableArray arrayWithCapacity:candidates.count];
@@ -7335,7 +7364,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         } else {
             annotation = MSIMEParenthesizedAnnotation(annotation);
         }
-        NSString *gloss = MSIMECandidateGlossRun(reading, CandidateTranslation(candidate));
+        NSString *translation = CandidateDisplayTranslation(candidate, _glossShowPos, _glossSingleSense);
+        NSString *gloss = MSIMECandidateGlossRun(reading, translation);
         // The tooltip and the accessibility label keep the reading apart from the Hanja rather than running the two together.
         NSString *display = hanjaReadings ? (reading.length ? [NSString stringWithFormat:@"%@ %@", text, reading] : text)
                                           : CandidateDisplayWithWubiHint(candidate, traditional, hint);
@@ -7343,13 +7373,14 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         [annotations addObject:annotation];
         [displays addObject:display];
         [readings addObject:reading];
+        [displayTranslations addObject:translation];
         // 插件注释原样显示，不做繁简转换：那是插件写的文字，不是要上屏的候选。
         NSString *scriptAnnotation = MSIMECandidateScriptAnnotationRun(candidate[@"script_annotation"]);
         [scriptAnnotations addObject:scriptAnnotation];
         // 按画出来的样子量：读音和插件注释都算进释义行，行的宽高才和按钮画的释义行一致。
         NSString *pronunciation = [self pronunciationForCandidate:candidate];
         [translations addObject:MSIMECandidateGlossWithScriptAnnotation(pronunciation.length
-            ? MSIMECandidateGlossRun(reading, MSIMECandidateGlossDisplay(CandidateTranslation(candidate), pronunciation, nil, nil))
+            ? MSIMECandidateGlossRun(reading, MSIMECandidateGlossDisplay(translation, pronunciation, nil, nil))
             : gloss, scriptAnnotation)];
         NSString *tip = MSIMECandidateGlossWithScriptAnnotation(gloss, scriptAnnotation);
         [tooltips addObject:tip.length ? [NSString stringWithFormat:@"%@\n%@", hanjaReadings ? text : display, tip] : display];
@@ -7361,6 +7392,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     geometry.texts = texts;
     geometry.annotations = annotations;
     geometry.displays = displays;
+    geometry.translations = displayTranslations;
     geometry.readings = readings;
     geometry.scriptAnnotations = scriptAnnotations;
     geometry.tooltips = tooltips;
@@ -7699,7 +7731,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     button.selectedBarInside = geometry.selectedBarInside;
     button.lineBreakMode = NSLineBreakByWordWrapping;
     button.annotation = row.item.annotation.width > 0 ? geometry.annotations[slot] : @"";
-    button.translation = CandidateTranslation(candidate);
+    button.translation = slot < geometry.translations.count ? geometry.translations[slot] : CandidateTranslation(candidate);
     button.glossReading = geometry.readings[slot];
     button.scriptAnnotation = scriptAnnotation;
     button.pronunciation = [self pronunciationForCandidate:candidate];
@@ -8162,7 +8194,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
             button.frame = NSMakeRect(inset + row.x, headerBottom - row.y - row.height,
                                       row.width, row.height);
             button.toolTip = pageGeometry.tooltips[index];
-            button.translation = CandidateTranslation(candidate);
+            button.translation = index < pageGeometry.translations.count ? pageGeometry.translations[index] : CandidateTranslation(candidate);
             // 读音跟着新的释义重算，和上面排版量的是同一份；留着旧的会把上一条释义的读音画在新释义下面。
             button.pronunciation = [self pronunciationForCandidate:candidate];
             button.glossReading = pageGeometry.readings[index];
