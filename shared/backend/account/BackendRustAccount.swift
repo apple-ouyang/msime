@@ -90,6 +90,23 @@ struct BackendRustAccount: Sendable {
     return try await client.call(.accountCloudClipboard, request)
   }
 
+  /// `msime_client_cloud_clipboard_source`：偏好里配置了自建中继时是 `relay`，否则是 `account`。`preferencesDirectory` 是共享偏好目录（macOS 是 `account-session.json` 所在的那一个）。不联网，偏好读不了或中继配置不合规时抛错。
+  func cloudClipboardSource(preferencesDirectory: URL) async throws -> String {
+    let value = try await client.call(.cloudClipboardSource, Data(preferencesDirectory.path.utf8))
+    guard let source = (try? JSONSerialization.jsonObject(with: value, options: [.fragmentsAllowed])) as? [String: Any],
+          let text = source["source"] as? String else { throw BackendRustClient.Failure.invalidResponse }
+    return text
+  }
+
+  /// `msime_client_relay_cloud_clipboard` 的一个 action：动作经用户自建的中继完成，中继地址和令牌从 `preferencesDirectory` 的偏好里读。`keystoreDirectory` 放中继的密钥串 `cloud-clipboard-relay-keystore`，同一台设备上的各个进程要传同一个，否则会登记成几台设备。
+  func relayCloudClipboard(_ action: [String: Any], preferencesDirectory: URL, keystoreDirectory: URL,
+                           deviceName: String?) async throws -> Data {
+    var request: [String: Any] = ["preferences_directory": preferencesDirectory.path,
+                                  "directory": keystoreDirectory.path, "action": action]
+    if let deviceName { request["device_name"] = deviceName }
+    return try await client.call(.relayCloudClipboard, request)
+  }
+
   /// `msime_client_community` 的一个 action（键盘皮肤、词包与回复模板、举报）。键盘皮肤的下载和举报没有登录时 Rust 用本机匿名账号。
   func community(_ action: [String: Any]) async throws -> Data {
     try await client.call(.community, ["session_store": store, "action": action])
