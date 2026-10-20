@@ -4708,6 +4708,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         local_command: false,
         local_mention: false,
         local_chaizi: false,
+        local_symbol: true,
         local_shift_letter_entry: true,
         chaizi_traditional_output: false,
         command_table: Vec::new(),
