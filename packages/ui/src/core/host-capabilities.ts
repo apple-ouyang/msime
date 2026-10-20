@@ -28,6 +28,8 @@ export interface HostCapabilities {
   floating_toolbar_voice: boolean;
   /** 工具栏带切换输入方案的按钮（目前只有 macOS）。 */
   floating_toolbar_input_scheme: boolean;
+  /** 宿主按 `floating_toolbar.auto_hide` / `auto_hide_delay` / `shadow` 控制悬浮条；目前只有 macOS 消费，其余宿主不列这三行。 */
+  floating_toolbar_idle_behavior?: boolean;
   mode_switch_shortcuts: boolean;
   panel_shortcuts: boolean;
   number_row_selection: boolean;
