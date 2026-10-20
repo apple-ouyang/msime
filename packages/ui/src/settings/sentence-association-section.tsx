@@ -86,7 +86,7 @@ export function SentenceAssociationSection({
       {!mobile && (
         <SwitchRow
           title="去重后补充次选"
-          description="模型排第一的整句与已有候选重复时，改显示它排名最高的下一条不同结果。"
+          description="某个模型的首选与已有候选重复时，显示该模型排名最高的下一条不同结果。"
           checked={value?.show_next_on_duplicate ?? false}
           onChange={(checked) => onChange({ ...value, show_next_on_duplicate: checked })}
         />
