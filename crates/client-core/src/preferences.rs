@@ -1179,6 +1179,17 @@ pub struct Preferences {
     /// `candidate_translation_single_sense = false`。
     #[serde(default)]
     pub candidate_translation_single_sense: bool,
+    /// 固定排位的候选词是否显示角标。出厂默认对齐 Windows v0.11.1 的 `candidate_fixed_badge = true`。
+    #[serde(default = "enabled_by_default")]
+    pub candidate_fixed_badge: bool,
+    /// 固定排位候选角的样式，可选 "paperclip"（📎）、"pushpin"（📌）、"dot"（·）；未知值渲染时不加角标。
+    /// 出厂默认对齐 Windows v0.11.1 的 `candidate_fixed_badge_style = "paperclip"`。
+    #[serde(default = "default_candidate_fixed_badge_style")]
+    pub candidate_fixed_badge_style: String,
+    /// AI 联想候选的来源角标样式，可选 "robot"（🤖）、"whale"（🐳）；未知值回退到 robot。
+    /// 出厂默认对齐 Windows v0.11.1 的 `candidate_ai_badge_style = "robot"`。
+    #[serde(default = "default_candidate_ai_badge_style")]
+    pub candidate_ai_badge_style: String,
     /// Show read-only English word completions in direct English touch input.
     /// Hosts without a direct English suggestion surface preserve this value.
     #[serde(default = "enabled_by_default")]
@@ -2262,6 +2273,14 @@ fn enabled_by_default() -> bool {
     true
 }
 
+fn default_candidate_fixed_badge_style() -> String {
+    "paperclip".to_string()
+}
+
+fn default_candidate_ai_badge_style() -> String {
+    "robot".to_string()
+}
+
 fn disabled_by_default() -> bool {
     false
 }
@@ -2532,9 +2551,12 @@ impl Default for Preferences {
             candidate_translations: false,
             candidate_english_gloss: false,
             candidate_pronunciation: false,
-            // 候选释义的显示默认值对齐 Windows v0.11.1 的出厂配置。
+            // 候选释义与角标的显示默认值对齐 Windows v0.11.1 的出厂配置。
             candidate_translation_show_pos: true,
             candidate_translation_single_sense: false,
+            candidate_fixed_badge: true,
+            candidate_fixed_badge_style: default_candidate_fixed_badge_style(),
+            candidate_ai_badge_style: default_candidate_ai_badge_style(),
             english_suggestions: true,
             translation_target_language: TranslationTargetLanguage::default(),
             translation_secondary_language: None,
