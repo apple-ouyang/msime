@@ -6,7 +6,7 @@ Status: implemented
 
 Windows 旧正式版 v0.11.1 的悬浮工具栏有三个用户可调项：`floating_toolbar_auto_hide`（出厂 `false`）、`floating_toolbar_auto_hide_delay`（出厂 5 秒，可选 1–60）和 `floating_toolbar_shadow`（出厂 `true`），见 `installer/default_config/config.default.toml`、`server/src/config/ime_config_toolbar.cpp` 和 `server/src/settings/native/native_page_floating_toolbar.cpp`。
 
-macOS 把这两个行为写死了：没有输入 10 秒后自动隐藏、且始终开启（`platforms/macos/src/core/FloatingToolbarPanel.mm` 的 `_idleTimer`），悬停阴影固定 `self.hasShadow = YES`。用户改不了，而且自动隐藏的出厂行为和 Windows 相反（Windows 默认关）。`FloatingToolbarPreferences` 里也没有对应字段，共享设置页没有这些行。
+macOS 把这两个行为都写死了：没有输入 10 秒后自动隐藏且始终开启（`platforms/macos/src/core/FloatingToolbarPanel.mm` 的 `_idleTimer`），窗口阴影固定 `self.hasShadow = YES`。用户改不了，而且自动隐藏的出厂行为和 Windows 相反（Windows 默认关）。`FloatingToolbarPreferences` 里也没有对应字段，共享设置页没有这些行。
 
 限定：新架构 Windows 宿主（`platforms/windows/`）同样还没有搬这三个设置，所以这不是 macOS 独有的落后，是共享偏好缺一项共同能力。
 
@@ -20,7 +20,7 @@ macOS 把这两个行为写死了：没有输入 10 秒后自动隐藏、且始�
 
 旧文档缺这些键时按出厂值读，不写回也不迁移。
 
-共享设置页 `packages/ui/src/settings/pages/floating-toolbar-page.tsx` 在「显示」组里加三行：`auto_hide` 开关、「自动隐藏延时」滑块（1–60 秒，关闭时整行隐藏，`SliderRow`）和 `shadow` 开关。类型和缺省投影同步在 `floating-toolbar-preferences.ts` 与 `floating-toolbar-defaults.ts`。Linux 的工具栏是输入法菜单里的子菜单，不显示这几行。
+共享设置页 `packages/ui/src/settings/pages/floating-toolbar-page.tsx` 在「显示」组里加三行：`auto_hide` 开关、「自动隐藏延时」滑块（1–60 秒，关闭自动隐藏时置灰但保留已选秒数，与 Windows 设置页一致）和 `shadow` 开关。延时的显示值经 `floatingToolbarAutoHideDelay` 投影：缺值、越界、非有限值都回退出厂 5 秒，滑块不会被一个坏值卡住。类型和缺省投影同步在 `floating-toolbar-preferences.ts` 与 `floating-toolbar-defaults.ts`。Linux 的工具栏是输入法菜单里的子菜单，不显示这几行。
 
 判定抽成纯函数 `platforms/macos/src/core/FloatingToolbarBehavior.h`，不依赖任何窗口：
 
