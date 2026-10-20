@@ -481,6 +481,117 @@ def accept_pager(manifest, preferences, publish, entry):
     wait(lambda: selected_pixels() == original_pixels)
 
 
+def accept_expand(manifest, preferences, publish, entry, host, value, options, control):
+    if preferences['candidate_layout'] != 'horizontal':
+        return
+    original = manifest.read_text()
+    page_size = preferences['candidate_page_size']
+    wheel = preferences['navigation']['mouse_wheel']
+    preferences['candidate_page_size'] = 3
+    preferences['navigation']['mouse_wheel'] = False
+    publish()
+    control.SetCurrentIM('keyboard-us')
+    wait(lambda: native_window() is None)
+    control.SetCurrentIM('msime')
+    control.Activate()
+    subprocess.run(['xdotool', 'type', '--clearmodifiers', '--delay', '100', 'ni'], check=True, timeout=5)
+    wait(native_window)
+    # 独立运行时给出同一组合的完整候选身份，用它核对真实网格点选结果。
+    host.msime_client_create.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
+    host.msime_client_create.restype = ctypes.c_void_p
+    host.msime_client_character.argtypes = [ctypes.c_uint64, ctypes.c_uint8, ctypes.c_bool]
+    host.msime_client_character.restype = ctypes.c_void_p
+    host.msime_client_focus.argtypes = [ctypes.c_uint64, ctypes.c_bool]
+    host.msime_client_focus.restype = ctypes.c_void_p
+    for name in ('msime_client_all_candidates', 'msime_client_destroy'):
+        getattr(host, name).argtypes = [ctypes.c_uint64]
+        getattr(host, name).restype = ctypes.c_void_p
+    request = json.dumps({'resources': options['resources'],
+                          'state_root': str(Path(options['user_data']).parent / 'expand-reference')}).encode()
+    reference = value(host.msime_client_prepare_host(request, len(request)))
+    reference['preferences'] = dict(preferences)
+    document = json.dumps(reference).encode()
+    session = value(host.msime_client_create(document, len(document)))['session']
+    try:
+        value(host.msime_client_focus(session, True))
+        for key in b'ni':
+            value(host.msime_client_character(session, key, False))
+        snapshot = value(host.msime_client_all_candidates(session))
+        expected = snapshot['candidates'][3]['text']
+    finally:
+        value(host.msime_client_destroy(session))
+    style = original.replace('[candidate_window]\n',
+                             '[candidate_window]\nexpand_panel = true\npage_arrows = true\nexpand_rows = 2\n')
+    style += ('\n[candidate_window.horizontal]\n'
+              'item_gap = 4\nitem_extra_height = 10\nitem_min_width = 72\n')
+    manifest.write_text(style)
+    wait(lambda: (pixels := selected_pixels()) is not None and pixels[1] >= 37 * NATIVE_SCALE)
+
+    def toggle():
+        left, top, right, bottom = color_bounds(SELECTED)
+        panel_right = color_bounds(LIGHT[2])[2]
+        point = (round(panel_right - (12 + 1 + 11) * NATIVE_SCALE), (top + bottom) // 2)
+        subprocess.run(['xdotool', 'mousemove', *map(str, point), 'click', '1'], check=True, timeout=5)
+
+    collapsed_height = int(window_geometry(native_window())['HEIGHT'])
+    toggle()
+    wait(lambda: int(window_geometry(native_window())['HEIGHT']) > collapsed_height)
+    geometry = window_geometry(native_window())
+    screen = screenshot()[0]
+    assert int(geometry['WIDTH']) <= screen.get_width() // 2, '含挂件的展开窗口超过半屏宽度'
+    assert int(geometry['HEIGHT']) <= screen.get_height() // 2, '含挂件的展开窗口超过半屏高度'
+    save_image('native-expand-open')
+    first_pixels = selected_pixels()
+    left, top, right, bottom = color_bounds(SELECTED)
+    subprocess.run(['xdotool', 'mousemove', str(left + 10), str(top + 10), 'click', '5'], check=True, timeout=5)
+    wait(lambda: selected_pixels() != first_pixels)
+    assert entry.get_text() == '', '展开时滚轮错误地翻页或上屏'
+    save_image('native-expand-scroll')
+    subprocess.run(['xdotool', 'click', '4'], check=True, timeout=5)
+    wait(lambda: selected_pixels() == first_pixels)
+    panel_right = color_bounds(LIGHT[2])[2]
+    track_x = round(panel_right - (12 + 25 + 4) * NATIVE_SCALE)
+    subprocess.run(['xdotool', 'mousemove', str(track_x), str(top + 5 * NATIVE_SCALE),
+                    'mousedown', '1', 'mousemove', str(track_x), str(top + 100 * NATIVE_SCALE),
+                    'mouseup', '1'], check=True, timeout=5)
+    wait(lambda: selected_pixels() != first_pixels)
+    assert entry.get_text() == '', '拖动滑块错误地上屏'
+    subprocess.run(['xdotool', 'mousemove', str(track_x), str(top + NATIVE_SCALE), 'click', '1'],
+                   check=True, timeout=5)
+    wait(lambda: selected_pixels() == first_pixels)
+    # 滚轮翻页关闭时展开区仍滚动；按钮保持固定，收起后高度恢复。
+    toggle()
+    wait(lambda: int(window_geometry(native_window())['HEIGHT']) == collapsed_height)
+    toggle()
+    wait(lambda: int(window_geometry(native_window())['HEIGHT']) > collapsed_height)
+    left, top, right, bottom = color_bounds(SELECTED)
+    point = (left + 10 * NATIVE_SCALE, bottom + (10 + 18) * NATIVE_SCALE)
+    subprocess.run(['xdotool', 'mousemove', *map(str, point), 'click', '1'], check=True, timeout=5)
+    wait(lambda: entry.get_text() != '')
+    assert entry.get_text() == expected, '网格点击未选择完整列表中显示的候选身份'
+    wait(lambda: native_window() is None)
+    entry.set_text('')
+    subprocess.run(['xdotool', 'type', '--clearmodifiers', '--delay', '100', 'ni'], check=True, timeout=5)
+    wait(native_window)
+    assert int(window_geometry(native_window())['HEIGHT']) == collapsed_height, '上屏后沿用了旧展开状态'
+    toggle()
+    wait(lambda: int(window_geometry(native_window())['HEIGHT']) > collapsed_height)
+    left, top, right, bottom = color_bounds(SELECTED)
+    point = ((left + right) // 2, (top + bottom) // 2)
+    subprocess.run(['xdotool', 'mousemove', *map(str, point), 'click', '1'], check=True, timeout=5)
+    wait(lambda: entry.get_text() != '')
+    assert entry.get_text() == '你', '展开释放缓存后，首行候选身份未同步'
+    wait(lambda: native_window() is None)
+    entry.set_text('')
+    manifest.write_text(original)
+    preferences['candidate_page_size'] = page_size
+    preferences['navigation']['mouse_wheel'] = wheel
+    publish()
+    subprocess.run(['xdotool', 'type', '--clearmodifiers', '--delay', '100', 'ni'], check=True, timeout=5)
+    wait(lambda: palette_visible((SELECTED,)))
+    print('真实 GTK 卷轴展开、收起、独立滚轮和完整候选身份上屏通过')
+
+
 def accept_translation(manifest, preferences, publish, entry, fixture):
     original = manifest.read_text()
     normal = ((239, 48, 64), (20, 223, 90), (40, 112, 255))
@@ -680,7 +791,7 @@ def main():
 
     def value(pointer):
         result = responses.decode(pointer)
-        assert result["ok"], "共享 Host API 请求失败"
+        assert result["ok"], "共享 Host API 请求失败：" + str(result.get("error", "unknown"))
         return result["value"]
 
     # Wayland 模块与编辑器同进程，GLib 读取前就要固定 XDG 目录；X11 面板在独立 daemon 中。
@@ -912,6 +1023,8 @@ def main():
                     accept_appearance(manifest, preferences, publish, entry)
                     wait(lambda: selected_pixels() == original_selected)
                     accept_pager(manifest, preferences, publish, entry)
+                    wait(lambda: selected_pixels() == original_selected)
+                    accept_expand(manifest, preferences, publish, entry, host, value, options, control)
                     wait(lambda: selected_pixels() == original_selected)
                     accept_translation(manifest, preferences, publish, entry, root / "translation.txt")
                     wait(lambda: selected_pixels() == original_selected)

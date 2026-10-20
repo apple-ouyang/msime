@@ -42,6 +42,7 @@
 #include "../src/candidates/FcitxCanvasPanel.h"
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
 #include "../src/candidates/NativeCanvasX11.h"
+#include "../src/candidates/NativeCanvasSnapshot.h"
 #endif
 #include "../src/candidates/CandidateFontPolicy.h"
 #include "../src/candidates/CandidateWheelPaging.h"
@@ -555,6 +556,8 @@ public:
   ~FcitxState() override { close(); }
   void close() {
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
+    native_canvas_expanded_ = false;
+    native_canvas_snapshot_ = Json::object();
     if (native_canvas_) native_canvas_->hide();
 #endif
     // Every way out of a session passes here, focus loss, deactivation and teardown included, and options_path_ is still the batch's directory.
@@ -680,6 +683,11 @@ public:
   // 失焦后会话留给托盘菜单时用它代替 close()：托盘读到的勾选和点下的开关都落在这个会话上，到下一次有上下文获得焦点才真正关掉（见 FcitxEngine::holdMenuContext）。除了 releaseFocusResources，还要停掉录音、按失焦结束组字和候选，与 IBus 宿主失焦时一样只取视图：要上屏的组字已由 focus_watch_ 或 Fcitx5 自己提交，留着的话之后的菜单动作会把它当成正在输入的文字再提交一次。
   void leaveFocus() {
     if (!session_) return;
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+    native_canvas_expanded_ = false;
+    native_canvas_snapshot_ = Json::object();
+    if (native_canvas_) native_canvas_->hide();
+#endif
     cancelVoice();
     releaseFocusResources();
     if (composingOrCandidates()) {
@@ -691,6 +699,8 @@ public:
   bool menuTarget() const;
   void clearPanel() {
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
+    native_canvas_expanded_ = false;
+    native_canvas_snapshot_ = Json::object();
     if (native_canvas_) native_canvas_->hide();
 #endif
     ic_.inputPanel().reset();
@@ -3631,7 +3641,11 @@ public:
   void render();
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
   bool renderNativeCanvas();
+  void refreshNativeCanvasSnapshot();
   std::unique_ptr<msime::linux_host::NativeCanvasX11> native_canvas_;
+  bool native_canvas_expanded_ = false;
+  std::weak_ptr<msime::linux_host::NativeCanvasAssets> native_canvas_expansion_assets_;
+  Json native_canvas_snapshot_ = Json::object();
 #endif
   std::string candidateAux() const;
   bool removeCandidateSlot(size_t slot) {
@@ -7353,6 +7367,10 @@ std::string FcitxState::candidateAux() const {
 }
 
 void FcitxState::render() {
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+  // all_candidates 可能放出缓存尾部并推进代次，必须先同步 view 再构建当前页。
+  refreshNativeCanvasSnapshot();
+#endif
   if (engine_) {
     engine_->english_action_.update(&ic_);
     engine_->width_action_.update(&ic_);
@@ -7428,11 +7446,40 @@ void FcitxState::render() {
 }
 
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
+void FcitxState::refreshNativeCanvasSnapshot() {
+  if (!native_canvas_expanded_) return;
+  if (!engine_ || !engine_->native_canvas_owned_ || !engine_->native_canvas_assets_ ||
+      native_canvas_expansion_assets_.lock() != engine_->native_canvas_assets_ ||
+      !engine_->native_canvas_assets_->expand_panel || !ic_.hasFocus() || restricted() ||
+      translation_candidates_active_ || !session_ || view_.value("candidates", Json::array()).empty() ||
+      preferences_.value("candidate_layout", std::string("vertical")) != "horizontal") {
+    native_canvas_expanded_ = false;
+    native_canvas_snapshot_ = Json::object();
+    return;
+  }
+  const auto generation = msime::linux_host::strict_json_value(view_, "generation", uint64_t{});
+  if (msime::linux_host::native_canvas_snapshot_current(native_canvas_snapshot_, session_, generation)) return;
+  native_canvas_snapshot_ = Json::object();
+  try {
+    auto snapshot = response(msime_client_all_candidates(session_));
+    auto current = response(msime_client_view(session_));
+    const auto next = msime::linux_host::strict_json_value(current, "generation", uint64_t{});
+    // 即便完整列表无效，也必须用读取后的当前页替换旧身份。
+    view_ = std::move(current);
+    if (msime::linux_host::native_canvas_snapshot_current(snapshot, session_, next))
+      native_canvas_snapshot_ = std::move(snapshot);
+  } catch (...) {
+    native_canvas_expanded_ = false;
+  }
+}
+
 bool FcitxState::renderNativeCanvas() {
   const auto list = ic_.inputPanel().candidateList();
   if (!engine_ || !engine_->native_canvas_owned_ || !engine_->native_canvas_assets_ ||
       engine_->instance_->currentUI() != "classicui" || !ic_.hasFocus() ||
       ic_.display().rfind("x11:", 0) != 0 || !list || list->size() == 0) {
+    native_canvas_expanded_ = false;
+    native_canvas_snapshot_ = Json::object();
     if (native_canvas_) native_canvas_->hide();
     return false;
   }
@@ -7452,6 +7499,12 @@ bool FcitxState::renderNativeCanvas() {
   }
   content.font = engine_->hint_inputs_.font.empty() ? "sans 16" : engine_->hint_inputs_.font;
   content.horizontal = list->layoutHint() == fcitx::CandidateLayoutHint::Horizontal;
+  content.expanded = native_canvas_expanded_;
+  content.page_size = msime::linux_host::strict_json_value(view_, "page_size", size_t{9});
+  content.revision = std::to_string(session_) + ":" +
+      std::to_string(msime::linux_host::strict_json_value(view_, "generation", uint64_t{})) + ":" +
+      std::to_string(msime::linux_host::strict_json_value(view_, "page", size_t{})) + ":" +
+      std::to_string(traditionalApplies()) + ":" + std::to_string(traditional_variant_);
   content.selected = list->cursorIndex();
   content.wheel_paging = msime::linux_host::read_candidate_wheel_paging(preferences_);
   for (int at = 0; at < list->size(); ++at) {
@@ -7462,6 +7515,46 @@ bool FcitxState::renderNativeCanvas() {
     } else {
       content.items.push_back({list->label(at).toString(), list->candidate(at).text().toString()});
     }
+  }
+  if (!translation_candidates_active_ && engine_->native_canvas_assets_->expand_panel && content.horizontal) {
+    const auto session = session_;
+    const auto generation = msime::linux_host::strict_json_value(view_, "generation", uint64_t{});
+    const auto assets = engine_->native_canvas_assets_;
+    content.expand = [this, session, generation, assets](bool expanded) {
+      try {
+        if (!ic_.hasFocus() || restricted() || session_ != session ||
+            !engine_ || engine_->native_canvas_assets_ != assets ||
+            msime::linux_host::strict_json_value(view_, "generation", uint64_t{}) != generation) return;
+        native_canvas_expanded_ = expanded;
+        native_canvas_expansion_assets_ = assets;
+        native_canvas_snapshot_ = Json::object();
+        render();
+      } catch (...) {}
+    };
+    std::vector<size_t> indices;
+    const auto &page = view_.at("candidates");
+    const auto last = page.empty() ? size_t{} :
+        msime::linux_host::strict_json_required_integer<size_t>(page.back().at("id").at("index"));
+    if (content.expanded && msime::linux_host::native_canvas_snapshot_current(native_canvas_snapshot_, session, generation)) {
+      for (const auto &candidate : native_canvas_snapshot_.at("candidates")) {
+        const auto index = msime::linux_host::strict_json_required_integer<size_t>(candidate.at("id").at("index"));
+        if (index <= last || msime::linux_host::strict_json_value(candidate, "source", uint64_t{}) == 12 ||
+            candidate.at("text").get_ref<const std::string &>().empty()) continue;
+        const auto display = candidateDisplay(candidate, traditionalApplies(), showCandidateAnnotations(),
+            msime::linux_host::korean_hanja_gloss(view_, candidate), traditional_variant_);
+        content.grid_items.push_back({{}, display.body, {}, display.suffix});
+        indices.push_back(index);
+      }
+    }
+    content.select_grid = [this, session, generation, indices = std::move(indices)](int at) {
+      try {
+        if (!ic_.hasFocus() || restricted() || at < 0 || static_cast<size_t>(at) >= indices.size() ||
+            !ensure() || session_ != session ||
+            msime::linux_host::strict_json_value(view_, "generation", uint64_t{}) != generation) return;
+        pointerTurn();
+        apply(msime_client_select_any_candidate(session, generation, indices[at]));
+      } catch (...) {}
+    };
   }
   content.select = [this, list](int at) {
     if (ic_.hasFocus() && !restricted() && at >= 0 && at < list->size()) list->candidate(at).select(&ic_);
@@ -7490,7 +7583,11 @@ bool FcitxState::renderNativeCanvas() {
   if (!native_canvas_) native_canvas_ = std::make_unique<msime::linux_host::NativeCanvasX11>(*loop_);
   const auto cursor = ic_.cursorRect();
   if (!native_canvas_->show(ic_.display(), engine_->native_canvas_assets_, std::move(content),
-      engine_->native_canvas_palette_, cursor.left(), cursor.top(), cursor.height())) return false;
+      engine_->native_canvas_palette_, cursor.left(), cursor.top(), cursor.height())) {
+    native_canvas_expanded_ = false;
+    native_canvas_snapshot_ = Json::object();
+    return false;
+  }
   const auto client_preedit = ic_.inputPanel().clientPreedit();
   ic_.inputPanel().reset();
   ic_.inputPanel().setClientPreedit(client_preedit);

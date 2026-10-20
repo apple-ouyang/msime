@@ -29,6 +29,7 @@ struct NativeCanvasX11::Impl {
   int width = 1, height = 1;
   int measured_work_width = 0, measured_work_height = 0;
   int pressed = -1, hovered = -1;
+  double thumb_grab = 0;
   int cursor_x = 0, cursor_y = 0, cursor_height = 0;
 
   void close() {
@@ -90,6 +91,19 @@ struct NativeCanvasX11::Impl {
   int hit(int x, int y) const {
     return native_canvas_hit(content, layout, x / scale, y / scale);
   }
+  void scroll(double offset, bool dragging = false) {
+    content.scroll_offset = std::clamp(offset, 0.0, layout.max_scroll);
+    if (layout.max_scroll - content.scroll_offset <= layout.scroll_step * 1.5 &&
+        content.grid_limit < content.grid_items.size()) content.grid_limit += 300;
+    pressed = dragging ? -5 : -1;
+    hovered = -1;
+    if (measure()) { shape(); move(cursor_x, cursor_y, cursor_height); paint(); }
+  }
+  void drag(double y) {
+    const double travel = layout.scrollbar.height - layout.thumb.height;
+    if (travel <= 0) return;
+    scroll((y - thumb_grab - layout.scrollbar.y) / travel * layout.max_scroll, true);
+  }
   void events() {
     while (display && XPending(display)) {
       XEvent event{};
@@ -97,17 +111,31 @@ struct NativeCanvasX11::Impl {
       if (!visible) continue;
       if (event.type == Expose && event.xexpose.count == 0) paint();
       if (event.type == MotionNotify || event.type == EnterNotify) {
+        if (event.type == MotionNotify && pressed == -5) { drag(event.xmotion.y / scale); continue; }
         const int at = event.type == MotionNotify ? hit(event.xmotion.x, event.xmotion.y) : hit(event.xcrossing.x, event.xcrossing.y);
         if (hovered != at) { hovered = at; paint(); }
       }
       if (event.type == LeaveNotify && hovered != -1) { hovered = -1; paint(); }
       if (event.type == ButtonPress) {
         if (event.xbutton.button == Button3) menu(hit(event.xbutton.x, event.xbutton.y));
-        if (event.xbutton.button == Button1) { pressed = hit(event.xbutton.x, event.xbutton.y); paint(); }
-        if (content.wheel_paging && (event.xbutton.button == Button4 || event.xbutton.button == Button5)) {
+        if (event.xbutton.button == Button1) {
+          pressed = hit(event.xbutton.x, event.xbutton.y);
+          if (pressed == -5) {
+            const double y = event.xbutton.y / scale;
+            thumb_grab = layout.thumb.contains(event.xbutton.x / scale, y) ? y - layout.thumb.y : layout.thumb.height / 2;
+            drag(y);
+          }
+          paint();
+        }
+        if (event.xbutton.button == Button4 || event.xbutton.button == Button5) {
+          if (content.expanded) {
+            if (layout.viewport.height > 0)
+              scroll(layout.scroll_offset + (event.xbutton.button == Button5 ? 1 : -1) * layout.scroll_step);
+            continue;
+          }
           const auto page = content.page;
           const bool next = event.xbutton.button == Button5;
-          if (page && (next ? content.next : content.previous)) page(next);
+          if (content.wheel_paging && page && (next ? content.next : content.previous)) page(next);
         }
       }
       if (event.type == ButtonRelease && event.xbutton.button == Button1) {
@@ -118,8 +146,13 @@ struct NativeCanvasX11::Impl {
         // 回调可能在同一栈上更新 content，先复制函数对象，避免调用中析构它自己。
         const auto select = content.select;
         const auto page = content.page;
-        if (item >= 0 && select) select(item);
-        else if (item <= -2 && page) page(item == -3);
+        const auto expand = content.expand;
+        const auto select_grid = content.select_grid;
+        if (item >= static_cast<int>(content.items.size()) && select_grid)
+          select_grid(item - static_cast<int>(content.items.size()));
+        else if (item >= 0 && select) select(item);
+        else if ((item == -2 || item == -3) && page) page(item == -3);
+        else if (item == -4 && expand) expand(!content.expanded);
       }
     }
   }
@@ -147,21 +180,24 @@ struct NativeCanvasX11::Impl {
     const auto work = workArea();
     auto *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
     auto *cr = cairo_create(surface);
-    double limit = std::min(work.width, 8192) / scale;
-    double previous_width = std::numeric_limits<double>::infinity();
+    const double max_width = std::min(content.expanded ? work.width / 2 : work.width, 8192);
+    const double max_height = std::min(content.expanded ? work.height / 2 : work.height, 8192);
+    double limit = max_width / scale;
+    double height_limit = content.expanded ? max_height / scale : -1;
     // 外留白和挂件也占窗口宽度；收紧面板后重新排字，不能在提交窗口时裁切。
     for (int attempt = 0; attempt < 8; ++attempt) {
-      layout = measure_native_canvas(cr, *assets, content, limit);
-      const double wanted = std::ceil(layout.width * scale);
-      if (wanted <= std::min(work.width, 8192) || wanted >= previous_width) break;
-      previous_width = wanted;
-      limit = layout.panel.width - (wanted - std::min(work.width, 8192)) / scale - 1;
-      if (limit <= 0) break;
+      layout = measure_native_canvas(cr, *assets, content, limit, height_limit);
+      const double overflow_x = std::ceil(layout.width * scale) - max_width;
+      const double overflow_y = std::ceil(layout.height * scale) - max_height;
+      if (overflow_x <= 0 && (height_limit < 0 || overflow_y <= 0)) break;
+      if (overflow_x > 0) limit = layout.panel.width - overflow_x / scale - 1;
+      if (height_limit > 0 && overflow_y > 0) height_limit -= overflow_y / scale + 1;
+      if (limit <= 0 || (content.expanded && height_limit <= 0)) break;
     }
     cairo_destroy(cr); cairo_surface_destroy(surface);
     const double wanted_width = std::ceil(layout.width * scale), wanted_height = std::ceil(layout.height * scale);
-    if (wanted_width <= 0 || wanted_height <= 0 || wanted_width > work.width ||
-        wanted_height > work.height || wanted_width > 8192 || wanted_height > 8192) return false;
+    if (wanted_width <= 0 || wanted_height <= 0 || wanted_width > max_width ||
+        wanted_height > max_height) return false;
     width = static_cast<int>(wanted_width); height = static_cast<int>(wanted_height);
     measured_work_width = work.width; measured_work_height = work.height;
     return true;
@@ -263,9 +299,15 @@ struct NativeCanvasX11::Impl {
       XUnionRectWithRegion(&rectangle, region, region);
     };
     for (const auto &box : layout.items) add(box);
+    if (layout.toggle.width > 0) add(layout.toggle);
+    if (layout.viewport.height > 0) {
+      // 滚出去的候选不再吞点击，滚动区留白仍可接收滚轮与滑块拖动。
+      XSubtractRegion(region, region, region);
+      add(layout.viewport); add(layout.toggle);
+    }
     // 禁用箭头仍占输入区域，点击不应穿透到编辑器或下面的窗口。
     if (layout.pager.visible) { add(layout.previous); add(layout.next); }
-    // 挂件和留白不吞鼠标；候选与箭头才接收点击。
+    // 挂件和外留白不吞鼠标；候选、按钮和展开视口接收点击。
     XShapeCombineRegion(display, window, ShapeInput, 0, 0, region, ShapeSet);
     XDestroyRegion(region);
   }
@@ -290,6 +332,10 @@ bool NativeCanvasX11::show(const std::string &display, std::shared_ptr<NativeCan
                            int cursor_x, int cursor_y, int cursor_height) {
   auto &state = *impl_;
   if (!assets || content.items.empty() || !state.open(display)) { hide(); return false; }
+  if (content.expanded && state.visible && state.assets == assets && state.content.revision == content.revision) {
+    content.scroll_offset = state.layout.scroll_offset;
+    content.grid_limit = state.content.grid_limit;
+  }
   state.pressed = state.hovered = -1;
   if (!state.visible || state.assets != assets) state.animation_started_us = fcitx::now(CLOCK_MONOTONIC);
   state.assets = std::move(assets); state.content = std::move(content); state.palette = std::move(palette);
