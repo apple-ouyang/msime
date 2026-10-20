@@ -217,6 +217,14 @@ export function InputSharedSettingsSection({
           {foldIntoMore && candidatesMoreRows}
           {beforeLearning}
           {learningRow}
+          <SwitchRow
+            title="回车学英文词"
+            description="按回车上屏输入的英文时，把这个单词写入英文词库，之后可作为候选出现。"
+            checked={preferences.enter_learns_english_word ?? true}
+            onChange={(enter_learns_english_word) =>
+              onPreferencesChange({ enter_learns_english_word })
+            }
+          />
           {afterLearning}
           {!foldIntoMore && <MoreOptions>{candidatesMoreRows}</MoreOptions>}
         </GroupList>,

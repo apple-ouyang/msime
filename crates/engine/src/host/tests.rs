@@ -27,6 +27,7 @@ fn options(root: &Path) -> EngineOptions {
         shuangpin_preedit_uses_raw: true,
         single_character_only: false,
         learning: false,
+        learn_english_on_enter: true,
         autocorrect_transposition: true,
         autocorrect_neighbor: true,
         fuzzy_pinyin_rules: 0,
@@ -1830,6 +1831,36 @@ fn temporary_japanese_raw_commit_learns_with_the_r_prefix() {
     assert_eq!(result.diagnostic, "");
     assert_eq!(english_word_count(&value, "rkk"), 1);
     assert_eq!(english_word_count(&value, "kk"), 0);
+}
+
+/// Windows `input.enter_learns_english_word` 出厂为开：回车上屏输入的英文词写进英文词库；
+/// 关掉后回车照常上屏，只是不学词。
+#[test]
+fn enter_learns_english_word_follows_the_preference() {
+    // 出厂（开）：专用英文里回车上屏的字母学进词库。
+    let dir = tempfile::tempdir().unwrap();
+    let value = options(dir.path());
+    let mut session = Session::new(&value).unwrap();
+    session.set_dedicated_english(true).unwrap();
+    type_text(&mut session, b"hello");
+    let result = session.command(Command::CommitRaw).unwrap();
+    assert!(result.has_commit);
+    assert_eq!(result.commit, "hello");
+    assert_eq!(result.diagnostic, "");
+    assert_eq!(english_word_count(&value, "hello"), 1);
+
+    // 关：照常上屏，词库不动。
+    let off_dir = tempfile::tempdir().unwrap();
+    let mut off = options(off_dir.path());
+    off.learn_english_on_enter = false;
+    let mut session = Session::new(&off).unwrap();
+    session.set_dedicated_english(true).unwrap();
+    type_text(&mut session, b"hello");
+    let result = session.command(Command::CommitRaw).unwrap();
+    assert!(result.has_commit);
+    assert_eq!(result.commit, "hello");
+    assert_eq!(result.diagnostic, "");
+    assert_eq!(english_word_count(&off, "hello"), 0);
 }
 
 /// bridge.cpp:1349-1357: a local-mode commit that is not an English word (here the Unicode mode's hex digits) is still committed; the failed learning is reported beside it rather than undoing it.

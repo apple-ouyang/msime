@@ -147,6 +147,8 @@ export type Preferences = PunctuationPreferences &
     /** `custom` 全局主题由外部候选皮肤包、七个候选颜色选项与键盘编辑器设计组成。 */
     custom_theme?: CustomTheme;
     learning: boolean;
+    /** 回车上屏英文时把该单词写入英文词库；Windows 出厂缺省为开启。 */
+    enter_learns_english_word?: boolean;
     diagnostic_log?: { server?: boolean; tsf?: boolean };
     /** 只有 Windows TSF 读取：游戏声明自己画候选却不画时由水杉的候选窗显示。由 Windows 原生设置页编辑，这个页面没有对应控件；缺省为开启、两张进程表为空。 */
     game_compatibility?: {
