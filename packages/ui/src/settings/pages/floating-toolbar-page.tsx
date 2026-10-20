@@ -10,10 +10,12 @@ import {
 import { createFloatingToolbarSettingsActions } from "../floating-toolbar-settings-actions";
 import { SelectRow } from "../select-row";
 import { SwitchRow } from "../switch-row";
+import { SliderRow } from "../slider-row";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
 import { SettingsGroupBlock } from "../settings-group-block";
 import { SettingsPreviewBlock } from "../settings-preview-block";
 import {
+  floatingToolbarAutoHideDelay,
   floatingToolbarButtonOptions,
   floatingToolbarSize,
   floatingToolbarSizes,
@@ -96,6 +98,35 @@ export function FloatingToolbarSettingsPage() {
           checked={floatingToolbar.enabled}
           onChange={(enabled) => onToolbarChange({ enabled })}
         />
+        {/* 自动隐藏是悬浮窗的行为；Linux 的工具栏是输入法菜单里的子菜单，不适用。 */}
+        {!menuToolbar && (
+          <>
+            <SwitchRow
+              title="自动隐藏工具栏"
+              description="工具栏显示一段时间无交互后淡出隐藏；鼠标悬停不隐藏，切换中英等状态变化时重新显示"
+              checked={floatingToolbar.auto_hide}
+              onChange={(auto_hide) => onToolbarChange({ auto_hide })}
+            />
+            <SliderRow
+              title="自动隐藏延时"
+              description="工具栏显示多久后开始淡出（秒）"
+              // 与 Windows 设置页一致：自动隐藏关着时这一行还在，但控件置灰，已选的秒数保留。
+              disabled={!floatingToolbar.auto_hide}
+              min={1}
+              max={60}
+              value={floatingToolbarAutoHideDelay(floatingToolbar)}
+              valueText={`${floatingToolbarAutoHideDelay(floatingToolbar)} 秒`}
+              displayValue={`${floatingToolbarAutoHideDelay(floatingToolbar)} 秒`}
+              onChange={(auto_hide_delay) => onToolbarChange({ auto_hide_delay })}
+            />
+            <SwitchRow
+              title="工具栏阴影"
+              description="在工具栏周围显示与候选窗一致的柔和阴影"
+              checked={floatingToolbar.shadow}
+              onChange={(shadow) => onToolbarChange({ shadow })}
+            />
+          </>
+        )}
       </GroupList>
       {showToolbarComponents && (
         <GroupList title="按钮">
