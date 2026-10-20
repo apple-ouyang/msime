@@ -81,6 +81,7 @@
 #include "../core/DiagnosticLog.h"
 #include "../../../../shared/input/EnglishModeOutput.h"
 #include "../../../../shared/input/CapsLockTap.h"
+#include "TrilingualCycleRouting.h"
 #import <IOKit/hidsystem/IOHIDLib.h>
 #import <IOKit/hidsystem/IOHIDParameter.h>
 #include <atomic>
@@ -3723,6 +3724,12 @@ static __weak MSIMEInputController *MSIMEFocusedController;
 //
 // Commit first, then switch: switching rebuilds the input session, and the other order loses the letters still being composed. setEnglishInputMode: finishes any composition of its own, which is a no-op once this has run.
 - (void)toggleInputModeFromModifierTap {
+    [self toggleChineseEnglishMode];
+}
+// 「切换中英文」这一键的完整行为：中日英循环开着时按共享层的答复走一圈，关着时退回二态切换。
+// 修饰键轻点和 Ctrl+Option+Space、Shift+Space 都走这里，所以打开循环后它们同时生效。
+- (void)toggleChineseEnglishMode {
+    if ([self applyTrilingualCycleIfEnabled]) return;
     if ([_view[@"editing_text"] length] && _session && _activeClient) {
         // 单按修饰键是一次物理按下，却不经过 handleEvent: 的按下报告（它只看 keyDown）。派发前按指针开一轮：不出按键音，与以前一样；原样上屏的提交音照常由核心出。
         [self reportPointerToLifecycle];
@@ -3730,6 +3737,56 @@ static __weak MSIMEInputController *MSIMEFocusedController;
         if (raw) [self apply:raw];
     }
     [self setEnglishInputMode:!_appearance.englishMode];
+}
+
+// 中日英循环切换（共享偏好 `keybindings.trilingual_cycle`，默认关）。
+//
+// 顺序和「有组字时先上屏原始字母」都在共享层：`msime_client_language_cycle` →
+// `crates/client-core/src/language_cycle.rs`，桌面宿主将来共用同一份。这里只做两件事：
+// 把控制器此刻的状态交给它，按它的答复执行。返回 NO 表示这一键不循环（开关关着），调用方
+// 照旧走二态切换，行为与加这个开关之前完全一样。
+//
+// 上的屏是原始拼音串，不是高亮的候选：旧版在改名、缩写、命令这类打不出来的词上按住切换键，
+// 要的是已经打出来的字母，而不是替用户选一个他没要的字。
+- (BOOL)applyTrilingualCycleIfEnabled {
+    if (!_appearance.trilingualCycle) return NO;
+    if (!_session || !_activeClient) return NO;
+    NSString *scheme = MSIMEEffectiveInputScheme(_appearance.inputScheme, _appearance.lastChineseScheme, [self inputSchemeHostOptions]);
+    NSArray<NSString *> *names = MSIMEInputSchemeNames();
+    const NSUInteger schemeIndex = scheme ? [names indexOfObject:scheme] : NSNotFound;
+    if (schemeIndex == NSNotFound || schemeIndex > 9) return NO;
+    const BOOL english = _appearance.englishMode;
+    const int mode = msime::mac::cycle::ModeCode(english, schemeIndex == 3);
+    NSDictionary *reply = [_session languageCycleEnabled:YES
+                                                   mode:(uint8_t)mode
+                                                 scheme:(uint8_t)schemeIndex
+                                      lastChineseScheme:msime::mac::cycle::LastChineseSchemeCode(_appearance.lastChineseScheme.UTF8String)
+                                         hasComposition:[_view[@"editing_text"] length] > 0 ||
+                                                        [_view[@"candidates"] count] > 0];
+    const auto step = msime::mac::cycle::ParseReply(reply);
+    if (!step.claimed) return NO;
+    // 先把正在组的东西原样上屏，再换模式：换方案会重建会话，留下的组字会跟着一起丢。
+    if (step.commitRaw && [_view[@"editing_text"] length] > 0) {
+        [self reportPointerToLifecycle];
+        NSDictionary *raw = [_session command:MSIME_COMMIT_RAW error:nil];
+        if (raw) [self apply:raw];
+    }
+    if (step.mode == static_cast<int>(msime::mac::cycle::Mode::English)) {
+        [self setEnglishInputMode:YES];
+        return YES;
+    }
+    // 从英文回中文时先退出英文模式：`setEnglishInputMode:NO` 会把标点、工具栏和菜单栏都摆回中文，
+    // 之后换方案的那一次写入才不会被仍在英文的状态盖掉。
+    if (_appearance.englishMode) [self setEnglishInputMode:NO];
+    // 换方案：走和输入菜单同一条路（`selectInputScheme:` 的写法），记下离开时的中文方案。
+    if (step.scheme >= 0 && step.scheme < (int)names.count) {
+        NSString *target = names[(NSUInteger)step.scheme];
+        if (![target isEqualToString:_appearance.inputScheme] && MSIMEEditionOffersScheme(target)) {
+            _appearance.inputScheme = target;
+            [self applyPreferencesToSessionNow];
+        }
+    }
+    return YES;
 }
 - (void)syncCharacterWidth {
     if (!_session) return;
@@ -6202,13 +6259,15 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     const NSEventModifierFlags competing = NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption;
     if (_doubaoVoiceRequest) [self cancelDoubaoVoiceInput];
     if (_liveVoiceToken) [self cancelLiveVoiceInput];
+    // 「切换中英文」这一组快捷键（Ctrl+Option+Space、Shift+Space）和中英文切换的修饰键轻点走同一条路：
+    // 中日英循环开着时它们一起参与循环，关着时仍是二态切换。
     if (_appearance.controlOptionSpaceShortcut && event.keyCode == 49 &&
         (event.modifierFlags & (competing | NSEventModifierFlagShift)) == (NSEventModifierFlagControl | NSEventModifierFlagOption)) {
-        if (!event.isARepeat) [self setEnglishInputMode:!_appearance.englishMode];
+        if (!event.isARepeat) [self toggleChineseEnglishMode];
         return YES;
     }
     if (_appearance.inputModeShortcut && event.keyCode == 49 && (event.modifierFlags & NSEventModifierFlagShift) && !(event.modifierFlags & competing)) {
-        if (!event.isARepeat) [self setEnglishInputMode:!_appearance.englishMode];
+        if (!event.isARepeat) [self toggleChineseEnglishMode];
         return YES;
     }
     if (MSIMEPunctuationToggle(event)) {
