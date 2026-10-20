@@ -52,6 +52,7 @@
 #include "../candidate/CandidateExpandedGrid.h"
 #import "../core/ChineseTextConversion.h"
 #include "../core/CandidateTranslationDisplay.h"
+#include "../core/CandidateBadgePolicy.h"
 #include "../core/FullWidthInput.h"
 #include "InputControllerPhysicalKeys.h"
 #include "InputSchemeTraits.h"
@@ -363,7 +364,21 @@ static NSString *MSIMEParenthesizedAnnotation(id value) {
     return [NSString stringWithFormat:@"(%@)", annotation];
 }
 
-static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
+// 固定排位候选的判定：0 表示不固定，255 是视图哨兵值。按钮着色与角标共用这一份。
+static BOOL MSIMECandidateIsFixedPosition(id fixed) {
+    return MSIMEStrictUnsignedInteger(fixed, nullptr) && [fixed compare:@0] == NSOrderedDescending &&
+           [fixed compare:@255] != NSOrderedDescending;
+}
+
+// 纯逻辑徽标函数返回的 UTF-8 串转成 NSString；空串返回 @""。
+static NSString *MSIMECandidateBadgeString(const std::string &badge) {
+    if (badge.empty()) return @"";
+    return [[NSString alloc] initWithBytes:badge.data() length:badge.size() encoding:NSUTF8StringEncoding] ?: @"";
+}
+
+// 画候选文字（含来源与固定排位的角标）。徽标串由调用方按偏好算好：AI 来源用它替换写死的 🤖，
+// 固定排位追加在来源角标之后，与 Windows candidate_view_model.h 的 text+annotation+badge 顺序一致。
+static NSString *CandidateDisplayWithBadges(NSDictionary *candidate, BOOL traditional, NSString *aiBadge, NSString *fixedBadge) {
     NSString *annotation = MSIMEParenthesizedAnnotation(candidate[@"annotation"]);
     NSString *text = candidate[@"text"];
     id corrected = candidate[@"corrected"];
@@ -377,11 +392,21 @@ static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
     if (!(integerSource && [source isEqual:@13])) text = MSIMEChineseOutputString(text, traditional);
     // Engine CandidateSource: CloudSuggestion=2, AiSuggestion=3. These badges
     // are presentation-only, matching the Windows candidate-view suffixes.
+    NSString *badge = @"";
     if (integerSource) {
-        if ([source isEqual:@2]) return [text stringByAppendingString:@" ☁️"];
-        if ([source isEqual:@3]) return [text stringByAppendingString:@" 🤖"];
+        if ([source isEqual:@2]) badge = @" ☁️";
+        else if ([source isEqual:@3]) badge = aiBadge;
     }
-    return text;
+    if (fixedBadge.length && MSIMECandidateIsFixedPosition(candidate[@"fixed_position"]))
+        badge = [badge stringByAppendingString:fixedBadge];
+    return [text stringByAppendingString:badge];
+}
+
+// 出厂徽标的入口：测试与少数固定调用用它，取值仍走同一张纯函数表，避免与宿主默认漂移。
+static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
+    return CandidateDisplayWithBadges(candidate, traditional,
+        MSIMECandidateBadgeString(msime::mac::candidate_ai_badge("robot")),
+        MSIMECandidateBadgeString(msime::mac::candidate_fixed_badge(true, "paperclip")));
 }
 
 static NSString *MSIMEWubiCodeHint(NSDictionary *candidate, NSDictionary *view, BOOL enabled) {
@@ -400,19 +425,19 @@ static NSString *MSIMEWubiCodeHint(NSDictionary *candidate, NSDictionary *view, 
     return hint.empty() ? @"" : [[NSString alloc] initWithBytes:hint.data() length:hint.size() encoding:NSUTF8StringEncoding];
 }
 
-static NSString *CandidateDisplayWithWubiHint(NSDictionary *candidate, BOOL traditional, NSString *hint) {
-    if (![hint isKindOfClass:NSString.class] || hint.length == 0) return CandidateDisplay(candidate, traditional);
+static NSString *CandidateDisplayWithWubiHint(NSDictionary *candidate, BOOL traditional, NSString *hint, NSString *aiBadge, NSString *fixedBadge) {
+    if (![hint isKindOfClass:NSString.class] || hint.length == 0) return CandidateDisplayWithBadges(candidate, traditional, aiBadge, fixedBadge);
     NSMutableDictionary *annotated = [candidate mutableCopy];
     annotated[@"annotation"] = [NSString stringWithFormat:@"(%@)", hint];
-    return CandidateDisplay(annotated, traditional);
+    return CandidateDisplayWithBadges(annotated, traditional, aiBadge, fixedBadge);
 }
 
 // The panel draws the 辅助码 (or the engine's annotation) as a run of its own after the candidate text, so it can move under a text that leaves it no room, as the Windows presenter does. The tooltip and accessibility label keep the combined CandidateDisplayWithWubiHint form.
-static NSString *CandidateTextRun(NSDictionary *candidate, BOOL traditional) {
-    if (candidate[@"annotation"] == nil) return CandidateDisplay(candidate, traditional);
+static NSString *CandidateTextRun(NSDictionary *candidate, BOOL traditional, NSString *aiBadge, NSString *fixedBadge) {
+    if (candidate[@"annotation"] == nil) return CandidateDisplayWithBadges(candidate, traditional, aiBadge, fixedBadge);
     NSMutableDictionary *plain = [candidate mutableCopy];
     [plain removeObjectForKey:@"annotation"];
-    return CandidateDisplay(plain, traditional);
+    return CandidateDisplayWithBadges(plain, traditional, aiBadge, fixedBadge);
 }
 
 static NSString *CandidateAnnotationRun(NSDictionary *candidate, BOOL traditional, NSString *hint) {
@@ -1382,6 +1407,12 @@ static NSImage *MSIMECandidateLogoImage() {
     // 候选释义的显示开关，来自共享偏好；缺省对齐 Windows v0.11.1 出厂配置（显示词性、显示全部释义）。
     BOOL _glossShowPos;
     BOOL _glossSingleSense;
+    // 候选徽标：AI 来源角标与固定排位角标的完整串（含前导空格），以及算出它们的原始偏好。
+    NSString *_aiBadgeString;
+    NSString *_fixedBadgeString;
+    BOOL _fixedBadgeEnabled;
+    NSString *_fixedBadgeStyle;
+    NSString *_aiBadgeStyle;
     NSArray<NSDictionary *> *_glossResults;
     NSOperationQueue *_targetGlossQueue;
     NSDictionary *_targetGlossRequest;
@@ -3442,6 +3473,11 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     _wubiCodeHintEnabled = YES;
     _glossShowPos = YES;
     _glossSingleSense = NO;
+    _fixedBadgeEnabled = YES;
+    _fixedBadgeStyle = @"paperclip";
+    _aiBadgeStyle = @"robot";
+    _aiBadgeString = MSIMECandidateBadgeString(msime::mac::candidate_ai_badge(_aiBadgeStyle.UTF8String ?: ""));
+    _fixedBadgeString = MSIMECandidateBadgeString(msime::mac::candidate_fixed_badge(_fixedBadgeEnabled, _fixedBadgeStyle.UTF8String ?: ""));
     _appearance = [MSIMEAppearancePreferences sharedPreferences];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(appearanceChanged:) name:MSIMEAppearanceDidChangeNotification object:_appearance];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(translationPreferencesSaved:) name:MSIMETranslationPreferencesDidSaveNotification object:_appearance];
@@ -5580,6 +5616,31 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if ([singleSense isKindOfClass:NSNumber.class] &&
         CFGetTypeID((__bridge CFTypeRef)singleSense) == CFBooleanGetTypeID())
         _glossSingleSense = [singleSense boolValue];
+    // 候选角标同样只改画法：记下原始偏好，变了才重算完整徽标串。缺键时保留出厂默认。
+    BOOL badgeChanged = NO;
+    id fixedBadge = preferences[@"candidate_fixed_badge"];
+    if ([fixedBadge isKindOfClass:NSNumber.class] &&
+        CFGetTypeID((__bridge CFTypeRef)fixedBadge) == CFBooleanGetTypeID() &&
+        _fixedBadgeEnabled != [fixedBadge boolValue]) {
+        _fixedBadgeEnabled = [fixedBadge boolValue];
+        badgeChanged = YES;
+    }
+    id fixedBadgeStyle = preferences[@"candidate_fixed_badge_style"];
+    if ([fixedBadgeStyle isKindOfClass:NSString.class] && [(NSString *)fixedBadgeStyle length] &&
+        ![_fixedBadgeStyle isEqual:fixedBadgeStyle]) {
+        _fixedBadgeStyle = [(NSString *)fixedBadgeStyle copy];
+        badgeChanged = YES;
+    }
+    id aiBadgeStyle = preferences[@"candidate_ai_badge_style"];
+    if ([aiBadgeStyle isKindOfClass:NSString.class] && [(NSString *)aiBadgeStyle length] &&
+        ![_aiBadgeStyle isEqual:aiBadgeStyle]) {
+        _aiBadgeStyle = [(NSString *)aiBadgeStyle copy];
+        badgeChanged = YES;
+    }
+    if (badgeChanged) {
+        _aiBadgeString = MSIMECandidateBadgeString(msime::mac::candidate_ai_badge(_aiBadgeStyle.UTF8String ?: ""));
+        _fixedBadgeString = MSIMECandidateBadgeString(msime::mac::candidate_fixed_badge(_fixedBadgeEnabled, _fixedBadgeStyle.UTF8String ?: ""));
+    }
     NSDictionary *custom = preferences[@"custom_translation"];
     if ([custom isKindOfClass:NSDictionary.class]) {
         if (_customTranslationConfig && ![_customTranslationConfig isEqual:custom]) [[MSIMETranslationCache sharedCache] clear];
@@ -7120,7 +7181,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     NSUInteger index = 0;
     for (NSDictionary *candidate in candidates) {
         NSString *hint = MSIMEWubiCodeHint(candidate, _view, _wubiCodeHintEnabled);
-        NSString *text = CandidateTextRun(candidate, traditional);
+        NSString *text = CandidateTextRun(candidate, traditional, _aiBadgeString, _fixedBadgeString);
         NSString *annotation = CandidateAnnotationRun(candidate, traditional, hint);
         NSString *reading = @"";
         if (hanjaReadings) {
@@ -7133,7 +7194,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         NSString *gloss = MSIMECandidateGlossRun(reading, translation);
         // The tooltip and the accessibility label keep the reading apart from the Hanja rather than running the two together.
         NSString *display = hanjaReadings ? (reading.length ? [NSString stringWithFormat:@"%@ %@", text, reading] : text)
-                                          : CandidateDisplayWithWubiHint(candidate, traditional, hint);
+                                          : CandidateDisplayWithWubiHint(candidate, traditional, hint, _aiBadgeString, _fixedBadgeString);
         [texts addObject:text];
         [annotations addObject:annotation];
         [displays addObject:display];
@@ -7510,9 +7571,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     button.bordered = NO;
     button.candidateHighlighted = MSIMEStrictBoolean(candidate[@"highlighted"]);
     button.candidatePending = MSIMECandidateIsAIPlaceholder(candidate);
-    id fixed = candidate[@"fixed_position"];
-    button.candidateFixed = MSIMEUnsignedCandidateIdentityValue(fixed) &&
-        [fixed compare:@0] == NSOrderedDescending && [fixed compare:@255] != NSOrderedDescending;
+    button.candidateFixed = MSIMECandidateIsFixedPosition(candidate[@"fixed_position"]);
     button.alignment = NSTextAlignmentLeft;
     return button;
 }

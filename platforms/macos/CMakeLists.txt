@@ -1053,6 +1053,10 @@ add_test(NAME translation-senses-agreement COMMAND translation-senses-agreement-
 add_executable(candidate-translation-display-test tests/core/CandidateTranslationDisplayTest.cpp)
 target_compile_options(candidate-translation-display-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_test(NAME candidate-translation-display COMMAND candidate-translation-display-test)
+# 候选徽标的字形选择（AI 来源两档、固定排位开关与三档样式），纯逻辑，不依赖窗口。
+add_executable(candidate-badge-policy-test tests/core/CandidateBadgePolicyTest.cpp)
+target_compile_options(candidate-badge-policy-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+add_test(NAME candidate-badge-policy COMMAND candidate-badge-policy-test)
 # The readings drawn after gloss lines: language per line, romaji from the system tokenizer, and the drawn string.
 add_executable(candidate-pronunciation-test tests/candidate/CandidatePronunciationTest.mm)
 target_compile_options(candidate-pronunciation-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
