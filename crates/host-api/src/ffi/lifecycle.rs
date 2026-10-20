@@ -48,6 +48,9 @@ pub extern "C" fn msime_client_destroy(handle: u64) -> *mut c_char {
             session.flush_selections();
             // Dropping the engine session writes its own journal's delayed context learning; this also covers every other journal the process learned into, while this session still holds its dictionary access.
             msime_engine::flush_personal_learning();
+            // The settled model may be out on a worker. Drop that score here so destroying the
+            // session does not leave the reranker in the job map.
+            crate::ffi::settled::abandon_settled_job(handle);
             drop(session);
             Ok(Value::Null)
         })

@@ -193,6 +193,15 @@ static void CheckMenu(NSMenu *menu, id controller) {
 - (NSDictionary *)rerankSettledWithError:(NSError **)error {
     (void)error; ++self.settledRerankCalls; return @{@"moved":@NO};
 }
+// The settle timer asks these two. Answering "already decided, nothing moved" keeps a timer that
+// fires inside an unrelated test from reordering that test's candidates.
+- (NSDictionary *)startSettledRerankWithError:(NSError **)error {
+    (void)error; ++self.settledRerankCalls; return @{@"status":@"done", @"moved":@NO, @"current":@YES};
+}
+- (NSDictionary *)pollSettledRerank:(uint64_t)token accept:(BOOL)accept error:(NSError **)error {
+    (void)token; (void)accept; (void)error;
+    return @{@"status":@"done", @"moved":@NO, @"current":@YES};
+}
 - (NSDictionary *)translationQueryWithError:(NSError **)error { (void)error; return nil; }
 - (NSDictionary *)onlineQueryWithError:(NSError **)error { (void)error; return nil; }
 - (NSDictionary *)typingEffectSettingsWithError:(NSError **)error { (void)error; return nil; }

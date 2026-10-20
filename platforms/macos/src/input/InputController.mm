@@ -1356,6 +1356,13 @@ static NSImage *MSIMECandidateLogoImage() {
     MSIMEDictionaryWindowController *_dictionaryWindow;
     NSTimer *_cloudTimer;
     NSTimer *_settledTimer;
+    // Polls a score that is already running off the input thread. Distinct from _settledTimer,
+    // which only waits out the pause: cancelling the pause must not drop the model mid-score.
+    NSTimer *_settledPollTimer;
+    uint64_t _settledToken;
+    uint64_t _settledPollEpoch;
+    MSIMEClientSession *_settledPollSession;
+    id _settledPollClient;
     MSIMECloudCandidateRequest *_cloudRequest;
     NSDictionary *_cloudQuery;
     uint64_t _cloudEpoch;
@@ -3327,20 +3334,84 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
 /// it fire, which is what keeps the 24M model off the keystroke path where it measures p95 153ms
 /// against a 16ms frame.
 static const NSTimeInterval kSettledRerankDelay = 0.15;
+/// How often the main thread asks whether the background score has finished. The forward pass
+/// itself does not run here, so a keystroke queued on this run loop is not waiting on the model.
+static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
 
 - (void)cancelSettledRerank {
     [_settledTimer invalidate];
     _settledTimer = nil;
 }
 
+/// Drop the pause timer and the poll. The in-flight model is abandoned when the session is destroyed.
+- (void)stopSettledScoring {
+    [self cancelSettledRerank];
+    [_settledPollTimer invalidate];
+    _settledPollTimer = nil;
+    _settledToken = 0;
+    _settledPollSession = nil;
+    _settledPollClient = nil;
+}
+
+- (void)armSettledPoll {
+    [_settledPollTimer invalidate];
+    _settledPollTimer = nil;
+    const uint64_t token = _settledToken;
+    if (token == 0 || !_settledPollSession) return;
+    MSIMEClientSession *session = _settledPollSession;
+    id client = _settledPollClient;
+    const uint64_t epoch = _settledPollEpoch;
+    __weak MSIMEInputController *weakSelf = self;
+    _settledPollTimer = [NSTimer timerWithTimeInterval:kSettledRerankPoll repeats:NO block:^(NSTimer *fired) {
+        (void)fired;
+        MSIMEInputController *controller = weakSelf;
+        if (!controller || controller->_settledToken != token) {
+            // The controller is gone, or it has moved on. Put the model back on the session that
+            // owns it; a destroyed session answers an error and the score was already abandoned.
+            [session pollSettledRerank:token accept:NO error:nil];
+            return;
+        }
+        controller->_settledPollTimer = nil;
+        const BOOL same = controller->_cloudEpoch == epoch && controller->_session == session &&
+            controller->_activeClient == client && !controller->_focusPending &&
+            !controller->_appearance.englishMode;
+        NSDictionary *polled = [session pollSettledRerank:token accept:same error:nil];
+        if ([polled[@"status"] isEqual:@"pending"]) {
+            [controller armSettledPoll];
+            return;
+        }
+        [controller finishSettledScore:polled same:same session:session client:client];
+    }];
+    [NSRunLoop.mainRunLoop addTimer:_settledPollTimer forMode:NSRunLoopCommonModes];
+}
+
+/// `current` is the model's answer for the composition still on screen. A stale or discarded
+/// score reschedules only while that same client is still composing.
+- (void)finishSettledScore:(NSDictionary *)polled same:(BOOL)same session:(MSIMEClientSession *)session client:(id)client {
+    _settledToken = 0;
+    _settledPollSession = nil;
+    _settledPollClient = nil;
+    if (!polled) return;
+    if (same && MSIMEStrictBoolean(polled[@"moved"])) {
+        [self apply:polled];
+        return;
+    }
+    if (same && MSIMEStrictBoolean(polled[@"current"])) return;
+    if (_session != session || _activeClient != client || _focusPending || _appearance.englishMode) return;
+    [self scheduleSettledRerank];
+}
+
 /// Re-rank once typing stops. Every refresh reschedules, so it only runs on a real pause.
 ///
+/// The model scores off this thread. A key that arrives while it runs is handled immediately;
+/// the score is applied later only if this composition is still the one that was sent.
 /// Inert unless a settled model was installed: the shared host answers `moved: NO` immediately
 /// when none is attached, which is every installation that ships one model. The window is redrawn
 /// only when the order actually moved — repainting an identical candidate list on every pause is
 /// a flicker with no explanation behind it.
 - (void)scheduleSettledRerank {
     [self cancelSettledRerank];
+    if (_settledToken != 0) return;
     if (!_activeClient || !_session || _focusPending || _appearance.englishMode) return;
     const uint64_t epoch = _cloudEpoch;
     MSIMEClientSession *session = _session;
@@ -3349,14 +3420,25 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     _settledTimer = [NSTimer timerWithTimeInterval:kSettledRerankDelay repeats:NO block:^(NSTimer *timer) {
         (void)timer;
         MSIMEInputController *controller = weakSelf;
-        if (!controller || controller->_cloudEpoch != epoch || controller->_session != session ||
+        if (!controller) return;
+        controller->_settledTimer = nil;
+        if (controller->_settledToken != 0 || controller->_cloudEpoch != epoch || controller->_session != session ||
             controller->_activeClient != client || controller->_focusPending ||
             controller->_appearance.englishMode) return;
-        controller->_settledTimer = nil;
-        NSDictionary *applied = [session rerankSettledWithError:nil];
+        NSDictionary *started = [session startSettledRerankWithError:nil];
+        if ([started[@"status"] isEqual:@"pending"]) {
+            uint64_t token = 0;
+            if (!MSIMEStrictUnsignedInteger(started[@"token"], &token) || token == 0) return;
+            controller->_settledToken = token;
+            controller->_settledPollEpoch = epoch;
+            controller->_settledPollSession = session;
+            controller->_settledPollClient = client;
+            [controller armSettledPoll];
+            return;
+        }
         // Same shape the cloud path applies — a transition carrying the refreshed view — so it
         // goes through the same method rather than a second way of updating the window.
-        if (MSIMEStrictBoolean(applied[@"moved"])) [controller apply:applied];
+        if (MSIMEStrictBoolean(started[@"moved"])) [controller apply:started];
     }];
     [NSRunLoop.mainRunLoop addTimer:_settledTimer forMode:NSRunLoopCommonModes];
 }
@@ -4318,6 +4400,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     return (!MSIMEVoiceProviderSocket() && [provider.lowercaseString isEqual:@"doubao"]) || [self usesLocalModelVoice];
 }
 - (void)dealloc {
+    [self stopSettledScoring];
     [_capsLockTapTimer invalidate];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [NSDistributedNotificationCenter.defaultCenter removeObserver:self];
@@ -4930,6 +5013,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
         if (!finished) return;
         [self apply:finished];
         [_session setFocused:NO error:nil];
+        [self stopSettledScoring];
         [_session closeWithError:nil];
         _session = nil;
         [_preferencesTimer invalidate];
@@ -5001,6 +5085,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     [self discardExpandedCandidates];
     _resumeDedicatedEnglish = MSIMEStrictBoolean(_view[@"dedicated_english"]);
     [_session setFocused:NO error:nil];
+    [self stopSettledScoring];
     [_session closeWithError:nil];
     _session = nil;
     _focusPending = YES;

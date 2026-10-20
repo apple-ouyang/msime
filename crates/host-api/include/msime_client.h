@@ -802,6 +802,25 @@ char *msime_client_command(uint64_t session, uint32_t command);
  * window alone without serializing a view it will discard. Inert, and immediately false, when no
  * settled model is installed. */
 char *msime_client_rerank_settled(uint64_t session);
+/* Start the same rerank without running the model on the calling thread.
+ * The host still waits out its own typing pause first; this returns immediately.
+ * {"status":"done","moved":false,"current":true} when nothing should change, or when only the
+ * cheap presentation passes ran on this thread. current is true: this composition has been
+ * answered, so the host must not start another score for the same pause.
+ * {"status":"done","moved":true,"current":true,"view":...} when those passes reordered.
+ * {"status":"pending","token":N} when the model is scoring on a background thread.
+ * Poll with msime_client_poll_settled_rerank. A key may be handled before the poll;
+ * a generation change, or accept=false, discards the reorder and puts the model back.
+ * One score per session: a second start while one is pending returns the same token. */
+char *msime_client_start_settled_rerank(uint64_t session);
+/* token from msime_client_start_settled_rerank. {"status":"pending","token":N} until the
+ * score finishes, then {"status":"done","moved":...,"current":...}. current is true when the
+ * score answered the composition still on screen, including when the order did not move.
+ * current is false when the score was discarded or the composition changed, so the host can
+ * score the new pause. An unknown token answers {"status":"done","moved":false,"current":false}.
+ * accept is false when the host has already left this composition: the model is restored and
+ * the list is not reordered. Call on the session thread. */
+char *msime_client_poll_settled_rerank(uint64_t session, uint64_t token, bool accept);
 /* Pass the generation and global index from the displayed candidate's id. */
 char *msime_client_select(uint64_t session, uint64_t generation, size_t index);
 /* Select any entry copied by msime_client_all_candidates for this exact

@@ -6489,6 +6489,58 @@ fn settled_rerank_without_movement_omits_the_unused_view() {
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
+#[test]
+fn start_settled_rerank_without_a_model_finishes_on_the_caller() {
+    let directory = tempfile::tempdir().unwrap();
+    let handle = test_host(directory.path());
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    let result = read(msime_client_start_settled_rerank(handle));
+    assert_eq!(result["ok"], true, "{result}");
+    assert_eq!(result["value"]["status"], "done");
+    assert_eq!(result["value"]["moved"], false);
+    assert_eq!(result["value"]["current"], true);
+    assert!(result["value"].get("view").is_none());
+
+    let missing = read(msime_client_poll_settled_rerank(handle, 0, true));
+    assert_eq!(missing["value"]["status"], "done");
+    assert_eq!(missing["value"]["moved"], false);
+    assert_eq!(missing["value"]["current"], false);
+    let unknown = read(msime_client_poll_settled_rerank(handle, 9, true));
+    assert_eq!(unknown["value"]["status"], "done");
+    assert_eq!(unknown["value"]["current"], false);
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+#[test]
+fn destroying_a_session_drops_its_unfinished_settled_job() {
+    let directory = tempfile::tempdir().unwrap();
+    let handle = test_host(directory.path());
+    let other_directory = tempfile::tempdir().unwrap();
+    let other = test_host(other_directory.path());
+    let before = ffi::settled::test_settled_job_count();
+    let token = ffi::settled::test_hold_settled_job(handle);
+    assert_eq!(ffi::settled::test_settled_job_count(), before + 1);
+
+    let pending = read(msime_client_poll_settled_rerank(handle, token, true));
+    assert_eq!(pending["value"]["status"], "pending");
+    assert_eq!(pending["value"]["token"], token);
+    let again = read(msime_client_start_settled_rerank(handle));
+    assert_eq!(again["value"]["status"], "pending");
+    assert_eq!(again["value"]["token"], token);
+
+    let stolen = read(msime_client_poll_settled_rerank(other, token, true));
+    assert_eq!(stolen["value"]["status"], "done");
+    assert_eq!(stolen["value"]["current"], false);
+    assert_eq!(
+        read(msime_client_poll_settled_rerank(handle, token, true))["value"]["status"],
+        "pending"
+    );
+
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    assert_eq!(ffi::settled::test_settled_job_count(), before);
+    assert_eq!(read(msime_client_destroy(other))["ok"], true);
+}
+
 /// The desktop model preference switches the runtime's settled rerank, at creation and on a later update, and the keyboard model switch reaches the rebuilt Engine the same way.
 #[test]
 fn sentence_model_switches_follow_the_preferences() {
