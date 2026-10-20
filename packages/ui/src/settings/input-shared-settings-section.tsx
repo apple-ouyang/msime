@@ -192,6 +192,14 @@ export function InputSharedSettingsSection({
               onPreferencesChange({ backspace_reverts_selection })
             }
           />
+          <SwitchRow
+            title="Esc 保留已选词"
+            description="造词时按 Esc 只清除还没选的拼音、保留已选的词，再按一次 Esc 整体取消（小狼毫风格）。"
+            checked={preferences.escape_keeps_selected_word ?? false}
+            onChange={(escape_keeps_selected_word) =>
+              onPreferencesChange({ escape_keeps_selected_word })
+            }
+          />
           {paging}
         </GroupList>,
       )}

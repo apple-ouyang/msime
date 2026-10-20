@@ -1033,6 +1033,9 @@ impl HostSession {
         // 宿主状态，不是 Engine 状态：跟着最新请求的偏好走，不必等这次偏好重建 Engine，也不必等组字结束。
         self.runtime
             .set_backspace_reverts_selection(requested_preferences.backspace_reverts_selection);
+        // Esc 保留已选词同样是宿主状态：改完下一次 Esc 就按新开关解释。
+        self.runtime
+            .set_escape_keeps_selected_word(requested_preferences.escape_keeps_selected_word);
         // 左右键的候选回退（`navigation.left_right`）同样是宿主状态：改完立刻生效，左右键不必等 Engine 重建。
         self.runtime
             .set_left_right_navigation(requested_preferences.navigation.left_right);

@@ -2190,6 +2190,55 @@ fn a_phrase_piece_survives_the_reading_being_deleted() {
     assert!(emptied.view.phrase_prefix.is_empty());
 }
 
+// Windows `input.escape_keeps_selected_word`（出厂关）：开着时造词中第一次 Esc 只丢掉还没选的拼写，
+// 已经选好的词留在组字里，再按一次才整体取消（小狼毫的 ClearNonConfirmedComposition）；关着时照旧整体取消。
+#[test]
+fn escape_keeps_the_selected_word_when_the_preference_is_on() {
+    let start = |keeps: bool| {
+        let mut runtime = Runtime::new(
+            Fixture {
+                scheme: 0,
+                local_mode: "none".into(),
+                words: vec!["海滩".into(), "跑步".into()],
+                remaining_after_select: Some("paobu".into()),
+                ..Fixture::default()
+            },
+            5,
+        )
+        .unwrap();
+        runtime.set_phrase_preedit(true);
+        runtime.set_escape_keeps_selected_word(keeps);
+        runtime.focus(true).unwrap();
+        runtime
+    };
+    let pick = |runtime: &mut Runtime<Fixture>| {
+        let id = runtime.view().candidates[0].id;
+        runtime.dispatch(Action::Select(id)).unwrap()
+    };
+
+    // 关（Windows 出厂值）：Esc 把拼写和已选词一起丢掉。
+    let mut off = start(false);
+    type_key(&mut off);
+    pick(&mut off);
+    let cancelled = off.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert_eq!(cancelled.commit, None);
+    assert!(cancelled.view.phrase_prefix.is_empty());
+
+    // 开：第一次 Esc 只丢掉拼写，词留在组字里；第二次 Esc 才整体取消。
+    let mut on = start(true);
+    type_key(&mut on);
+    pick(&mut on);
+    assert_eq!(on.view().editing_text, "paobu");
+    let kept = on.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert_eq!(kept.commit, None);
+    assert!(kept.handled);
+    assert_eq!(kept.view.phrase_prefix, "海滩");
+    assert!(kept.view.editing_text.is_empty());
+    let ended = on.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert_eq!(ended.commit, None);
+    assert!(ended.view.phrase_prefix.is_empty());
+}
+
 #[test]
 fn ai_context_keeps_the_recent_tail_on_a_character_boundary() {
     let mut runtime = runtime();

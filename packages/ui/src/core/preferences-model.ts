@@ -81,6 +81,8 @@ export type Preferences = PunctuationPreferences &
     second_third_candidate?: { enabled: boolean; keys: "semicolon_quote" };
     /** 退格在剩余拼写即将删空时回退最近一次选词；缺省为开启。 */
     backspace_reverts_selection?: boolean;
+    /** 造词时按 Esc 只清除还没选的拼音、保留已选的词，再按一次才整体取消；Windows 出厂缺省为关闭。 */
+    escape_keeps_selected_word?: boolean;
     navigation?: NavigationPreferences;
     keybindings?: KeybindingPreferences;
     scheme: InputScheme;

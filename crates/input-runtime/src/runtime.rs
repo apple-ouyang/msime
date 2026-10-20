@@ -120,7 +120,9 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) phrase_preedit: bool,
     /// 普通退格在拼写末尾是否回退已选词段；分段删除不受此开关影响。
     pub(crate) backspace_reverts_selection: bool,
-    /// 横排候选窗里，左右方向键在高亮不在首选、或者首选上 → 已经到了输入串末尾时改成移动候选高亮（偏好 `navigation.left_right`）。和 `backspace_reverts_selection` 一样是宿主状态：判断在 runtime 里做，宿主只照常发光标命令。
+    /// 造词时按 Esc 是否只丢掉还没选的拼写、保留已经选好的词（Windows `input.escape_keeps_selected_word`）。默认关：Esc 连已选词一起丢掉，与旧行为一致。
+    pub(crate) escape_keeps_selected_word: bool,
+    /// 左右方向键在光标已经停在输入串端点、编辑器动不了它时改成移动候选高亮（偏好 `navigation.left_right`）。和 `backspace_reverts_selection` 一样是宿主状态：判断在 runtime 里做，宿主只照常发光标命令。
     pub(crate) left_right_navigation: bool,
     /// 候选窗是竖排：左右键与候选的排列方向垂直，只编辑输入串，`left_right_navigation` 不接管。由 host-api 按偏好 `candidate_layout` 设，只有桌面宿主会是竖排，触屏的候选栏总是横排。
     pub(crate) vertical_candidates: bool,
@@ -620,6 +622,11 @@ impl<E: InputEngine> Runtime<E> {
         self.backspace_reverts_selection = enabled;
     }
 
+    /// 造词时第一次 Esc 只丢掉还没选的拼写、保留已经选好的词，再按一次才整体取消。只影响下一次 Esc，不清空已选词段或历史，也不重建 Engine。
+    pub fn set_escape_keeps_selected_word(&mut self, enabled: bool) {
+        self.escape_keeps_selected_word = enabled;
+    }
+
     /// 左右键的候选回退（`navigation.left_right`）：只影响左右键这一次怎么解释，不动组字状态，也不重建 Engine。
     pub fn set_left_right_navigation(&mut self, enabled: bool) {
         self.left_right_navigation = enabled;
@@ -827,6 +834,7 @@ impl<E: InputEngine> Runtime<E> {
             wubi_candidate_selection: Default::default(),
             phrase_preedit: false,
             backspace_reverts_selection: true,
+            escape_keeps_selected_word: false,
             left_right_navigation: false,
             vertical_candidates: false,
             phrase_prefix: String::new(),
@@ -1671,14 +1679,16 @@ impl<E: InputEngine> Runtime<E> {
 
     /// 暂存只消耗部分拼写的选词结果，等整段组字完成后一次上屏。
     /// 仍在组字时把刚选的词放进 `phrase_prefix`；有最终提交时把前缀接在它前面。
-    /// 拼写删空而没有提交时，取消丢掉前缀；分段编辑在仍有可回退历史时保留前缀；
-    /// 其余动作上屏前缀，避免丢掉已选文字。普通退格关闭回退时也走这条删空收尾路径。
+    /// 拼写删空而没有提交时，取消丢掉前缀；第一次 Esc 保留已选词时把词段留在组字里；
+    /// 分段编辑在仍有可回退历史时保留前缀；其余动作上屏前缀，避免丢掉已选文字。
+    /// 普通退格关闭回退时也走这条删空收尾路径。
     /// 只剩暂存词段时，提交或丢弃它都算处理了按键，防止回车、空格再穿透到应用。
     fn hold_phrase_progress(
         &mut self,
         picked: bool,
         discard: bool,
         keep_empty: bool,
+        keep_for_escape: bool,
         consumed: &str,
         result: &mut EngineResult,
     ) {
@@ -1710,6 +1720,12 @@ impl<E: InputEngine> Runtime<E> {
             return;
         }
         if self.phrase_prefix.is_empty() || composing {
+            return;
+        }
+        // 第一次 Esc 保留已选词：引擎的 Cancel 已经把没选的拼写清掉，词段留在组字里等下一次 Esc 或别的键。
+        // 不要求有可回退历史：选择没有消耗拼写时 `phrase_selections` 可以为空，词段仍要留下。
+        if keep_for_escape && !discard && !result.has_commit {
+            result.handled = true;
             return;
         }
         if keep_empty && !discard && !result.has_commit && !self.phrase_selections.is_empty() {
@@ -2259,7 +2275,7 @@ impl<E: InputEngine> Runtime<E> {
             result.diagnostic = format!("Candidate refresh failed: {error}");
         }
         // 失焦时送出用户已经选好的暂存段；获得焦点时旧词段已丢弃，不会产生提交。
-        self.hold_phrase_progress(false, false, false, "", &mut result);
+        self.hold_phrase_progress(false, false, false, false, "", &mut result);
         self.focused = focused;
         // A different client is a different sentence, so context never leaks
         // from one application into another. The Engine's committed-word context follows the same rule: the next word
@@ -2555,6 +2571,15 @@ impl<E: InputEngine> Runtime<E> {
         let mut raw_route = false;
         // 顶字时接在首选后面的那段文本的字符数。
         let mut top_tail = 0;
+        // Windows `input.escape_keeps_selected_word`（出厂关）：造词时第一次 Esc 只丢掉还没选的拼写、
+        // 留下已经选好的词，再按一次才整体取消（小狼毫的 ClearNonConfirmedComposition）。判据与
+        // `ShouldEscapeKeepSelectedWord` 相同：开关开着、还有没选的拼写、不在临时日文（R 模式只能整段重置）。
+        // 词段由 runtime 暂存，引擎的 Cancel 正好清掉拼写而留下它。
+        let escape_keeps_word = self.escape_keeps_selected_word
+            && matches!(action, Action::Command(Command::Cancel))
+            && !self.cached.editing_text.is_empty()
+            && !self.phrase_prefix.is_empty()
+            && self.cached.local_mode != "temporary_japanese";
         let result = match action {
             Action::ResetCache => {
                 self.engine.reset_cache()?;
@@ -2775,14 +2800,22 @@ impl<E: InputEngine> Runtime<E> {
             .unwrap_or("");
         let picked = selected_by_digit || selection_action;
         // Escape throws the whole composition away, the chosen pieces with it - the reference's
-        // _HandleCancel clears `word_for_creating_word` in the same breath.
-        let discarded = matches!(action, Action::Command(Command::Cancel));
+        // _HandleCancel clears `word_for_creating_word` in the same breath. 第一次 Esc 保留已选词时除外：
+        // 这一下只丢掉没选的拼写，词段留下。
+        let discarded = matches!(action, Action::Command(Command::Cancel)) && !escape_keeps_word;
         // Segment editing on an emptied reading leaves the held phrase for the next segment key or Backspace, instead of sending it to the document (the reference's `keep_creating_word_after_empty_raw`).
         let keep_empty = matches!(
             action,
             Action::SegmentBackspace | Action::SegmentMoveLeft | Action::SegmentMoveRight
         );
-        self.hold_phrase_progress(picked, discarded, keep_empty, consumed, &mut result);
+        self.hold_phrase_progress(
+            picked,
+            discarded,
+            keep_empty,
+            escape_keeps_word,
+            consumed,
+            &mut result,
+        );
         // 选中的文本上屏了，读音却还在：这次选择只用掉了一部分读音。顶字时剩下的是新打的那一键，不算。
         if let Some(selection) = self.facts.selection.as_mut() {
             if selection.outcome == SelectionOutcome::Committed

@@ -1110,6 +1110,9 @@ pub struct Preferences {
     /// 普通退格在剩余拼写即将删空时，是否撤回最近一次选词；默认保持原行为。
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub backspace_reverts_selection: bool,
+    /// 造词时按 Esc 只丢掉还没选的拼写、保留已经选好的词，再按一次才整体取消（Windows `input.escape_keeps_selected_word` 的语义，即小狼毫的 `ClearNonConfirmedComposition`）。Windows 正式版 `installer/default_config/config.default.toml` 出厂为 `false`，关着时 Esc 连已选词一起丢掉，与旧行为一致；关着时不写进文档，没有这个键的旧版本照样能读。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub escape_keeps_selected_word: bool,
     #[serde(default)]
     pub frequency: FrequencyPreferences,
     #[serde(default)]
@@ -2460,6 +2463,7 @@ impl Default for Preferences {
             second_third_candidate: SecondThirdCandidatePreferences::default(),
             wubi_candidate_selection: WubiCandidateSelectionPreferences::default(),
             backspace_reverts_selection: true,
+            escape_keeps_selected_word: false,
             frequency: FrequencyPreferences::default(),
             mixed_input: MixedInputPreferences::default(),
             local_modes: LocalModePreferences::default(),
