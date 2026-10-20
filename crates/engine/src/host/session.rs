@@ -132,6 +132,7 @@ pub struct OnlineQuerySnapshot {
     pub pinyin_segments: Vec<String>,
     pub cloud_eligible: bool,
     pub ai_eligible: bool,
+    pub mode: crate::types::OnlineQueryMode,
     pub session_id: u64,
 }
 
@@ -353,6 +354,7 @@ impl Session {
             pinyin_segments: query.pinyin_segments,
             cloud_eligible: query.cloud_eligible,
             ai_eligible: query.ai_eligible,
+            mode: query.mode,
             session_id: query.session_id,
         })
     }
@@ -379,6 +381,11 @@ impl Session {
 
     pub fn set_cloud_candidates_enabled(&mut self, enabled: bool) {
         self.inner.set_cloud_candidates_enabled(enabled);
+    }
+
+    /// 英文模式的 AI 候选开关（#9015）；关闭时拿掉已到位的英文在线行。
+    pub fn set_english_ai_candidates(&mut self, enabled: bool) {
+        self.inner.set_english_ai_candidates(enabled);
     }
 
     pub fn set_caret(&mut self, caret: Option<usize>) {
@@ -819,6 +826,7 @@ fn online_request(
         pinyin_segments: query.pinyin_segments.clone(),
         cloud_eligible: query.cloud_eligible,
         ai_eligible: query.ai_eligible,
+        mode: query.mode,
         session_id: query.session_id,
     };
     Some((request, source))

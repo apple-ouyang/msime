@@ -443,6 +443,16 @@ impl Session {
         self.input.set_cloud_candidates_enabled(enabled);
     }
 
+    /// 英文模式（专用英文、临时英文）是否发 AI 候选查询（#9015），默认关闭。
+    pub fn english_ai_candidates(&self) -> bool {
+        self.input.english_ai_candidates
+    }
+
+    /// 宿主实时下发的开关；关闭时拿掉已到位的英文在线行。
+    pub fn set_english_ai_candidates(&mut self, enabled: bool) {
+        self.input.set_english_ai_candidates(enabled);
+    }
+
     /// The committed text the neural sentence models condition on, updated without rebuilding the session. Only the last 64 characters matter.
     pub fn set_rescoring_context(&mut self, context: &str) {
         self.input.set_rescoring_context(context);

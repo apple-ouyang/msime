@@ -97,6 +97,12 @@ pub unsafe extern "C" fn msime_client_ai_request_for_query(
                 segmented_pinyin: query.pinyin_segments,
                 context: query.ai_context,
                 candidate_limit: config.candidate_limit,
+                mode: match query.mode {
+                    msime_engine::types::OnlineQueryMode::English => {
+                        msime_client_providers::ai::AiCandidateMode::English
+                    }
+                    _ => msime_client_providers::ai::AiCandidateMode::Pinyin,
+                },
             };
             msime_client_providers::ai::chat_completion_http_request(&config, &request)
                 .map(|value| value.unwrap_or(Value::Null))

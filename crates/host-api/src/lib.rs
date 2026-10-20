@@ -717,6 +717,8 @@ impl HostSession {
         let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
         // 云候选席位不是 EngineOptions；新引擎默认关闭，每次重建都要恢复当前偏好。
         engine.set_cloud_candidates_enabled(preferences.cloud_candidates);
+        // 英文模式的 AI 候选开关同理：不是 EngineOptions，重建后按最新偏好恢复。
+        engine.set_english_ai_candidates(preferences.ai_assistant.english_candidates);
         if self.punctuation_override.is_some() || self.punctuation_lock_override.is_some() {
             engine
                 .set_chinese_punctuation_enabled(engine_chinese_punctuation(

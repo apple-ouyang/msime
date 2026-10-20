@@ -13,7 +13,7 @@ use crate::local::date_time::LocalDateTime;
 use crate::paths::RuntimePaths;
 use crate::types::{
     CandidateEdge, CandidateSource, Command, FrequencyAdjustmentMode, FrequencyAdjustmentOptions,
-    LocalInputMode, SchemeKey, SchemeSet, SchemeType, ShuangpinProfileKind,
+    LocalInputMode, OnlineQueryMode, SchemeKey, SchemeSet, SchemeType, ShuangpinProfileKind,
     DEFAULT_FIRST_PAGE_ROWS,
 };
 use crate::user_dictionary::ngram_store::flush_all;
@@ -3776,6 +3776,73 @@ INSERT INTO tbl_1_n VALUES('ni','n','你',100),('ni','n','拟',90),('ni','n','�
     assert_eq!(after.candidates[1].word, "泥");
     assert_eq!(after.candidate_sources[1], CandidateSource::CloudSuggestion);
     assert_eq!(&after.candidates[2..], &before.candidates[2..]);
+}
+
+#[test]
+fn dedicated_english_asks_ai_only_when_the_switch_is_on() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE).with_english(ENGLISH_FIXTURE);
+    let mut session = fixture.session();
+    session.set_dedicated_english(true);
+    type_text(&mut session, "acces");
+    // 默认关闭：专用英文下没有在线查询。
+    assert!(session.online_query().is_none());
+
+    session.set_english_ai_candidates(true);
+    let query = session.online_query().expect("an english ai query");
+    assert_eq!(query.mode, OnlineQueryMode::English);
+    assert!(query.ai_eligible);
+    assert!(!query.cloud_eligible);
+    assert_eq!(query.query_text, "acces");
+    assert_eq!(query.pinyin_segments, vec!["acces".to_owned()]);
+    // AI 回答坐进英文候选末尾；云候选仍不被接受。
+    assert!(!session.apply_online_candidate(&query, "accesses", CandidateSource::CloudSuggestion));
+    assert!(session.apply_online_candidate(&query, "access", CandidateSource::AiSuggestion));
+    let snapshot = session.snapshot();
+    assert_eq!(
+        snapshot.candidates.last().map(|item| item.word.as_str()),
+        Some("access")
+    );
+    assert_eq!(
+        snapshot.candidate_sources.last(),
+        Some(&CandidateSource::AiSuggestion)
+    );
+    // 关上开关：已落座的在线行一并清掉，查询重新关闭。
+    session.set_english_ai_candidates(false);
+    assert!(session.online_query().is_none());
+    assert!(!words(&session).contains(&"access".to_owned()));
+}
+
+#[test]
+fn temporary_english_asks_ai_only_when_the_switch_is_on() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE).with_english(ENGLISH_FIXTURE);
+    let mut session = fixture.session();
+    assert!(session.character(b'Y', true).handled);
+    type_text(&mut session, "acces");
+    assert!(session.online_query().is_none());
+
+    session.set_english_ai_candidates(true);
+    let query = session
+        .online_query()
+        .expect("a temporary english ai query");
+    assert_eq!(query.mode, OnlineQueryMode::English);
+    assert_eq!(query.query_text, "acces");
+    assert!(query.ai_eligible);
+    assert!(!query.cloud_eligible);
+    assert!(session.apply_online_candidate(&query, "access", CandidateSource::AiSuggestion));
+    assert!(words(&session).contains(&"access".to_owned()));
+}
+
+#[test]
+fn the_english_ai_switch_leaves_the_pinyin_online_query_unchanged() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    session.set_english_ai_candidates(true);
+    type_text(&mut session, "nihao");
+    let query = session.online_query().expect("a quanpin query");
+    assert_eq!(query.mode, OnlineQueryMode::Pinyin);
+    assert!(query.cloud_eligible);
+    assert!(query.ai_eligible);
+    assert_eq!(query.query_text, "ni'hao");
 }
 
 #[test]

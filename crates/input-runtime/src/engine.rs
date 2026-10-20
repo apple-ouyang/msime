@@ -89,6 +89,14 @@ pub trait InputEngine {
     fn set_cloud_candidates_enabled(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
         Ok(())
     }
+    /// 英文模式（专用英文、临时英文）是否发 AI 候选查询；不知道英文模式的引擎答假（#9015）。
+    fn english_ai_candidates(&self) -> bool {
+        false
+    }
+    /// 实时下发英文模式的 AI 候选开关；没有英文在线行的引擎忽略它。
+    fn set_english_ai_candidates(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
+        Ok(())
+    }
     fn set_paired_punctuation_enabled(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
         Ok(())
     }
@@ -330,6 +338,13 @@ impl InputEngine for Session {
     }
     fn set_cloud_candidates_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         Session::set_cloud_candidates_enabled(self, enabled);
+        Ok(())
+    }
+    fn english_ai_candidates(&self) -> bool {
+        Session::english_ai_candidates(self)
+    }
+    fn set_english_ai_candidates(&mut self, enabled: bool) -> Result<(), RuntimeError> {
+        Session::set_english_ai_candidates(self, enabled);
         Ok(())
     }
     fn set_paired_punctuation_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {

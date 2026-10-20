@@ -183,10 +183,19 @@ impl InputSession {
         if self.local_mode == LocalInputMode::Url {
             self.add_url_completions();
         }
+        if self.local_mode == LocalInputMode::TemporaryEnglish {
+            for row in self.english_online_rows_for_current() {
+                if !self
+                    .local_candidates
+                    .iter()
+                    .any(|item| item.word == row.word)
+                {
+                    self.local_candidates.push(row);
+                }
+            }
+        }
         result.diagnostic
     }
-
-    /// 缓存的插件行还属于这份预编辑串时把它们放回列表前面，同文的后面那一行去掉；预编辑串已经变了就清掉缓存，下一次派发重新问插件。
     fn insert_cached_plugin_rows(&mut self) {
         let Some((preedit, rows)) = &self.plugin_rows else {
             return;
@@ -240,6 +249,31 @@ impl InputSession {
             ));
         }
         self.dedicated_english_candidates = candidates;
+        for row in self.english_online_rows_for_current() {
+            if !self
+                .dedicated_english_candidates
+                .iter()
+                .any(|item| item.word == row.word)
+            {
+                self.dedicated_english_candidates.push(row);
+            }
+        }
+    }
+
+    /// 属于当前字母串的在线行：座位规则（第一页最后一格）由 runtime 按 `AiSuggestion` 来源归位，引擎层只保证跟在本地行之后、不打乱既有顺序。字母串变了（含组字取消）时暂存的行不再并入。
+    fn english_online_rows_for_current(&self) -> Vec<WordItem> {
+        let Some((text, rows)) = &self.english_online else {
+            return Vec::new();
+        };
+        let current = if self.dedicated_english {
+            self.dedicated_english_preedit.as_str()
+        } else {
+            self.local_mode.without_entry_marker(&self.local_preedit)
+        };
+        if text != current {
+            return Vec::new();
+        }
+        rows.clone()
     }
 
     /// input_session_candidates.cpp:19-61 with the per-producer split of overlays.md §3.3.

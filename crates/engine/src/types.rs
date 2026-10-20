@@ -2,6 +2,8 @@
 //!
 //! Numeric values that cross the host boundary are frozen: `CandidateSource` travels as `u8` in `candidate_sources` and hosts switch on it, `SchemeType` is serialised into the online identity, and `PersonalDictionaryKind` names are stored in the user journal.
 
+use serde::{Deserialize, Serialize};
+
 /// Where a candidate row came from. The discriminant is the wire value; never reorder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[repr(u8)]
@@ -1359,6 +1361,21 @@ pub struct WubiInputOptions {
     pub z_wildcard: bool,
 }
 
+/// 在线查询针对的组字类型：中文方案（拼音类）或英文模式（专用英文、临时英文）的字母串。宿主把它交给 AI 提示词区分两种请求（#9015）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OnlineQueryMode {
+    #[default]
+    Pinyin,
+    English,
+}
+
+impl OnlineQueryMode {
+    pub fn is_pinyin(&self) -> bool {
+        *self == Self::Pinyin
+    }
+}
+
 /// The request a host sends to its cloud or AI provider, and must hand back unchanged with the answer. The engine revalidates every field against the live composition before inserting anything.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct OnlineQuery {
@@ -1370,6 +1387,7 @@ pub struct OnlineQuery {
     pub pinyin_segments: Vec<String>,
     pub cloud_eligible: bool,
     pub ai_eligible: bool,
+    pub mode: OnlineQueryMode,
     pub session_id: u64,
 }
 

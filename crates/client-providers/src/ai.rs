@@ -21,11 +21,22 @@ pub enum AiError {
     InvalidConfiguration,
 }
 
+/// `AiSuggestionRequest` 的组字类型（#9015）：`pinyin` 是中文方案的分段拼音，`english` 是英文模式下已输入的字母串（此时 `segmented_pinyin` 只有一段）。旧的请求文档没有这个键，按拼音处理。
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AiCandidateMode {
+    #[default]
+    Pinyin,
+    English,
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AiSuggestionRequest {
     pub segmented_pinyin: Vec<String>,
     pub context: String,
     pub candidate_limit: u8,
+    #[serde(default)]
+    pub mode: AiCandidateMode,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -48,7 +59,7 @@ pub struct AiTranslationRequest {
 pub const DEFAULT_TRANSLATION_PROMPT: &str = "你是一个机器翻译服务。把用户给出的文本从 source_language 翻译成 target_language。只翻译文本本身，保留原意和标点，不要解释、注释或改写。只输出合法 JSON，不要输出 Markdown：{\"translation\":\"译文\"}。没有合适译文时输出空字符串。";
 
 /// The system prompt a blank prompt slot stands for. It used to exist only in the Windows installer's default configuration, so every other host that never wrote a prompt sent an empty system message and got replies the JSON parser rejects.
-pub const DEFAULT_CANDIDATE_PROMPT: &str = "你是一个中文全拼输入法联想引擎。输入为已经切分好的拼音数组、前文上下文和候选数量。\n\n优先生成与拼音严格对应的中文候选：若有 N 段拼音，首选必须尽量为 N 个汉字，每段拼音对应一个汉字，不得随意增删或改变读音。结合上下文、常用程度、语义完整性和固定搭配排序。\n\n若去掉分词后能明显组成更合理的英文单词、缩写、产品名或技术术语，如 `deep + seek → DeepSeek`、`git + hub → GitHub`，可优先返回英文；不要生造英文或做牵强匹配。\n\n只输出合法 JSON，不要解释或输出 Markdown：\n\n{\n\"candidates\": [\n{\n\"text\": \"候选内容\",\n\"type\": \"chinese或english\",\n\"confidence\": 0.98\n}\n]\n}\n\n候选按推荐程度降序排列，数量不超过指定上限；没有合理结果时返回空数组。";
+pub const DEFAULT_CANDIDATE_PROMPT: &str = "你是一个输入法联想引擎。输入为分段数组、前文上下文和候选数量，mode 标识组字类型：pinyin 是中文方案的拼音，english 是英文模式下已输入的字母串。\n\nmode 为 pinyin 时：优先生成与拼音严格对应的中文候选：若有 N 段拼音，首选必须尽量为 N 个汉字，每段拼音对应一个汉字，不得随意增删或改变读音。结合上下文、常用程度、语义完整性和固定搭配排序。\n\n若去掉分词后能明显组成更合理的英文单词、缩写、产品名或技术术语，如 `deep + seek → DeepSeek`、`git + hub → GitHub`，可优先返回英文；不要生造英文或做牵强匹配。\n\nmode 为 english 时：segmented_pinyin 只有一段，是用户已输入的英文字母串。生成英文单词补全和拼写纠错候选（如 `accessability` → `accessibility`），结合前文上下文排序，不生成中文。\n\n只输出合法 JSON，不要解释或输出 Markdown：\n\n{\n\"candidates\": [\n{\n\"text\": \"候选内容\",\n\"type\": \"chinese或english\",\n\"confidence\": 0.98\n}\n]\n}\n\n候选按推荐程度降序排列，数量不超过指定上限；没有合理结果时返回空数组。";
 
 pub trait AiSuggestor {
     fn suggest(&self, request: &AiSuggestionRequest) -> Result<AiSuggestionResponse, AiError>;
@@ -449,6 +460,7 @@ mod tests {
             segmented_pinyin: vec!["shu".into(), "ru".into()],
             context: String::new(),
             candidate_limit: ai.candidate_limit,
+            mode: AiCandidateMode::Pinyin,
         };
         let descriptor = chat_completion_http_request(&ai, &request)
             .unwrap()
@@ -476,6 +488,7 @@ mod tests {
             segmented_pinyin: vec!["ni".into(), "hao".into()],
             context: String::new(),
             candidate_limit: 3,
+            mode: AiCandidateMode::Pinyin,
         };
         assert_eq!(suggest(&Stub, &request).unwrap().candidates[0].text, "你好");
     }
@@ -485,6 +498,7 @@ mod tests {
             segmented_pinyin: vec!["ni".into()],
             context: String::new(),
             candidate_limit: 0,
+            mode: AiCandidateMode::Pinyin,
         };
         assert_eq!(request.validate(), Err(AiError::InvalidLimit));
         request.candidate_limit = 1;
@@ -513,6 +527,7 @@ mod tests {
             segmented_pinyin: vec!["ni\u{0}".into()],
             context: String::new(),
             candidate_limit: 1,
+            mode: AiCandidateMode::Pinyin,
         };
         assert_eq!(request.validate(), Err(AiError::InvalidSegments));
         request.segmented_pinyin[0] = "ni".into();
@@ -541,6 +556,7 @@ mod tests {
             segmented_pinyin: vec!["ni".into(), "hao".into()],
             context: "合成上下文\n\"引用\"".into(),
             candidate_limit: 3,
+            mode: AiCandidateMode::Pinyin,
         };
         for provider in AI_PROVIDERS {
             let body =
@@ -763,6 +779,7 @@ mod tests {
             segmented_pinyin: vec!["ni".into()],
             context: String::new(),
             candidate_limit: 3,
+            mode: AiCandidateMode::Pinyin,
         };
         let descriptor = |config: &crate::preferences::AiAssistantPreferences| {
             chat_completion_http_request(config, &request)
@@ -921,6 +938,7 @@ mod tests {
             segmented_pinyin: vec!["ni".into()],
             context: String::new(),
             candidate_limit: config.candidate_limit,
+            mode: AiCandidateMode::Pinyin,
         };
         let descriptor = chat_completion_http_request(&config, &request)
             .unwrap()
@@ -984,6 +1002,7 @@ mod tests {
             segmented_pinyin: vec!["ni".into()],
             context: String::new(),
             candidate_limit: config.candidate_limit,
+            mode: AiCandidateMode::Pinyin,
         };
         assert_eq!(
             chat_completion_http_request(&config, &request),

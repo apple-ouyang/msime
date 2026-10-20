@@ -253,6 +253,16 @@ impl Runtime<Session> {
         self.refresh()
     }
 
+    /// 英文模式的 AI 候选开关（#9015）：关闭时拿掉已到位的英文在线行，座位变化前使旧候选身份失效。
+    pub fn set_english_ai_candidates(&mut self, enabled: bool) -> Result<(), RuntimeError> {
+        if self.engine.english_ai_candidates() == enabled {
+            return Ok(());
+        }
+        self.advance()?;
+        self.engine.set_english_ai_candidates(enabled)?;
+        self.refresh()
+    }
+
     /// A live host mode changes neither composition nor candidate identity.
     pub fn set_chinese_punctuation_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         self.engine
@@ -278,6 +288,7 @@ impl Runtime<Session> {
             pinyin_segments: query.pinyin_segments,
             cloud_eligible: query.cloud_eligible,
             ai_eligible: query.ai_eligible,
+            mode: query.mode,
             cloud_candidates: true,
             cloud_request: None,
             session_id: query.session_id,
@@ -308,6 +319,7 @@ impl Runtime<Session> {
             pinyin_segments: query.pinyin_segments.clone(),
             cloud_eligible: query.cloud_eligible,
             ai_eligible: query.ai_eligible,
+            mode: query.mode,
             session_id: query.session_id,
         };
         self.apply_online_candidate_snapshot(query, candidate, source, cloud_candidates)
@@ -334,6 +346,7 @@ impl Runtime<Session> {
             pinyin_segments,
             cloud_eligible,
             ai_eligible,
+            mode,
             session_id,
             ..
         } = query;
@@ -347,6 +360,7 @@ impl Runtime<Session> {
             pinyin_segments,
             cloud_eligible,
             ai_eligible,
+            mode,
             session_id,
         };
         self.apply_online_candidate_snapshot(query, candidate, source, cloud_candidates)
@@ -419,6 +433,7 @@ impl Runtime<Session> {
             pinyin_segments: query.pinyin_segments.clone(),
             cloud_eligible: query.cloud_eligible,
             ai_eligible: query.ai_eligible,
+            mode: query.mode,
             session_id: query.session_id,
         };
         self.apply_online_candidates_snapshot(query, candidates, source, cloud_candidates, limit)
@@ -446,6 +461,7 @@ impl Runtime<Session> {
             pinyin_segments,
             cloud_eligible,
             ai_eligible,
+            mode,
             session_id,
             ..
         } = query;
@@ -459,6 +475,7 @@ impl Runtime<Session> {
             pinyin_segments,
             cloud_eligible,
             ai_eligible,
+            mode,
             session_id,
         };
         self.apply_online_candidates_snapshot(query, candidates, source, cloud_candidates, limit)

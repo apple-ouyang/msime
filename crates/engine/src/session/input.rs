@@ -98,6 +98,10 @@ pub(super) struct InputSession {
     pub plugin_rows: Option<(String, Vec<WordItem>)>,
     pub online_requests: OnlineRequestGuard,
     pub cloud_candidates_enabled: bool,
+    /// 英文模式（专用英文、临时英文）也发 AI 候选查询（#9015）。宿主偏好默认关闭。
+    pub english_ai_candidates: bool,
+    /// 英文模式下已到达的在线行：（回答时的英文字母串，行）。字母串一变就作废，只在组字列表重建时并入。
+    pub english_online: Option<(String, Vec<WordItem>)>,
     pub chain: CommitChain,
     pub personal_context: Arc<PersonalNgramStore>,
     pub typo_profile: Arc<PersonalTypoProfile>,
@@ -181,6 +185,9 @@ impl InputSession {
             online_requests: OnlineRequestGuard::new(),
             // 宿主创建会话后显式打开；测试和嵌入式引擎默认保持离线。
             cloud_candidates_enabled: false,
+            // 与云候选席位同理：隐私边界在宿主偏好一侧，引擎默认不发。
+            english_ai_candidates: false,
+            english_online: None,
             chain: CommitChain::default(),
             personal_context: PersonalNgramStore::for_journal(&journal),
             typo_profile: PersonalTypoProfile::shared(&journal),
@@ -1416,6 +1423,27 @@ impl InputSession {
         self.update_mixed_candidates();
     }
 
+    /// 英文模式（专用英文、临时英文）也发 AI 候选查询的总开关（#9015）；关闭时把已到位的英文在线行一并拿掉。
+    pub fn set_english_ai_candidates(&mut self, enabled: bool) {
+        if self.english_ai_candidates == enabled {
+            return;
+        }
+        self.english_ai_candidates = enabled;
+        if !enabled && self.english_online.is_some() {
+            self.english_online = None;
+            self.refresh_english_candidates();
+        }
+    }
+
+    /// 重建英文模式组字在显示的列表：专用英文和临时英文各有一份重建入口，别的模式没有可刷的。
+    pub(super) fn refresh_english_candidates(&mut self) {
+        if self.dedicated_english {
+            self.update_dedicated_english_candidates();
+        } else if self.local_mode == LocalInputMode::TemporaryEnglish {
+            self.update_local_candidates();
+        }
+    }
+
     pub fn set_rescoring_context(&mut self, context: &str) {
         self.engine.set_rescoring_context(context);
     }
@@ -1443,6 +1471,7 @@ impl InputSession {
         self.plugin_rows = None;
         self.dedicated_english_preedit.clear();
         self.dedicated_english_candidates.clear();
+        self.english_online = None;
         self.mixed_candidates.clear();
         self.personal_reranked = false;
         self.ranking_candidates = None;
@@ -1478,6 +1507,15 @@ impl InputSession {
     pub fn clear_online_candidates(&mut self, source: CandidateSource) {
         self.engine.clear_online_candidates(source);
         self.online_requests.invalidate();
+        // 英文在线行不经引擎缓存，清同一来源时一并拿掉。
+        if self
+            .english_online
+            .as_ref()
+            .is_some_and(|(_, rows)| rows.iter().any(|row| row.source == source))
+        {
+            self.english_online = None;
+            self.refresh_english_candidates();
+        }
         self.update_mixed_candidates();
     }
 

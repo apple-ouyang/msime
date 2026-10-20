@@ -1373,6 +1373,9 @@ pub struct AiAssistantPreferences {
     pub prompt_custom_2: String,
     #[serde(default)]
     pub prompt_custom_3: String,
+    /// 英文模式（专用英文、临时英文）也把已输入的字母串发给 AI 服务做补全与拼写纠错（#9015）。默认关闭：英文模式常用来输入网址、命令和账号，打开前不离开本机。
+    #[serde(default)]
+    pub english_candidates: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -1441,6 +1444,7 @@ impl Default for AiAssistantPreferences {
             prompt_custom_1: String::new(),
             prompt_custom_2: String::new(),
             prompt_custom_3: String::new(),
+            english_candidates: false,
         }
     }
 }

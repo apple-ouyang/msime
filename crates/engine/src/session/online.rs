@@ -14,7 +14,8 @@ use crate::shuangpin::query::{
     is_complete_input, normalize_input_with_delimiters, raw_length_for_effective_prefix,
 };
 use crate::types::{
-    CandidateSource, CommandTranslationQuery, LocalInputMode, OnlineQuery, SchemeType, WordItem,
+    CandidateSource, CommandTranslationQuery, LocalInputMode, OnlineQuery, OnlineQueryMode,
+    SchemeType, WordItem,
 };
 
 /// Session ids are unique for the process, so an answer can never be applied to a different session than the one that asked.
@@ -61,6 +62,7 @@ impl OnlineRequestGuard {
             && live.pinyin_segments == answered.pinyin_segments
             && live.cloud_eligible == answered.cloud_eligible
             && live.ai_eligible == answered.ai_eligible
+            && live.mode == answered.mode
     }
 }
 
@@ -121,11 +123,17 @@ fn online_identity(scheme: SchemeType, input: &str) -> String {
 impl InputSession {
     /// input_session.cpp:631-667 over `get_cloud_query_state` (input_session_composition.cpp:913-974).
     pub(super) fn online_query(&self) -> Option<OnlineQuery> {
-        if self.dedicated_english
-            || self.online_requests.exhausted
-            || self.local_mode != LocalInputMode::None
-            || !self.has_composition()
-        {
+        if self.online_requests.exhausted || !self.has_composition() {
+            return None;
+        }
+        // 英文模式（专用英文、临时英文）按 #9015 的开关发 AI 候选查询；开关默认关，关闭时与旧行为完全一致。
+        if self.dedicated_english {
+            return self.english_ai_query(&self.dedicated_english_preedit);
+        }
+        if self.local_mode == LocalInputMode::TemporaryEnglish {
+            return self.english_ai_query(self.local_mode.without_entry_marker(&self.local_preedit));
+        }
+        if self.local_mode != LocalInputMode::None {
             return None;
         }
         let request = self.engine.request();
@@ -166,6 +174,57 @@ impl InputSession {
                 .iter()
                 .all(|segment| is_complete_pinyin_input(segment));
         Some(query)
+    }
+
+    /// 英文模式的 AI 候选查询（#9015）：字母串本身是唯一分段，只标 `ai_eligible`，不进云候选——云候选服务回答的是中文拼音。少于两个字母不问；超过 AI 请求的单段上限（32 字节）也不问。
+    fn english_ai_query(&self, text: &str) -> Option<OnlineQuery> {
+        if !self.english_ai_candidates || !(2..=32).contains(&text.len()) {
+            return None;
+        }
+        let scheme = self.scheme();
+        Some(OnlineQuery {
+            scheme,
+            generation: self.online_requests.generation,
+            identity: online_identity(scheme, text),
+            query_text: text.to_owned(),
+            // 与拼音查询分开缓存键，免得同一串字母命中另一个模式的回答。
+            cache_key: format!("english:{text}"),
+            session_id: self.online_requests.session_id,
+            pinyin_segments: vec![text.to_owned()],
+            cloud_eligible: false,
+            ai_eligible: true,
+            mode: OnlineQueryMode::English,
+        })
+    }
+
+    /// 当前组字是不是英文模式的在线组字：查询与回答走 `english_ai_query` / `english_online` 这条单独通道，不经引擎的动态候选缓存。
+    fn english_composition(&self) -> bool {
+        self.dedicated_english || self.local_mode == LocalInputMode::TemporaryEnglish
+    }
+
+    /// 把到达的在线行记在当前字母串名下并重建英文组字列表；字母串已变时 `english_ai_query` 先一步拒绝回答，走到这里的行一定属于现在这串。
+    fn apply_english_online_rows(&mut self, words: &[String], source: CandidateSource) -> bool {
+        let text = if self.dedicated_english {
+            self.dedicated_english_preedit.clone()
+        } else {
+            self.local_mode
+                .without_entry_marker(&self.local_preedit)
+                .to_owned()
+        };
+        let entry = self
+            .english_online
+            .get_or_insert_with(|| (text, Vec::new()));
+        for word in words {
+            if !entry.1.iter().any(|row| row.word == *word) {
+                entry.1.push(WordItem::new("", word.clone(), 0, source, ""));
+            }
+        }
+        if self.dedicated_english {
+            self.update_dedicated_english_candidates();
+        } else {
+            self.update_local_candidates();
+        }
+        true
     }
 
     /// The `/fy` request, the only one a local mode makes; `None` in every other state, so the cloud and AI path above stays closed to local input, and `None` again once the text has its translation, so a host that asks again for every new view does not send the same text twice.
@@ -234,6 +293,9 @@ impl InputSession {
         if self.candidates().iter().any(|item| item.word == word) {
             return false;
         }
+        if self.english_composition() {
+            return self.apply_english_online_rows(&[word.to_owned()], source);
+        }
         if !self
             .engine
             .apply_dynamic_candidates(&[word.to_owned()], source)
@@ -259,6 +321,9 @@ impl InputSession {
         if !self.online_answer_accepted(query, source) {
             return false;
         }
+        if self.english_composition() {
+            return self.apply_english_online_rows(words, source);
+        }
         if !self.engine.apply_dynamic_candidates(words, source) {
             return false;
         }
@@ -280,11 +345,33 @@ impl InputSession {
 
     /// 不重建拥有型 `OnlineQuery`，直接把回包和当前组字比较。应用回包本来就要扫描候选列表；每次回调再复制身份、缓存键和分段只会增加临时缓冲。
     fn online_answer_state(&self, query: &OnlineQuery) -> Option<OnlineAnswerState> {
-        if self.dedicated_english
-            || self.online_requests.exhausted
-            || self.local_mode != LocalInputMode::None
-            || !self.has_composition()
-        {
+        if self.online_requests.exhausted || !self.has_composition() {
+            return None;
+        }
+        if self.english_composition() {
+            let text = if self.dedicated_english {
+                &self.dedicated_english_preedit
+            } else {
+                self.local_mode.without_entry_marker(&self.local_preedit)
+            };
+            // 重算当前这次英文查询再逐字段比较：开关中途关上、字母串变了或代次过期时回答一律拒绝。
+            let live = self.english_ai_query(text)?;
+            return (query.session_id == live.session_id
+                && query.generation == live.generation
+                && query.scheme == live.scheme
+                && query.identity == live.identity
+                && query.query_text == live.query_text
+                && query.cache_key == live.cache_key
+                && query.pinyin_segments == live.pinyin_segments
+                && query.mode == live.mode
+                && query.ai_eligible
+                && !query.cloud_eligible)
+                .then_some(OnlineAnswerState {
+                    cloud_eligible: false,
+                    ai_eligible: true,
+                });
+        }
+        if self.local_mode != LocalInputMode::None {
             return None;
         }
         if query.session_id != self.online_requests.session_id
@@ -423,6 +510,7 @@ mod tests {
             pinyin_segments: vec!["ni".to_owned(), "hao".to_owned()],
             cloud_eligible: true,
             ai_eligible: true,
+            mode: OnlineQueryMode::Pinyin,
             session_id: guard.session_id,
         }
     }
