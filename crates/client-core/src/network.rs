@@ -56,7 +56,7 @@ impl ProxyMode {
     }
 }
 
-/// 一个请求该不该走代理。`is_local_host` 由调用方按目标主机的 IP 段或名字算出来（[`crate::endpoint::is_local_network_host`]）。
+/// 一个请求该不该走代理。`is_local_host` 由调用方按目标主机的 IP 段或名字算出来（[`is_local_host`]：回环、RFC 1918、链路本地、CGNAT、IPv6 唯一本地地址、`localhost` 与 `.local`）。
 ///
 /// - 非 `https` 目标永远不走代理：明文 `http` 只允许发往本机或局域网，交给代理就等于把明文交出去。
 /// - 本机、局域网目标永远直连，哪怕是 `https`。
