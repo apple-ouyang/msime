@@ -189,7 +189,8 @@ pub struct RelayTransport {
 
 impl RelayTransport {
     pub fn new(config: RelayConfig) -> Result<Self, RelayError> {
-        let client = Client::builder()
+        // 中继只收 https 地址（明文 http 仅限回环），目标在建立请求时逐个按代理判据判断。
+        let client = crate::proxy::configure_blocking(Client::builder())
             .redirect(reqwest::redirect::Policy::none())
             .timeout(REQUEST_TIMEOUT)
             .user_agent(format!("MSIME/{}", std::env::consts::OS))

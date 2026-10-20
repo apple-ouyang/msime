@@ -103,7 +103,8 @@ fn client_agent_part(value: &str, fallback: &str) -> String {
 }
 
 fn build_http_client(agent: &str) -> Result<Client, AccountError> {
-    Client::builder()
+    // 账号接口是 `ACCOUNT_ORIGIN`（https）；按用户的网络代理设置走，本机和局域网目标在判据里已排除。
+    crate::proxy::configure_blocking(Client::builder())
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(30))
         .user_agent(agent)
@@ -111,15 +112,22 @@ fn build_http_client(agent: &str) -> Result<Client, AccountError> {
         .map_err(|_| AccountError::Unavailable)
 }
 
-/// [`BackendAccountClient::new`] 用的 HTTP 客户端，整个进程共用一个（克隆只是多一个引用）。reqwest 的阻塞客户端各自带一个后台线程和它的事件循环（macOS 上占三个文件描述符），宿主按账号目录、社区服务、AI 皮肤、整份快照各建一个 `BackendAccountClient`，各建一份时这些线程和描述符跟着按目录缓存的会话一直留着：测试里每个用例一个临时目录，几十个用例就把默认 256 的打开文件上限占掉一大半。客户端里只有连接池、不跟随重定向和 30 秒超时这几样与账号无关的配置，令牌每个请求单独带，共用不会串号。建不出来时不缓存，下一次再试。
+/// [`BackendAccountClient::new`] 用的 HTTP 客户端，整个进程共用一个（克隆只是多一个引用）。代理设置在共用时定一次，见 [`shared_default_client`] 里与 `network::current` 的比较。reqwest 的阻塞客户端各自带一个后台线程和它的事件循环（macOS 上占三个文件描述符），宿主按账号目录、社区服务、AI 皮肤、整份快照各建一个 `BackendAccountClient`，各建一份时这些线程和描述符跟着按目录缓存的会话一直留着：测试里每个用例一个临时目录，几十个用例就把默认 256 的打开文件上限占掉一大半。客户端里只有连接池、不跟随重定向和 30 秒超时这几样与账号无关的配置，令牌每个请求单独带，共用不会串号。建不出来时不缓存，下一次再试。
 fn shared_default_client() -> Result<Client, AccountError> {
-    static SHARED: std::sync::Mutex<Option<Client>> = std::sync::Mutex::new(None);
+    type Shared =
+        std::sync::Mutex<Option<(msime_client_core::network::NetworkPreferences, Client)>>;
+    static SHARED: Shared = std::sync::Mutex::new(None);
     let mut shared = SHARED.lock().map_err(|_| AccountError::Unavailable)?;
-    if let Some(client) = shared.as_ref() {
-        return Ok(client.clone());
+    // 代理设置变了（用户在设置页换了模式或地址）就重建一次：reqwest 的代理在 `build` 时固定，不重建的话
+    // 共用客户端会一直用旧代理。连接池跟着换一份，与改设置这个动作本身的频率相比可以忽略。
+    let network = msime_client_core::network::current();
+    if let Some((installed, client)) = shared.as_ref() {
+        if installed == &network {
+            return Ok(client.clone());
+        }
     }
     let client = build_http_client(DEFAULT_USER_AGENT)?;
-    *shared = Some(client.clone());
+    *shared = Some((network, client.clone()));
     Ok(client)
 }
 
