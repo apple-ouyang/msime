@@ -14,18 +14,20 @@ final class MacClipboardModel: ObservableObject {
   @Published var e2e: BackendAccountClient.ClipboardE2EStatus?
   /// 账号下登记的设备，云剪贴板开着时与列表一起刷新。
   @Published var devices: BackendAccountClient.ClipboardDevices?
-  private let accountID: String
-  /// 云剪贴板经 Rust 的 `msime_client_account_cloud_clipboard`（#8201 迁移计划 4c）：端到端加密、密钥串（`account-session.json` 旁边的 `cloud-clipboard-keystore`）和令牌都在 Rust 里。nil 是宿主没有注册会话存储，每个操作都报 `rust_client_unavailable`。
+  private let route: BackendCloudClipboardRoute
+  /// 云剪贴板经 Rust 的账号入口（`msime_client_account_cloud_clipboard`，#8201 迁移计划 4c）或自建中继入口（`msime_client_relay_cloud_clipboard`）：端到端加密、密钥串（`account-session.json` 旁边的 `cloud-clipboard-keystore` / `cloud-clipboard-relay-keystore`）和令牌都在 Rust 里。nil 是宿主没有注册会话存储，每个操作都报 `rust_client_unavailable`。
   private let rust: BackendRustAccount?
   /// 本机登记端到端加密时给其他设备看的名字。
   private let deviceName: String
   private var pending: Task<Void, Never>?
-  init(accountID: String, rust: BackendRustAccount? = .shared, deviceName: String = MacCloudClipboardDriver.deviceName) {
-    self.accountID = accountID; self.rust = rust; self.deviceName = deviceName
+  init(route: BackendCloudClipboardRoute, rust: BackendRustAccount? = .shared, deviceName: String = MacCloudClipboardDriver.deviceName) {
+    self.route = route; self.rust = rust; self.deviceName = deviceName
   }
 
   /// 本机还在等待批准：看不到条目，也不能上传。
   var isPending: Bool { enabled && e2e?.status == "pending" }
+  /// 这份云剪贴板走用户自建的中继。
+  var isRelay: Bool { if case .relay = route { return true } else { return false } }
   /// 本机的核对码，列表和设备状态里都有。
   var code: String? { devices?.code ?? e2e?.code }
   /// 等待本机批准的其他设备。
@@ -33,12 +35,13 @@ final class MacClipboardModel: ObservableObject {
 
   private func request(_ action: [String: Any]) async throws -> Data {
     guard let rust else { throw BackendRustClient.Failure.unavailable }
-    return try await rust.cloudClipboard(action, deviceName: deviceName)
+    return try await route.request(rust, action, deviceName: deviceName)
   }
-  /// 打开窗口时的账号还登录着才继续，退出或换了号就丢掉结果。C 上拿不到会话代次，只按 user.id 绑定：同一个账号的令牌轮换和重新登录不作废（迁移差异 M29）。
+  /// 走账号时，打开窗口时的账号还登录着才继续，退出或换了号就丢掉结果（`CancellationError`）；走中继时没有账号可核对。C 上拿不到会话代次，只按 user.id 绑定：同一个账号的令牌轮换和重新登录不作废（迁移差异 M29）。
   private func requireAccount() async throws {
     guard let rust else { throw BackendRustClient.Failure.unavailable }
-    guard try await rust.status()?.id == accountID else { throw CancellationError() }
+    guard case .account(let userID) = route else { return }
+    guard try await rust.status()?.id == userID else { throw CancellationError() }
     try Task.checkCancellation()
   }
   /// 执行一个操作，然后重新读列表；云剪贴板开着时再读一次设备状态（操作本身已经带回设备状态时不再读）。
@@ -119,7 +122,7 @@ struct MacCloudClipboardView: View {
     case remove(BackendAccountClient.ClipboardDevice)
     case reject(BackendAccountClient.ClipboardDevice)
   }
-  init(accountID: String) { _model = StateObject(wrappedValue: MacClipboardModel(accountID: accountID)) }
+  init(route: BackendCloudClipboardRoute) { _model = StateObject(wrappedValue: MacClipboardModel(route: route)) }
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack {
@@ -129,6 +132,10 @@ struct MacCloudClipboardView: View {
       }
       Text("文字在本机加密后才上传，服务端只保存密文。只上传你明确添加的内容，不自动读取系统剪贴板。最多保存 50 条；关闭云剪贴板会删除云端历史和所有设备的登记。")
         .font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+      if model.isRelay {
+        Text("这份云剪贴板走你自己配置的中继，不经过水杉账号。")
+          .font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+      }
       if model.loaded {
         Button(model.enabled ? "关闭云剪贴板" : "开启云剪贴板") { confirmation = model.enabled ? .disable : .enable }
           .disabled(model.busy)

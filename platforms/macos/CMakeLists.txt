@@ -421,6 +421,7 @@ add_test(NAME secure-file-reader COMMAND "${CMAKE_CURRENT_BINARY_DIR}/secure-fil
 set_tests_properties(secure-file-reader PROPERTIES TIMEOUT 30)
 set(MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES ${MSIME_BACKEND_RUST_ACCOUNT_SOURCES}
   src/backend/clipboard/BackendCloudClipboardProvider.swift
+  src/backend/clipboard/BackendCloudClipboardRoute.swift
   src/backend/clipboard/BackendCloudClipboardDriver.swift tests/clipboard/DesktopCloudClipboardProviderTest.swift)
 list(TRANSFORM MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/desktop-cloud-provider-test"
