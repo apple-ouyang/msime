@@ -384,6 +384,10 @@ impl Session {
     }
 
     /// 英文模式的 AI 候选开关（#9015）；关闭时拿掉已到位的英文在线行。
+    pub fn english_ai_candidates(&self) -> bool {
+        self.inner.english_ai_candidates()
+    }
+
     pub fn set_english_ai_candidates(&mut self, enabled: bool) {
         self.inner.set_english_ai_candidates(enabled);
     }

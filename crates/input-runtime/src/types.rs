@@ -316,8 +316,11 @@ pub struct OnlineQuery {
     pub cloud_eligible: bool,
     pub ai_eligible: bool,
     /// 查询针对的组字类型（#9015）：`english` 时 `pinyin_segments` 是英文模式下已输入的字母串。拼音查询不写这个键，旧宿主读不到时按拼音处理。
-    #[serde(default, skip_serializing_if = "OnlineQueryMode::is_pinyin")]
-    pub mode: msime_engine::types::OnlineQueryMode,
+    #[serde(
+        default,
+        skip_serializing_if = "msime_engine::OnlineQueryMode::is_pinyin"
+    )]
+    pub mode: msime_engine::OnlineQueryMode,
     /// Host preference controlling whether a provider may return cloud suggestions.
     #[serde(default = "default_cloud_candidates")]
     pub cloud_candidates: bool,

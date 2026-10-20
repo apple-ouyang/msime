@@ -259,7 +259,7 @@ impl Runtime<Session> {
             return Ok(());
         }
         self.advance()?;
-        self.engine.set_english_ai_candidates(enabled)?;
+        self.engine.set_english_ai_candidates(enabled);
         self.refresh()
     }
 
