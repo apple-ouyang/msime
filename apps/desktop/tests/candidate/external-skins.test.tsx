@@ -1443,3 +1443,76 @@ test("the theme page opens the candidate publish dialog outside the settings fie
   expect(screen.queryByRole("dialog", { name: "发布候选窗口皮肤" })).toBeNull();
   expect(save).not.toHaveBeenCalled();
 });
+
+// 一个全贴图（canvas）包：九宫格面板、内容与外留白、拼音行距和一个自由挂件。
+const canvasCatalog: SkinCatalog = {
+  directory: "/synthetic/state/skins",
+  issues: [],
+  packages: [
+    {
+      ...sample,
+      id: "paneled",
+      name: "Paneled skin",
+      canvas: true,
+      borderImage: {
+        source: "images/panel.png",
+        lightSource: "images/panel-light.png",
+        sliceDip: [2],
+        stretchDip: [8],
+        widthDip: [10, 6, 14, 7],
+        fill: true,
+      },
+      contentInsetsDip: { top: 4, right: 30, bottom: 20, left: 2 },
+      outerInsetsDip: { top: 4, right: 5, bottom: 6, left: 7 },
+      lineGapDip: 9,
+      decorations: [
+        {
+          image: "images/petal.png",
+          anchor: "top-left",
+          offsetXDip: 3,
+          offsetYDip: 4,
+          widthDip: 24,
+          heightDip: 18,
+          zIndex: 3,
+        },
+      ],
+    },
+  ],
+};
+
+test("canvas card draws the nine-slice panel, its insets and the line gap instead of a placeholder", async () => {
+  const readImage = vi.fn().mockResolvedValue(imageData);
+  render(packageCard(canvasCatalog.packages[0], { readImage }));
+  const card = screen.getByRole("article", { name: "Paneled skin" });
+  const preview = card.querySelector<HTMLElement>("[data-skin-preview]")!;
+  // 内容内边距每边不小于九宫格边宽，外留白照清单；两者都写在预览表面上，候选标记按继承读它们。
+  expect(preview.style.getPropertyValue("--msime-canvas-content-top")).toBe("10px");
+  expect(preview.style.getPropertyValue("--msime-canvas-content-right")).toBe("30px");
+  expect(preview.style.getPropertyValue("--msime-canvas-content-bottom")).toBe("20px");
+  expect(preview.style.getPropertyValue("--msime-canvas-content-left")).toBe("7px");
+  expect(preview.style.getPropertyValue("--msime-canvas-outer-top")).toBe("4px");
+  expect(preview.style.getPropertyValue("--msime-canvas-outer-right")).toBe("5px");
+  expect(preview.style.getPropertyValue("--msime-canvas-outer-bottom")).toBe("6px");
+  expect(preview.style.getPropertyValue("--msime-canvas-outer-left")).toBe("7px");
+  expect(preview.style.getPropertyValue("--msime-canvas-line-gap")).toBe("9px");
+  const candidate = card.querySelector<HTMLElement>(".candidate")!;
+  expect(candidate.hasAttribute("data-canvas")).toBe(true);
+  expect(candidate.hasAttribute("data-canvas-line-gap")).toBe(true);
+  // 九宫格面板真的画出来：图片经宿主读取器解码，切片与边宽取自清单。
+  await waitFor(() => expect(card.querySelector(".skin-panel")).not.toBeNull());
+  const panel = card.querySelector<HTMLElement>(".skin-panel")!;
+  expect(panel.style.getPropertyValue("border-image-source")).toBe(
+    `url("${skinImageUrl(imageData)}")`,
+  );
+  expect(panel.style.getPropertyValue("border-image-slice")).toBe("8 8 8 8 fill");
+  expect(panel.style.getPropertyValue("border-image-width")).toBe("10px 6px 14px 7px");
+  expect(card.querySelector(".container")?.hasAttribute("data-panel")).toBe(true);
+  // 自由挂件按锚点与偏移画在卡片左上角。
+  await waitFor(() => expect(card.querySelector(".skin-layer-above .skin-picture")).not.toBeNull());
+  const petal = card.querySelector<HTMLElement>(".skin-layer-above .skin-picture")!;
+  expect(petal.style.getPropertyValue("width")).toBe("24px");
+  expect(petal.style.getPropertyValue("height")).toBe("18px");
+  expect(petal.style.getPropertyValue("left")).toBe("3px");
+  expect(petal.style.getPropertyValue("top")).toBe("4px");
+  expect(petal.querySelector("img")?.getAttribute("src")).toBe(skinImageUrl(imageData));
+});

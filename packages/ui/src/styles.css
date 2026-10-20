@@ -856,6 +856,87 @@
     object-position: center bottom;
     background-position: center bottom;
   }
+
+  /*
+   * A canvas package's card preview (Windows `CandidateCanvasPreview.h`, the web engine's
+   * `candidates.js`). It keeps the same candidate markup and adds only what the manifest declares:
+   *
+   * - The nine-slice panel is a `border-image` on `.skin-panel`, which fills the card. Content insets
+   *   (`--msime-canvas-content-*`) push the rows inside it, never less than the panel's border width.
+   * - Outer insets (`--msime-canvas-outer-*`) are the container parent's padding, so the card sits in
+   *   the reserved margin; the decoration band keeps its own top inset on top of that.
+   * - `line_gap_dip` is the pinyin row's bottom margin, over the layout's own.
+   * - Free widgets sit in one of two layers: `z_index` below 1 under the panel, the rest above it.
+   */
+  & .candidate[data-canvas] .containerParent {
+    position: relative;
+    box-sizing: border-box;
+    width: fit-content;
+    max-width: 100%;
+    padding: calc(var(--msime-canvas-outer-top, 0px) + var(--msime-skin-decoration-top, 0px))
+      var(--msime-canvas-outer-right, 0px) var(--msime-canvas-outer-bottom, 0px)
+      var(--msime-canvas-outer-left, 0px);
+  }
+
+  & .candidate[data-canvas] .container {
+    position: relative;
+    z-index: 1;
+    padding: var(--msime-canvas-content-top, 0px) var(--msime-canvas-content-right, 0px)
+      var(--msime-canvas-content-bottom, 0px) var(--msime-canvas-content-left, 0px);
+  }
+
+  & .candidate[data-canvas][data-canvas-line-gap] .pinyin {
+    margin-bottom: var(--msime-canvas-line-gap);
+  }
+
+  /* The panel replaces the solid card; until its image decodes the readable surface, border and radius stay. */
+  & .candidate[data-canvas] .container[data-panel] {
+    background: transparent;
+    border-color: transparent;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  & .skin-panel {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    border: 0 solid transparent;
+    pointer-events: none;
+  }
+
+  & .candidate[data-canvas] .container[data-panel] > :not(.skin-panel) {
+    position: relative;
+    z-index: 1;
+  }
+
+  & .skin-layer {
+    position: absolute;
+    top: calc(var(--msime-canvas-outer-top, 0px) + var(--msime-skin-decoration-top, 0px));
+    right: var(--msime-canvas-outer-right, 0px);
+    bottom: var(--msime-canvas-outer-bottom, 0px);
+    left: var(--msime-canvas-outer-left, 0px);
+    pointer-events: none;
+  }
+
+  & .skin-layer-below {
+    z-index: 0;
+  }
+
+  & .skin-layer-above {
+    z-index: 2;
+  }
+
+  & .skin-picture {
+    position: absolute;
+    pointer-events: none;
+  }
+
+  & .skin-picture > img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
 }
 
 @utility skin-card-preview {
