@@ -18018,3 +18018,51 @@ fn voice_provider_update_export_rejects_invalid_requests_without_echoing_credent
     assert_eq!(result["ok"], false);
     assert_eq!(result["error"], "invalid voice request buffer");
 }
+
+#[test]
+fn language_cycle_abi_publishes_the_shared_state_machine() {
+    // `response` 把结果包成 {ok, value}；非法输入是 {ok:false, error}。
+    let value = |pointer: *mut c_char| {
+        let envelope = read(pointer);
+        assert_eq!(envelope["ok"], true, "{envelope}");
+        envelope["value"].clone()
+    };
+    // 关闭：不接管，返回 null，宿主照旧走二态切换。
+    assert_eq!(
+        value(msime_client_language_cycle(false, 0, 0, 2, false)),
+        Value::Null
+    );
+    // 中 → 日：换到日语方案，没组字时不上屏。
+    assert_eq!(
+        value(msime_client_language_cycle(true, 0, 0, 2, false)),
+        json!({"mode": 1, "scheme": 3, "commit_raw": false})
+    );
+    // 有组字时先上屏原始字母。
+    assert_eq!(
+        value(msime_client_language_cycle(true, 0, 0, 2, true)),
+        json!({"mode": 1, "scheme": 3, "commit_raw": true})
+    );
+    // 日 → 英：只换中英模式，不换方案。
+    assert_eq!(
+        value(msime_client_language_cycle(true, 1, 3, 2, false)),
+        json!({"mode": 2, "scheme": null, "commit_raw": false})
+    );
+    // 英 → 中：回到记下的中文方案。
+    assert_eq!(
+        value(msime_client_language_cycle(true, 2, 3, 1, false)),
+        json!({"mode": 0, "scheme": 1, "commit_raw": false})
+    );
+    // 还没记下中文方案（-1）：留在当前方案，由宿主按 effective_scheme 再退。
+    assert_eq!(
+        value(msime_client_language_cycle(true, 2, 0, -1, false)),
+        json!({"mode": 0, "scheme": 0, "commit_raw": false})
+    );
+    // 非法编号被拒，不让宿主静默按错误的模式转。
+    for invalid in [
+        read(msime_client_language_cycle(true, 3, 0, 2, false)),
+        read(msime_client_language_cycle(true, 0, 99, 2, false)),
+        read(msime_client_language_cycle(true, 0, 0, 4, false)),
+    ] {
+        assert_eq!(invalid["ok"], false, "{invalid}");
+    }
+}

@@ -673,6 +673,16 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (![self checkThreadAndHandle:error]) return nil;
     return decode(msime_client_punctuation_with_context(_handle, ascii, preceding), error);
 }
+- (nullable NSDictionary *)languageCycleEnabled:(BOOL)enabled
+                                           mode:(uint8_t)mode
+                                         scheme:(uint8_t)scheme
+                              lastChineseScheme:(int8_t)lastChineseScheme
+                                 hasComposition:(BOOL)hasComposition {
+    // 只从会话线程问，和其它入口一样：它读的那几项由控制器在同一线程上填。
+    if (![self checkThreadAndHandle:nil]) return nil;
+    // 共享层用 `value: null` 表示「不接管」；decode 把 null 还原成空字典，对调用方是同一个意思。
+    return decode(msime_client_language_cycle(enabled, mode, scheme, lastChineseScheme, hasComposition), nil);
+}
 - (nullable NSDictionary *)command:(uint32_t)command error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
     return decode(msime_client_command(_handle, command), error);
