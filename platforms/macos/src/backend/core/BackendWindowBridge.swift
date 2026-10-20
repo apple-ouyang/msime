@@ -34,6 +34,8 @@ final class BackendWindowBridge: NSObject {
     let accountID = if case .account(let userID) = route { userID } else { "relay" }
     show("clipboard", accountID: accountID, title: "云剪贴板", size: NSSize(width: 560, height: 560)) { MacCloudClipboardView(route: route) }
   }
+  /// Objective-C 侧（`BackendAccountEntry.h`）只认账号路径；中继走 Swift 里的 [`showClipboard(route:)`]。
+  @objc func showClipboard(forAccountID accountID: String) { showClipboard(route: .account(userID: accountID)) }
   @objc func showSnapshot(forAccountID accountID: String) { show("snapshot", accountID: accountID, title: "词库快照", size: NSSize(width: 560, height: 460)) { MacCloudSnapshotView(accountID: accountID) } }
   @objc func showSettings(forAccountID accountID: String) { show("settings", accountID: accountID, title: "桌面设置同步", size: NSSize(width: 540, height: 520)) { MacCloudSettingsView(accountID: accountID) } }
   @objc func showHandwriting() { show("handwriting", accountID: "local", title: "水杉手写识别板", size: NSSize(width: 720, height: 510)) { MacHandwritingToolView() } }
