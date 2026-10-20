@@ -1142,6 +1142,12 @@ pub struct Preferences {
     /// 本机云候选来源与 HTTP 配置，不参与设置导出和账号同步。
     #[serde(default)]
     pub cloud_candidate_provider: crate::cloud::candidates::CloudCandidatePreferences,
+    /// 用户内容请求（云候选、翻译、AI、语音、账号、更新检查、词库与模型下载）走哪个代理。默认值与 Windows 正式版的 `network.proxy_mode` / `network.proxy_server` 相同：跟随系统，不填服务器。`custom` 但服务器留空时按 `system` 处理。等于默认值时不写进文档，没有这个键的旧版本照样能读。
+    #[serde(
+        default,
+        skip_serializing_if = "crate::network::NetworkPreferences::is_default"
+    )]
+    pub network: crate::network::NetworkPreferences,
     /// 新装默认关闭候选翻译；旧文档缺字段时仍沿用原有开启行为，显式保存的选择不变。
     #[serde(default = "enabled_by_default")]
     pub candidate_translations: bool,
@@ -2471,6 +2477,7 @@ impl Default for Preferences {
             // 会把输入内容发出设备的两条路径新装都关闭，由 Windows、macOS、Linux 的首次询问或各平台的设置开关打开。
             cloud_candidates: false,
             cloud_candidate_provider: Default::default(),
+            network: crate::network::NetworkPreferences::default(),
             candidate_translations: false,
             candidate_english_gloss: false,
             candidate_pronunciation: false,
@@ -2915,6 +2922,8 @@ impl Preferences {
         // 中继的地址和令牌成对保留，理由与上面的服务地址相同。
         next.cloud_clipboard_relay = self.cloud_clipboard_relay.clone();
         next.cloud_candidate_provider = self.cloud_candidate_provider.clone();
+        // 代理是为了让这台机器连得上服务：恢复默认设置把服务凭据留下了，代理地址跟着留下，否则所有出口会一起断。
+        next.network = self.network.clone();
 
         next.fuzzy_pinyin.seeded = self.fuzzy_pinyin.seeded;
 
@@ -3074,6 +3083,11 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidAiAssistant);
         }
+        if !self.network.proxy_server.is_empty()
+            && !crate::network::valid_proxy_server(&self.network.proxy_server)
+        {
+            return Err(PreferencesError::InvalidNetwork);
+        }
         if !ASR_PROVIDERS.contains(&self.voice_input.asr_provider.as_str())
             || !POLISH_PROVIDERS.contains(&self.voice_input.polish_provider.as_str())
             || !valid_model_path(&self.voice_input.asr_model_path)
@@ -3218,6 +3232,8 @@ pub enum PreferencesError {
     InvalidFloatingToolbar,
     #[error("AI assistant provider or candidate limit is invalid")]
     InvalidAiAssistant,
+    #[error("网络代理地址必须是 host:port（可带 http:// 或 https:// 前缀），不能包含用户名、路径、查询或片段")]
+    InvalidNetwork,
     #[error("voice recognition or polishing provider is not supported")]
     InvalidVoiceInput,
     #[error("custom translation endpoint or API key is invalid")]
@@ -3439,7 +3455,9 @@ impl PreferencesStore {
         let metadata = match std::fs::symlink_metadata(&path) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok((self.missing_document(), Vec::new()))
+                let snapshot = self.missing_document();
+                crate::network::install(&snapshot.preferences.network);
+                return Ok((snapshot, Vec::new()));
             }
             Err(error) => return Err(error.into()),
         };
@@ -3468,6 +3486,9 @@ impl PreferencesStore {
         snapshot
             .preferences
             .settle_smart_punctuation_default(SMART_PUNCTUATION_WAS_OFF_BY_DEFAULT);
+        // 读到哪份文档就按哪份文档的代理设置发请求：设置窗口和输入宿主都可能建 HTTP 客户端，
+        // 每个进程自己那份 `network::current` 由它读到的最近一版偏好决定（见 `crate::network`）。
+        crate::network::install(&snapshot.preferences.network);
         Ok((snapshot, unknown))
     }
 
@@ -3605,6 +3626,8 @@ impl PreferencesStore {
             &self.path(),
             &serde_json::to_vec_pretty(&document)?,
         )?;
+        // 保存后立刻生效：设置页保存完不用等下一次读取，本进程接着发出的请求就用新代理。
+        crate::network::install(&snapshot.preferences.network);
         Ok(snapshot)
     }
 
