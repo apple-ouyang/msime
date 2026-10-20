@@ -512,6 +512,33 @@ fn candidate_pronunciation_is_opt_in_and_round_trips() {
 }
 
 #[test]
+fn candidate_translation_display_defaults_follow_windows_factory_config() {
+    let defaults = Preferences::default();
+    assert!(defaults.candidate_translation_show_pos);
+    assert!(!defaults.candidate_translation_single_sense);
+
+    // 旧文档缺这两个键时按 Windows v0.11.1 的出厂配置补上。
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    let fields = legacy.as_object_mut().unwrap();
+    fields.remove("candidate_translation_show_pos");
+    fields.remove("candidate_translation_single_sense");
+    let parsed = serde_json::from_value::<Preferences>(legacy).unwrap();
+    assert!(parsed.candidate_translation_show_pos);
+    assert!(!parsed.candidate_translation_single_sense);
+
+    // 用户显式保存的选择原样往返。
+    let saved = Preferences {
+        candidate_translation_show_pos: false,
+        candidate_translation_single_sense: true,
+        ..defaults
+    };
+    let round_tripped =
+        serde_json::from_str::<Preferences>(&serde_json::to_string(&saved).unwrap()).unwrap();
+    assert!(!round_tripped.candidate_translation_show_pos);
+    assert!(round_tripped.candidate_translation_single_sense);
+}
+
+#[test]
 fn english_suggestions_default_on_and_legacy_documents_preserve_it() {
     let defaults = Preferences::default();
     assert!(defaults.english_suggestions);
