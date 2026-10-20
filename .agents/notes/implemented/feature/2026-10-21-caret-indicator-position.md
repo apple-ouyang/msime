@@ -34,7 +34,7 @@ Status: implemented
 
 ## Alternatives considered
 
-- **加 `input_mode_hud_position`（六向，默认 `top-left`），只让 macOS 读。** 最强的理由：用户确实在旧版里选过方向，旧版六向齐全，改动面看起来只有一个纯函数加一个字段。不选：位置原本服务于四类徽标和 30 DIP 的双格标点徽标，收窄成单个「中/英」后收益很小；共享偏好带 `deny_unknown_fields`，新字段会让旧版设置应用与 `msime-mcp` 拒读整份文档；还会逼出「Windows 要不要同样读」的问题，等于把一次平台补缺变成跨宿主契约变更。
+- **加 `input_mode_hud_position`（六向，默认 `top-left`），只让 macOS 读。** 最强的理由：用户确实在旧版里选过方向，旧版六向齐全，改动面看起来只有一个纯函数加一个字段。不选：位置原本服务于四类徽标和 30 DIP 的双格标点徽标，收窄成单个「中/英」后收益很小；（订正：`Preferences` 本身并没有 `deny_unknown_fields`，未知键由 `deserialize_keeping_unknown` 记下并在保存时原样写回，见 `preferences.rs` 的 `UnknownPreferenceField`；所以「旧版拒读整份文档」不是这里的理由。真正的理由是前一条：位置服务的四类徽标已被裁掉。）还会逼出「Windows 要不要同样读」的问题，等于把一次平台补缺变成跨宿主契约变更。
 - **加 `input_mode_hud_on_focus`（默认关），macOS 与 Windows 同读。** 最强的理由：能同时补上两个宿主相对 Linux 与相对旧版的差距，语义清楚，出厂关着不改变现有手感。不选：旧键的存在理由是 Windows 语言栏看不到光标旁的反馈，而 macOS 已有菜单栏状态项与 HUD 两条反馈路径（[菜单栏输入模式状态项](2026-10-12-macos-input-mode-status-item.md)）；再叠一个焦点播报更容易在换窗口时刷屏。真要加，应作为独立能力位与独立笔记讨论。
 - **完整对齐 v0.11.1：恢复四类徽标 + 六向位置 + 聚焦触发。** 最强的理由：这是唯一能让升级用户「什么都不丢」的方案，也是「遗留未迁」这个判定最直接的字面解。不选：新架构在 [Windows 中英文切换对齐 macOS](2026-10-10-windows-input-mode-parity.md) 里明确把 Windows 拉向 macOS 的单格 HUD，方向是收窄而不是扩张；[紧凑尺寸](../bug-fix/2026-10-14-macos-compact-input-mode-hud.md) 又进一步固定了 18pt/32pt 并写明「保持原主题和位置策略」。撤销这两条要新的产品论证。
 
