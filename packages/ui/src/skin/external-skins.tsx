@@ -13,6 +13,7 @@ import { SkinPreviewStage } from "./skin-preview-stage";
 import { SkinPreviewSurface } from "./skin-preview-surface";
 import { dimension, skinDecorationGeometry, skinPreviewBackground } from "./skin-preview-geometry";
 export { dimension } from "./skin-preview-geometry";
+import { useDecodedSkinImage } from "./skin-image";
 import { skinCanvasGeometry, canvasVariables } from "./skin-canvas-preview";
 import { candidateWindowStyle } from "../candidate/candidate-window-style";
 import type { CandidateWindowStylePreferences } from "../candidate/candidate-preferences";
@@ -279,7 +280,12 @@ export function ExternalSkinCard({
     readImage,
     readFont,
   );
-  const palette = drawnPackagePalette(skin, theme);
+  const canvas = skinCanvasGeometry(skin, theme);
+  const panel = useDecodedSkinImage(readImage, skin.id, canvas?.panel?.image ?? null, revision);
+  const palette =
+    panel?.url && skin.themes.includes(theme)
+      ? (skin.panelCandidate?.[theme] ?? drawnPackagePalette(skin, theme))
+      : drawnPackagePalette(skin, theme);
   const hideBar = palette?.showSelectedBar === false;
   const paletteFailed = useSelectedBarPalette(scope, hideBar);
   // 卡片上的预览切换不影响能否选用。固定明暗底的包放进自己的槽位、只在那种明暗下画，所以当前模式挡不住它；`system` 底的包两个槽位都放，仍要支持当前模式。
@@ -289,8 +295,6 @@ export function ExternalSkinCard({
   const deselecting = selected && onDeselect !== undefined;
   const { decorated } = skinDecorationGeometry(skin);
   const decoration = decorated ? decorationImage(skin) : null;
-  // canvas 包把九宫格、内外留白、拼音行距和自由挂件画在候选窗上，卡片照同一份几何画。
-  const canvas = skinCanvasGeometry(skin, theme);
   // 所有 canvas 包都要 `.containerParent` 承载外留白、装饰带和挂件层；只画装饰带的包也照旧要它。
   const framed = decorated || canvas !== null;
   const { image, decodeFailed, onImageError, background } = useSkinPreviewAssets(
@@ -380,6 +384,7 @@ export function ExternalSkinCard({
               orientation="horizontal"
               decorated={decorated}
               canvas={canvas}
+              panelUrl={panel?.url}
               readImage={readImage}
               skinId={skin.id}
               revision={revision}
@@ -394,6 +399,7 @@ export function ExternalSkinCard({
               orientation="vertical"
               decorated={decorated}
               canvas={canvas}
+              panelUrl={panel?.url}
               readImage={readImage}
               skinId={skin.id}
               revision={revision}

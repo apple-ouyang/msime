@@ -76,6 +76,7 @@ export function SkinCandidatePreview({
   ghost = false,
   brand = true,
   canvas = null,
+  panelUrl,
   readImage,
   skinId = "",
   revision = 0,
@@ -96,6 +97,8 @@ export function SkinCandidatePreview({
   brand?: boolean;
   /** 一个 canvas 包的九宫格、内外留白、行距与自由挂件；只对它画面板，其余包与以前逐位相同。 */
   canvas?: SkinCanvasGeometry | null;
+  /** 已经浏览器解码成功的面板地址；读取成功但尚未解码时不传。 */
+  panelUrl?: string;
   /** canvas 面板与挂件的包内图片读取器。 */
   readImage?: SkinImageReader;
   /** 图片读取用的包 id。 */
@@ -106,8 +109,6 @@ export function SkinCandidatePreview({
   const horizontal = orientation === "horizontal";
   const visibleCount = Number.isFinite(count) ? clamp(Math.trunc(count), 1, 9) : 6;
   const panel = canvas?.panel ?? null;
-  const panelImage = useSkinImage(readImage, skinId, panel?.image ?? null, revision);
-  const panelUrl = panelImage?.url;
   const framed = decorated || canvas !== null;
   const content = (
     <div
@@ -122,7 +123,7 @@ export function SkinCandidatePreview({
         />
       )}
       {/* canvas 面板替代卡片底色，包的背景图不再叠一层，与 Windows 和网页引擎相同。 */}
-      {background && !panel && (
+      {background && !panelUrl && (
         <img
           className="skin-background-image"
           src={background.url}

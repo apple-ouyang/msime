@@ -34,7 +34,7 @@ export type SkinCanvasDecoration = {
   zIndex: number;
 };
 
-/** 一个 canvas 包在设置页卡片里画出来的几何；面板图片解不出来时 `panel` 为 `null`，卡片保留可读回退底色。 */
+/** 一个 canvas 包在设置页卡片里画出来的几何；`panel` 只描述清单几何，是否解码成功由图片读取层判断，失败时卡片保留可读回退底色。 */
 export type SkinCanvasGeometry = {
   panel: SkinCanvasPanel | null;
   contentInsets: SkinEdges | null;

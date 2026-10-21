@@ -857,17 +857,8 @@
     background-position: center bottom;
   }
 
-  /*
-   * A canvas package's card preview (Windows `CandidateCanvasPreview.h`, the web engine's
-   * `candidates.js`). It keeps the same candidate markup and adds only what the manifest declares:
-   *
-   * - The nine-slice panel is a `border-image` on `.skin-panel`, which fills the card. Content insets
-   *   (`--msime-canvas-content-*`) push the rows inside it, never less than the panel's border width.
-   * - Outer insets (`--msime-canvas-outer-*`) are the container parent's padding, so the card sits in
-   *   the reserved margin; the decoration band keeps its own top inset on top of that.
-   * - `line_gap_dip` is the pinyin row's bottom margin, over the layout's own.
-   * - Free widgets sit in one of two layers: `z_index` below 1 under the panel, the rest above it.
-   */
+  /* canvas 卡片沿用候选标记：九宫格使用 border-image；内容内边距不小于边宽，
+   * 外留白与装饰带叠加，line_gap_dip 替换拼音行下间距；自由挂件按 z_index 分成上下两层。 */
   & .candidate[data-canvas] .containerParent {
     position: relative;
     box-sizing: border-box;
@@ -889,7 +880,7 @@
     margin-bottom: var(--msime-canvas-line-gap);
   }
 
-  /* The panel replaces the solid card; until its image decodes the readable surface, border and radius stay. */
+  /* 面板成功解码后才替换实色卡片；加载或解码失败时保留可读底色、边框与圆角。 */
   & .candidate[data-canvas] .container[data-panel] {
     background: transparent;
     border-color: transparent;

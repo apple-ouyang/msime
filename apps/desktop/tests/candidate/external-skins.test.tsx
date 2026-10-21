@@ -40,7 +40,10 @@ import desktopConfig from "../../src-tauri/tauri.conf.json";
 import * as fontPreparation from "../../../../packages/ui/src/skin/toolbar-fonts";
 import { useSelectedBarPalette } from "../../../../packages/ui/src/skin/skin-palette";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 // jsdom parses CSS rules but does not implement adopted stylesheet rendering.
 // Real CSP/computed-style coverage lives in scripts/test-skin-palette-csp.py.
 beforeEach(() =>
@@ -1480,8 +1483,29 @@ const canvasCatalog: SkinCatalog = {
   ],
 };
 
+// jsdom 不解码图片；显式派发浏览器成功/失败事件，并保留每代请求便于验证过期回调。
+function controlledCanvasImages() {
+  const images: HTMLImageElement[] = [];
+  vi.stubGlobal("Image", function () {
+    const image = document.createElement("img");
+    images.push(image);
+    return image;
+  });
+  return images;
+}
+const canvasImageData: SkinImage = {
+  contentType: "image/png",
+  bytes: Array.from(
+    atob(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==",
+    ),
+    (value) => value.charCodeAt(0),
+  ),
+};
+
 test("canvas card draws the nine-slice panel, its insets and the line gap instead of a placeholder", async () => {
-  const readImage = vi.fn().mockResolvedValue(imageData);
+  const images = controlledCanvasImages();
+  const readImage = vi.fn().mockResolvedValue(canvasImageData);
   render(packageCard(canvasCatalog.packages[0], { readImage }));
   const card = screen.getByRole("article", { name: "Paneled skin" });
   const preview = card.querySelector<HTMLElement>("[data-skin-preview]")!;
@@ -1499,10 +1523,13 @@ test("canvas card draws the nine-slice panel, its insets and the line gap instea
   expect(candidate.hasAttribute("data-canvas")).toBe(true);
   expect(candidate.hasAttribute("data-canvas-line-gap")).toBe(true);
   // 九宫格面板真的画出来：图片经宿主读取器解码，切片与边宽取自清单。
+  await waitFor(() => expect(images).toHaveLength(1));
+  expect(card.querySelector(".skin-panel")).toBeNull();
+  act(() => fireEvent.load(images[0]));
   await waitFor(() => expect(card.querySelector(".skin-panel")).not.toBeNull());
   const panel = card.querySelector<HTMLElement>(".skin-panel")!;
   expect(panel.style.getPropertyValue("border-image-source")).toBe(
-    `url("${skinImageUrl(imageData)}")`,
+    `url("${skinImageUrl(canvasImageData)}")`,
   );
   expect(panel.style.getPropertyValue("border-image-slice")).toBe("8 8 8 8 fill");
   expect(panel.style.getPropertyValue("border-image-width")).toBe("10px 6px 14px 7px");
@@ -1514,5 +1541,56 @@ test("canvas card draws the nine-slice panel, its insets and the line gap instea
   expect(petal.style.getPropertyValue("height")).toBe("18px");
   expect(petal.style.getPropertyValue("left")).toBe("3px");
   expect(petal.style.getPropertyValue("top")).toBe("4px");
-  expect(petal.querySelector("img")?.getAttribute("src")).toBe(skinImageUrl(imageData));
+  expect(petal.querySelector("img")?.getAttribute("src")).toBe(skinImageUrl(canvasImageData));
+});
+
+test.each(["dark", "light"] as const)(
+  "canvas 面板解码成功才切换 %s 贴图配色",
+  async (activeTheme) => {
+    const images = controlledCanvasImages();
+    const skin = {
+      ...canvasCatalog.packages[0],
+      panelCandidate: {
+        dark: { text: "#FFEEDD", surface: "#111111" },
+        light: { text: "#112233", surface: "#EEEEEE" },
+      },
+    };
+    const readImage = vi.fn().mockResolvedValue(canvasImageData);
+    render(packageCard(skin, { readImage, activeTheme }));
+    const card = screen.getByRole("article");
+    await waitFor(() => expect(images).toHaveLength(1));
+    expect(card.querySelector("[data-panel]")).toBeNull();
+    expect(drawn(card, "--cand-bg")).toBe(activeTheme === "dark" ? "#123456" : "#ABCDEF");
+    act(() => fireEvent.load(images[0]));
+    expect(card.querySelectorAll("[data-panel]")).toHaveLength(2);
+    expect(drawn(card, "--cand-text")).toBe(activeTheme === "dark" ? "#FFEEDD" : "#112233");
+  },
+);
+
+test("canvas 损坏图片保留可读底色，重扫不沿用上一代的解码结果", async () => {
+  const images = controlledCanvasImages();
+  const readImage = vi.fn().mockResolvedValue(canvasImageData);
+  const skin = {
+    ...canvasCatalog.packages[0],
+    panelCandidate: { dark: { surface: "#111111" }, light: {} },
+  };
+  const { rerender } = render(packageCard(skin, { readImage, revision: 1 }));
+  const card = screen.getByRole("article");
+  await waitFor(() => expect(images).toHaveLength(1));
+  act(() => fireEvent.error(images[0]));
+  expect(card.querySelector("[data-panel]")).toBeNull();
+  expect(drawn(card, "--cand-bg")).toBe("#123456");
+  rerender(packageCard(skin, { readImage, revision: 2 }));
+  await waitFor(() => expect(images).toHaveLength(2));
+  const staleLoad = images[1].onload!;
+  act(() => fireEvent.load(images[1]));
+  expect(drawn(card, "--cand-bg")).toBe("#111111");
+  rerender(packageCard(skin, { readImage, revision: 3 }));
+  expect(card.querySelector("[data-panel]")).toBeNull();
+  expect(drawn(card, "--cand-bg")).toBe("#123456");
+  await waitFor(() => expect(images).toHaveLength(3));
+  act(() => fireEvent.load(images[2]));
+  act(() => staleLoad.call(images[1], new Event("load")));
+  expect(card.querySelectorAll("[data-panel]")).toHaveLength(2);
+  expect(drawn(card, "--cand-bg")).toBe("#111111");
 });
