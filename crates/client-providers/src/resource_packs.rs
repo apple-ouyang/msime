@@ -23,11 +23,19 @@ const HANDWRITING_LOCK: &str = include_str!("../../../resources/handwriting-mode
 const SETTLED_MODEL_LOCK: &str = include_str!("../../../resources/settled-model.lock.json");
 const GRAMMAR_MODELS_LOCK: &str = include_str!("../../../resources/grammar-models.lock.json");
 
-/// `grammar-models.lock.json` 里三个语法模型各自的工件名，每种型号一个资源包，
-/// 选小模型不用连带下载全部 ~645MB。
-const GRAMMAR_WANXIANG_ARTIFACTS: &[&str] = &["wanxiang-lts-zh-hans.gram"];
-const GRAMMAR_BAGUWEN_ARTIFACTS: &[&str] = &["zh-hans-t-essay-bgw.gram"];
-const GRAMMAR_BAGUWEN_COMPACT_ARTIFACTS: &[&str] = &["zh-hans-t-essay-bgw-compact.gram"];
+/// `grammar-models.lock.json` 的形态：每个语法模型一条，各自带自己的上游提交和文件。
+/// 四个模型来自三个仓库（万象、八股文、白霜/墨奇），所以不能共用一条 `source_commit`。
+#[derive(Deserialize)]
+struct GrammarModelsLock {
+    models: Vec<GrammarModelLock>,
+}
+
+#[derive(Deserialize)]
+struct GrammarModelLock {
+    id: String,
+    source_commit: String,
+    artifacts: Vec<crate::resources::Artifact>,
+}
 const OFFLINE_GLOSSES_LOCK: &str = include_str!("../../../resources/offline-glosses.lock.json");
 /// 各平台的 sherpa-onnx 运行库归档，`fetch_voice_runtime.py` 和打包脚本用的同一份锁。
 const VOICE_RUNTIME_LOCK: &str = include_str!("../../../resources/voice-runtime.lock.json");
@@ -55,11 +63,17 @@ pub enum ResourcePack {
     /// 桌面神经联想在输入停顿后使用的落定重排模型（`sentence-model-desktop.safetensors`）。
     SettledModel,
     /// octagram 语法模型万象 LTS（CC-BY-4.0）：`wanxiang-lts-zh-hans.gram`。
+    #[serde(rename = "grammar-model-wanxiang")]
     GrammarWanxiang,
     /// octagram 语法模型八股文·词级（LGPL-3.0）：`zh-hans-t-essay-bgw.gram`。
+    #[serde(rename = "grammar-model-baguwen")]
     GrammarBaguwen,
     /// octagram 语法模型八股文·词级紧凑（LGPL-3.0）：`zh-hans-t-essay-bgw-compact.gram`。
+    #[serde(rename = "grammar-model-baguwen-compact")]
     GrammarBaguwenCompact,
+    /// octagram 语法模型白霜/墨奇（实验，GPL-3.0 且构建链许可未声明）：`zh-moqi.gram`。
+    #[serde(rename = "grammar-model-baishuang")]
+    GrammarBaishuang,
     /// 候选的非英文离线释义：`zh-<语言>.db` 六份加上随它们一起分发的 `offline-glosses-NOTICE.txt`（改编自 CC BY-SA 4.0 的维基词典）。
     OfflineGlosses,
     /// Android arm64 上本地语音识别加载的 `libonnxruntime.so` 和 `libsherpa-onnx-c-api.so`，取自 `resources/voice-runtime.lock.json` 固定的 sherpa-onnx `.aar`。
@@ -148,7 +162,7 @@ pub struct PackArchive {
 
 impl ResourcePack {
     /// 每一种资源包，包括锁文件还没固定内容的；只要存在的那些用 [`ResourcePack::available`]。
-    pub const ALL: [ResourcePack; 11] = [
+    pub const ALL: [ResourcePack; 12] = [
         ResourcePack::Japanese,
         ResourcePack::LanguageDictionaries,
         ResourcePack::Handwriting,
@@ -156,6 +170,7 @@ impl ResourcePack {
         ResourcePack::GrammarWanxiang,
         ResourcePack::GrammarBaguwen,
         ResourcePack::GrammarBaguwenCompact,
+        ResourcePack::GrammarBaishuang,
         ResourcePack::OfflineGlosses,
         ResourcePack::VoiceRuntime,
         ResourcePack::Wubi,
@@ -184,6 +199,7 @@ impl ResourcePack {
             ResourcePack::GrammarWanxiang => "grammar-model-wanxiang",
             ResourcePack::GrammarBaguwen => "grammar-model-baguwen",
             ResourcePack::GrammarBaguwenCompact => "grammar-model-baguwen-compact",
+            ResourcePack::GrammarBaishuang => "grammar-model-baishuang",
             ResourcePack::OfflineGlosses => "offline-glosses",
             ResourcePack::VoiceRuntime => "voice-runtime",
             ResourcePack::Wubi => "wubi",
@@ -218,6 +234,7 @@ impl ResourcePack {
             | ResourcePack::GrammarWanxiang
             | ResourcePack::GrammarBaguwen
             | ResourcePack::GrammarBaguwenCompact
+            | ResourcePack::GrammarBaishuang
             | ResourcePack::OfflineGlosses
             | ResourcePack::VoiceRuntime
             | ResourcePack::MacosVoiceRuntime => &[],
@@ -243,9 +260,23 @@ impl ResourcePack {
         }
     }
 
+    /// 从语法模型锁里取一个模型，变成它自己的 `ResourceSet`。锁里没有这个 id 是编码错误，
+    /// 直接 panic：`every_pack_set_validates` 会在测试里先撞上。
+    fn grammar_model(lock: &GrammarModelsLock, id: &str) -> ResourceSet {
+        let model = lock
+            .models
+            .iter()
+            .find(|model| model.id == id)
+            .unwrap_or_else(|| panic!("grammar models lock has no {id}"));
+        ResourceSet {
+            source_commit: model.source_commit.clone(),
+            artifacts: model.artifacts.clone(),
+        }
+    }
+
     /// 该资源包固定的文件清单，取自仓库内的锁文件。从归档取出的文件（[`ResourcePack::archive`]），URL 记的是归档的地址，长度和 SHA-256 是取出后文件本身的。
     pub fn set(self) -> &'static ResourceSet {
-        static SETS: OnceLock<[ResourceSet; 10]> = OnceLock::new();
+        static SETS: OnceLock<[ResourceSet; 11]> = OnceLock::new();
         static UNPINNED: OnceLock<ResourceSet> = OnceLock::new();
         if self == ResourcePack::MacosVoiceRuntime {
             // 还没固定时是没有文件的空清单，它不能通过 `ResourceSet::validate`，也不会被列出或安装。
@@ -266,7 +297,7 @@ impl ResourcePack {
                 serde_json::from_str(HANDWRITING_LOCK).expect("handwriting model lock is valid");
             let settled: ResourceSet =
                 serde_json::from_str(SETTLED_MODEL_LOCK).expect("settled model lock is valid");
-            let grammar: ResourceSet =
+            let grammar: GrammarModelsLock =
                 serde_json::from_str(GRAMMAR_MODELS_LOCK).expect("grammar models lock is valid");
             let glosses: OfflineGlossesLock =
                 serde_json::from_str(OFFLINE_GLOSSES_LOCK).expect("offline glosses lock is valid");
@@ -279,9 +310,10 @@ impl ResourcePack {
                     artifacts: handwriting.artifacts,
                 },
                 settled,
-                grammar.only(GRAMMAR_WANXIANG_ARTIFACTS),
-                grammar.only(GRAMMAR_BAGUWEN_ARTIFACTS),
-                grammar.only(GRAMMAR_BAGUWEN_COMPACT_ARTIFACTS),
+                Self::grammar_model(&grammar, "wanxiang"),
+                Self::grammar_model(&grammar, "baguwen"),
+                Self::grammar_model(&grammar, "baguwen-compact"),
+                Self::grammar_model(&grammar, "baishuang"),
                 ResourceSet {
                     source_commit: glosses.input.source_revision,
                     artifacts: glosses.artifacts,
@@ -309,9 +341,10 @@ impl ResourcePack {
             ResourcePack::GrammarWanxiang => &sets[4],
             ResourcePack::GrammarBaguwen => &sets[5],
             ResourcePack::GrammarBaguwenCompact => &sets[6],
-            ResourcePack::OfflineGlosses => &sets[7],
-            ResourcePack::VoiceRuntime => &sets[8],
-            ResourcePack::Wubi => &sets[9],
+            ResourcePack::GrammarBaishuang => &sets[7],
+            ResourcePack::OfflineGlosses => &sets[8],
+            ResourcePack::VoiceRuntime => &sets[9],
+            ResourcePack::Wubi => &sets[10],
             ResourcePack::MacosVoiceRuntime => unreachable!("handled above"),
         }
     }
@@ -1635,6 +1668,11 @@ mod tests {
         // macOS 的语音运行库是重签后发布在本仓库固定标签下的资产，标签下的资产发布后不再替换。
         const MACOS_RUNTIME_RELEASE: &str =
             "https://github.com/metasequoiaime/msime/releases/download/voice-runtime-macos-v";
+        // 语法模型的上游发布：万象（amzxyz）、八股文（lotem）。字节由锁文件的 SHA-256 固定。
+        const GRAMMAR_UPSTREAM_RELEASES: [&str; 2] = [
+            "https://github.com/amzxyz/rime-wanxiang-data/releases/download/",
+            "https://github.com/lotem/rime-octagram-data/releases/download/",
+        ];
         for pack in ResourcePack::ALL {
             for artifact in &pack.set().artifacts {
                 let url = artifact.url.as_str();
@@ -1642,12 +1680,28 @@ mod tests {
                     rest.split_once('/')
                         .is_some_and(|(commit, _)| crate::is_lower_hex(commit, 40))
                 });
+                // 语法模型来自三个上游仓库，都不由本项目发版：八股文与万象是上游带标签的
+                // Release 资产，白霜/墨奇是钉在 40 位提交上的原始文件。上游可以替换自己
+                // 标签下的资产，所以这里的真正不变量是锁文件里的 SHA-256，不是地址。
+                let upstream_release = GRAMMAR_UPSTREAM_RELEASES
+                    .iter()
+                    .any(|prefix| url.starts_with(prefix));
+                // raw.githubusercontent.com/<owner>/<repo>/<40 位提交>/<文件>：第三段必须是提交。
+                let pinned_raw = url
+                    .strip_prefix("https://raw.githubusercontent.com/")
+                    .is_some_and(|rest| {
+                        rest.splitn(4, '/')
+                            .nth(2)
+                            .is_some_and(|commit| crate::is_lower_hex(commit, 40))
+                    });
                 assert!(
                     url.starts_with(RELEASE)
                         || url.starts_with(MODEL_RELEASE)
                         || url.starts_with(SHERPA_RELEASE)
                         || url.starts_with(MACOS_RUNTIME_RELEASE)
-                        || pinned_engine,
+                        || pinned_engine
+                        || upstream_release
+                        || pinned_raw,
                     "{url}"
                 );
             }

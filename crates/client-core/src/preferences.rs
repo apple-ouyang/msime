@@ -831,6 +831,9 @@ pub enum GrammarModel {
     BaguwenWord,
     /// 八股文·词级紧凑（LGPL-3.0），`zh-hans-t-essay-bgw-compact.gram`。
     BaguwenCompact,
+    /// 白霜/墨奇（实验，GPL-3.0 且构建链许可未声明），`zh-moqi.gram`。
+    /// 收录与旧版 Windows 正式版一致，界面上标「实验」。
+    Baishuang,
 }
 
 /// Candidate sentence-association sources. The dictionary lattice keeps its historical default; neural rerankers are opt-in because they add model work while typing or settling.

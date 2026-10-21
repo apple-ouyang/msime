@@ -26,6 +26,7 @@ export type ResourcePackId =
   | "grammar-model-wanxiang"
   | "grammar-model-baguwen"
   | "grammar-model-baguwen-compact"
+  | "grammar-model-baishuang"
   | "wubi"
   | "voice-runtime-macos";
 
@@ -59,6 +60,7 @@ export const resourcePackTitles: Record<ResourcePackId, string> = {
   "grammar-model-wanxiang": "语法模型·万象",
   "grammar-model-baguwen": "语法模型·八股文",
   "grammar-model-baguwen-compact": "语法模型·八股文（紧凑）",
+  "grammar-model-baishuang": "语法模型·白霜（实验）",
   wubi: "五笔码表",
   "voice-runtime-macos": "本地语音识别运行库",
 };

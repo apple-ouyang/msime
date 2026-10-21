@@ -389,6 +389,9 @@ fn engine_sentence_association(
         msime_client_core::preferences::GrammarModel::BaguwenCompact => {
             Some(ResourcePack::GrammarBaguwenCompact)
         }
+        msime_client_core::preferences::GrammarModel::Baishuang => {
+            Some(ResourcePack::GrammarBaishuang)
+        }
     };
     let collocation_model = state_root
         .zip(pack)

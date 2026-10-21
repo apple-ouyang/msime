@@ -116,12 +116,20 @@ fn a_real_downloaded_gram_model_loads_and_scores() {
     // 模型之间的搭配覆盖差别很大：八股文·词级紧凑对常见二元组给 −0.4 到 −4，白霜/墨奇（7 MB）
     // 很稀疏、多数组合落在未命中惩罚 −6.0 上。所以这里只断言读取端成立——给出有限分，且至少
     // 一个组合高于未命中惩罚；端到端纠正另有一条用八股文固定验证。
-    let pairs = [("我们", "一起"), ("已经", "完成"), ("非常", "奇怪"), ("这个", "年纪")];
+    let pairs = [
+        ("我们", "一起"),
+        ("已经", "完成"),
+        ("非常", "奇怪"),
+        ("这个", "年纪"),
+    ];
     let scores: Vec<f64> = pairs
         .iter()
         .map(|(a, b)| db.query(a, b, false, &config))
         .collect();
-    assert!(scores.iter().all(|s| s.is_finite()), "real model must give finite scores: {scores:?}");
+    assert!(
+        scores.iter().all(|s| s.is_finite()),
+        "real model must give finite scores: {scores:?}"
+    );
     assert!(
         scores.iter().any(|s| *s > config.non_collocation_penalty),
         "at least one known bigram should beat the miss penalty {}. scores={scores:?}",
@@ -154,12 +162,18 @@ fn a_real_baguwen_model_corrects_the_frequency_winner() {
     let text = syllables("bei'jing'da'xue");
     let plain = LatticeOptions::default();
     let baseline = decode_sentences(&text, &mut lookup(&rows), &plain);
-    assert_eq!(baseline[0].sentence, "北京大雪", "没有语法模型时词频首选是串错句");
+    assert_eq!(
+        baseline[0].sentence, "北京大雪",
+        "没有语法模型时词频首选是串错句"
+    );
     let scored_options = LatticeOptions {
         collocation_scorer: Some(&scorer),
         collocation_weight: 1.0,
         ..LatticeOptions::default()
     };
     let scored = decode_sentences(&text, &mut lookup(&rows), &scored_options);
-    assert_eq!(scored[0].sentence, "北京大学", "真实模型要把「北京+大学」拉回首位");
+    assert_eq!(
+        scored[0].sentence, "北京大学",
+        "真实模型要把「北京+大学」拉回首位"
+    );
 }
