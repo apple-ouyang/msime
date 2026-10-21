@@ -17,7 +17,7 @@ macOS 侧：
 - `sentence_association.neural_desktop`、`show_next_on_duplicate`（均缺省关）用同样的平铺键模式，放在词库与数据页「云端与智能候选」组；合并时只写这两项，`word_lattice`、`neural_keyboard` 和将来的字段随传入文档原样保留。恢复默认值后靠 `_sharedInputPreferencesApplied` 条件把缺省写回文档，避免旧值下次载入复活（与 `shuangpin_keymap_hint` 同一处理）。
 - `ai_assistant.english_candidates`（「英文模式也请求 AI 候选」，缺省关）放进独立的「AI 联想设置」窗口（`MSIMEAISettingsWindow`），勾选框加进表单并在 `MSIMEAISettingsMerge` 白名单（七字段改八字段）登记；这是 macOS 上 ai_assistant 的唯一原生入口，对应共享页 AI 页「联想」组。
 
-Windows 侧（`platforms/windows/settings/main.cpp`）：快捷模式 `LocalMode` 表 12 项改 13 项、颜文字后插入 `symbol`（缺省开）；五笔方案块在「四码唯一候选自动上屏」后加「z 键通配」（缺省关）与「第五码将首选上屏」（缺省开）两个 `bool_row`；「候选与联想」组在「学习选词习惯」后加「桌面神经联想」「去重后补充次选」两行（与共享页同为组内主行，「本地整句联想」仍在「更多选项」里）；AI 输入辅助页在「服务」组后新增「联想」组，放「英文模式也请求 AI 候选」一行（Windows 的 `english_ai_candidates` 能力位为真，候选数量固定为 3 不列出）。
+Windows 侧（`platforms/windows/settings/main.cpp`）：本次没有做。上游在同一个文件里重写了云候选与 AI 两页的结构，Windows 的这几行要按新结构另开一支加，避免与那次重写冲突。
 
 ## Alternatives considered
 
@@ -28,5 +28,5 @@ Windows 侧（`platforms/windows/settings/main.cpp`）：快捷模式 `LocalMode
 ## Consequences
 
 - 收益：原生窗口与共享 React 页在这六个偏好上达到 parity；「恢复默认值」和各分区「这一节是否被改过」的判定自动覆盖新键（探针表驱动）。macOS 的 LocalModesKey 探针、`applySharedLocalModes:`、`sharedPreferencesByMerging:` 因表驱动对新模式零改动生效。
-- 代价：本基线上 `local_modes.symbol`、`wubi_z_wildcard`、`wubi_fifth_code_top_commit`、`ai_assistant.english_candidates` 四个键在 client-core 尚无字段，开关写出的值在 feature 分支合入前是惰性的（保存往返不丢、不报错）。Windows 原生侧未在本机验证（无 Windows 构建环境）；`platforms/windows/tests/ui` 的 CTest 需在 Windows 上跑。
+- 代价：本基线上 `local_modes.symbol`、`wubi_z_wildcard`、`wubi_fifth_code_top_commit`、`ai_assistant.english_candidates` 四个键在 client-core 尚无字段，开关写出的值在 feature 分支合入前是惰性的（保存往返不丢、不报错）。Windows 原生侧不在本次改动内，因此 `platforms/windows/tests/ui` 不受影响。
 - 验证：`AISettingsSnapshotTest` 对 `english_candidates` 的合并断言在加入白名单前 abort、加入后通过（本机 clang 直编验证）；`LocalModePreferencesTest` 的快捷模式按钮计数 10 → 11 并覆盖 `symbol` 行（窗口类测试需图形会话，本机未跑，供 CI 验证）；`AppearancePreferences.mm` 过 `clang++ -fsyntax-only`。
