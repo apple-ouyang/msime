@@ -28,7 +28,11 @@ Status: implemented
 
 - `cargo test -p msime-engine` 2388 项全绿：octagram 单测覆盖编码边界、缺/损文件回 `None`、真实 darts 布局查询、上下文窗口与词首/句尾命中、弱搭配罚分；`decode_collocation_tests` 三项覆盖① 有 gram 时「一名一生」被纠正为「一名医生」、② scorer 在场但 weight=0 与无 scorer 输出逐字节一致、③ 缺/损文件经 `Option` 装配退回基线；`merge_collocation_tests` 三项覆盖 Collocation 标签、只留搭配行、双开关关时无重排基线照旧。
 - `cargo fmt --all --check`、`cargo clippy -p msime-engine --all-targets --locked -- -D warnings` 干净；`cargo check -p msime-host-api -p msime-input-runtime -p msime-mcp-server --all-targets` 通过。
-- 未验证：真实万象 `.gram` 文件端到端（无模型文件在手， fixture 由测试侧构造器按 darts 布局规则生成）；九键/全拼候选窗的 Collocation 行外观；偏好/资源包/设置页在后续切片。
+- **真实模型已实测**（2026-10-21，用下载的模型包而非 fixture）：
+  - `zh-hans-t-essay-bgw-compact.gram`（八股文·词级紧凑，39 MB）：`GramDb::load` 成功，`北京+大学` 打 −0.393、`北京+大雪` 打 −2.676，端到端把词频偏向的「北京大雪」纠正成「北京大学」。
+  - `zh-moqi.gram`（白霜/墨奇，7 MB）：`load` 成功，但搭配覆盖稀疏，多数二元组落在未命中惩罚 −6.0 上（`我们+一起` −4.867 是少数命中）。端到端纠正那条按模型能力跳过。
+  - 两条真实模型测试用 `option_env!("MSIME_REAL_GRAM")` 注入路径，CI 上没有模型包时打印原因后跳过，不会假绿。
+- 未验证：万象 LTS（390 MB，下载太慢未取）与八股文·词级（197 MB）；九键/全拼候选窗的 Collocation 行外观；新架构 Windows 宿主的原生设置页行。
 
 ## Consequences
 
