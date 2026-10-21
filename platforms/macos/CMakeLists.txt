@@ -92,7 +92,8 @@ target_include_directories(apple-client PUBLIC ../../shared/apple src ../../crat
 # drawn as two clauses, and NSUnderlineStyle* and the marked clause attribute live there. The iOS
 # build of these same sources compiles that block out - UIKit's document proxy takes a plain string.
 # CoreAudio and AudioToolbox for host-api's microphone capture (cpal), which every consumer of the archive links whether or not it records.
-set(MSIME_HOST_LIBRARY_FRAMEWORKS "-framework Foundation" "-framework Security" "-framework CoreText" "-framework CoreAudio" "-framework AudioToolbox")
+# reqwest 的 system-proxy 功能通过 SystemConfiguration 读取系统代理设置。
+set(MSIME_HOST_LIBRARY_FRAMEWORKS "-framework Foundation" "-framework Security" "-framework CoreText" "-framework CoreAudio" "-framework AudioToolbox" "-framework SystemConfiguration")
 target_link_libraries(apple-client PUBLIC "${MSIME_HOST_LIBRARY}" ${SQLITE_TARGET} ${MSIME_HOST_LIBRARY_FRAMEWORKS} "-framework AppKit")
 if(TARGET shared-doubao-auth)
   # The Rust archive needs the same Apple/system dependencies in shared ABI tests.
@@ -453,7 +454,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/backend-rust-session-stor
     -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
     -I "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/rust"
     ${MSIME_BACKEND_RUST_STORE_SOURCES} "${MSIME_HOST_LIBRARY}" -lsqlite3 -lc++
-    -framework Foundation -framework Security -framework CoreText -framework CoreAudio -framework AudioToolbox -framework AppKit
+    -framework Foundation -framework Security -framework CoreText -framework CoreAudio -framework AudioToolbox -framework AppKit -framework SystemConfiguration
     -o "${CMAKE_CURRENT_BINARY_DIR}/backend-rust-session-store-test"
   DEPENDS ${MSIME_BACKEND_RUST_STORE_SOURCES} "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/rust/MSIMERustClient.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/rust/module.modulemap" "${MSIME_HOST_LIBRARY}" VERBATIM)
@@ -527,7 +528,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test"
     -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
     ${MSIME_EMOJI_SWIFT_HOST_SOURCES}
     -Xlinker -force_load -Xlinker "$<TARGET_FILE:apple-client>"
-    "${MSIME_HOST_LIBRARY}" -lsqlite3 -lc++ -framework Foundation -framework Security -framework CoreText -framework CoreAudio -framework AudioToolbox -framework AppKit
+    "${MSIME_HOST_LIBRARY}" -lsqlite3 -lc++ -framework Foundation -framework Security -framework CoreText -framework CoreAudio -framework AudioToolbox -framework AppKit -framework SystemConfiguration
     -o "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test"
   DEPENDS ${MSIME_EMOJI_SWIFT_HOST_SOURCES} apple-client "${MSIME_HOST_LIBRARY}" VERBATIM)
 add_custom_target(emoji-swift-host-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test")
