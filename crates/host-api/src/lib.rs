@@ -379,6 +379,7 @@ fn engine_sentence_association(
         word_lattice: preferences.word_lattice,
         neural_keyboard: preferences.neural_keyboard,
         show_next_on_duplicate: preferences.show_next_on_duplicate,
+        ..Default::default()
     }
 }
 
