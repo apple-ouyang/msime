@@ -37,12 +37,10 @@ final class MacClipboardModel: ObservableObject {
     guard let rust else { throw BackendRustClient.Failure.unavailable }
     return try await route.request(rust, action, deviceName: deviceName)
   }
-  /// 走账号时，打开窗口时的账号还登录着才继续，退出或换了号就丢掉结果（`CancellationError`）；走中继时没有账号可核对。C 上拿不到会话代次，只按 user.id 绑定：同一个账号的令牌轮换和重新登录不作废（迁移差异 M29）。
+  /// 异步操作及列表刷新完成前再次核对来源，过期结果不能恢复到界面。
   private func requireAccount() async throws {
     guard let rust else { throw BackendRustClient.Failure.unavailable }
-    guard case .account(let userID) = route else { return }
-    guard try await rust.status()?.id == userID else { throw CancellationError() }
-    try Task.checkCancellation()
+    try await route.requireCurrent(rust)
   }
   /// 执行一个操作，然后重新读列表；云剪贴板开着时再读一次设备状态（操作本身已经带回设备状态时不再读）。
   func run(_ action: @escaping @MainActor () async throws -> BackendAccountClient.ClipboardDevices?) {

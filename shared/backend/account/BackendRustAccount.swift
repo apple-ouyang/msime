@@ -84,25 +84,42 @@ struct BackendRustAccount: Sendable {
   }
 
   /// `msime_client_account_cloud_clipboard` 的一个 action。`deviceName` 只在本机还没登记端到端加密时发给服务端，给其他设备的设备列表看。
-  func cloudClipboard(_ action: [String: Any], deviceName: String?) async throws -> Data {
+  func cloudClipboard(_ action: [String: Any], deviceName: String?, preferencesDirectory: URL? = nil) async throws -> Data {
     var request: [String: Any] = ["session_store": store, "action": action]
+    if let preferencesDirectory { request["preferences_directory"] = preferencesDirectory.path }
     if let deviceName { request["device_name"] = deviceName }
     return try await client.call(.accountCloudClipboard, request)
   }
 
   /// `msime_client_cloud_clipboard_source`：偏好里配置了自建中继时是 `relay`，否则是 `account`。`preferencesDirectory` 是共享偏好目录（macOS 是 `account-session.json` 所在的那一个）。不联网，偏好读不了或中继配置不合规时抛错。
-  func cloudClipboardSource(preferencesDirectory: URL) async throws -> String {
+  struct ClipboardSource: Equatable, Sendable {
+    let source: String
+    let revision: UInt64
+  }
+
+  func cloudClipboardSelection(preferencesDirectory: URL) async throws -> ClipboardSource {
     let value = try await client.call(.cloudClipboardSource, Data(preferencesDirectory.path.utf8))
-    guard let source = (try? JSONSerialization.jsonObject(with: value, options: [.fragmentsAllowed])) as? [String: Any],
-          let text = source["source"] as? String else { throw BackendRustClient.Failure.invalidResponse }
-    return text
+    guard let source = (try? JSONSerialization.jsonObject(with: value)) as? [String: Any],
+          let text = source["source"] as? String, ["account", "relay"].contains(text),
+          let revision = source["revision"] as? NSNumber,
+          CFGetTypeID(revision) != CFBooleanGetTypeID(),
+          !["f", "d"].contains(String(cString: revision.objCType)),
+          let number = UInt64(revision.stringValue) else {
+      throw BackendRustClient.Failure.invalidResponse
+    }
+    return ClipboardSource(source: text, revision: number)
+  }
+
+  func cloudClipboardSource(preferencesDirectory: URL) async throws -> String {
+    try await cloudClipboardSelection(preferencesDirectory: preferencesDirectory).source
   }
 
   /// `msime_client_relay_cloud_clipboard` 的一个 action：动作经用户自建的中继完成，中继地址和令牌从 `preferencesDirectory` 的偏好里读。`keystoreDirectory` 放中继的密钥串 `cloud-clipboard-relay-keystore`，同一台设备上的各个进程要传同一个，否则会登记成几台设备。
   func relayCloudClipboard(_ action: [String: Any], preferencesDirectory: URL, keystoreDirectory: URL,
-                           deviceName: String?) async throws -> Data {
+                           deviceName: String?, expectedRevision: UInt64? = nil) async throws -> Data {
     var request: [String: Any] = ["preferences_directory": preferencesDirectory.path,
                                   "directory": keystoreDirectory.path, "action": action]
+    if let expectedRevision { request["expected_revision"] = expectedRevision }
     if let deviceName { request["device_name"] = deviceName }
     return try await client.call(.relayCloudClipboard, request)
   }

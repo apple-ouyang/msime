@@ -308,6 +308,7 @@ private final class CloudPreferences: @unchecked Sendable {
       ]]
     }
     FakeRust.answer { call in
+      if call.entry == "cloud_clipboard_source" { return FakeRust.ok(["source": "account", "revision": 7]) }
       if call.entry == "account" { return FakeRust.ok(["user": FakeRust.user("synthetic-user")]) }
       switch call.operation {
       case "list":

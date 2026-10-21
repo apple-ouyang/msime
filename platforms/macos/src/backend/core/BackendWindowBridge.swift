@@ -29,9 +29,9 @@ final class BackendWindowBridge: NSObject {
   }
 
   @objc func showDictionary(forAccountID accountID: String) { show("dictionary", accountID: accountID, title: "云词库", size: NSSize(width: 660, height: 650)) { MacCloudDictionaryView(accountID: accountID) } }
-  /// 云剪贴板窗口：账号路径按账号编号缓存，中继路径的缓存键固定用 `relay`——一个中继令牌一个空间，与账号无关。
+  /// 云剪贴板窗口按来源身份缓存；中继配置变化后重新构建，避免旧列表操作新空间。
   func showClipboard(route: BackendCloudClipboardRoute) {
-    let accountID = if case .account(let userID) = route { userID } else { "relay" }
+    let accountID = route.cacheKey
     show("clipboard", accountID: accountID, title: "云剪贴板", size: NSSize(width: 560, height: 560)) { MacCloudClipboardView(route: route) }
   }
   /// Objective-C 侧（`BackendAccountEntry.h`）只认账号路径；中继走 Swift 里的 [`showClipboard(route:)`]。

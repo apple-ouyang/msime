@@ -147,7 +147,7 @@ final class BackendRustAccountTests: XCTestCase {
   /// 自建中继的两个入口：`cloud_clipboard_source` 传偏好目录、答走哪条路；`relay_cloud_clipboard` 带偏好目录、密钥串目录、设备名和动作，不带会话存储。
   func testRelayRequestsCarryThePreferencesAndKeystoreDirectories() async throws {
     FakeAccountRust.replies = [
-      "cloud_clipboard_source.": #"{"ok":true,"value":{"source":"relay"}}"#,
+      "cloud_clipboard_source.": #"{"ok":true,"value":{"source":"relay","revision":7}}"#,
       "relay_cloud_clipboard.list": #"{"ok":true,"value":{"enabled":true,"items":[]}}"#,
     ]
     let account = BackendRustAccount(client: try XCTUnwrap(BackendRustClient(table: FakeAccountRust.table())), store: 9)
@@ -155,7 +155,7 @@ final class BackendRustAccountTests: XCTestCase {
     let source = try await account.cloudClipboardSource(preferencesDirectory: state)
     XCTAssertEqual(source, "relay")
     _ = try await account.relayCloudClipboard(["operation": "list", "search": ""], preferencesDirectory: state,
-                                              keystoreDirectory: state, deviceName: "合成 Mac")
+                                              keystoreDirectory: state, deviceName: "合成 Mac", expectedRevision: 7)
     let raw = FakeAccountRust.rawRequests
     XCTAssertEqual(raw.map(\.entry), ["cloud_clipboard_source", "relay_cloud_clipboard"])
     XCTAssertEqual(raw.first?.bytes, Data(state.path.utf8))
@@ -164,6 +164,7 @@ final class BackendRustAccountTests: XCTestCase {
     XCTAssertEqual(relay?.body["directory"] as? String, state.path)
     XCTAssertEqual(relay?.body["device_name"] as? String, "合成 Mac")
     XCTAssertNil(relay?.body["session_store"])
+    XCTAssertEqual(relay?.body["expected_revision"] as? Int, 7)
   }
 
   func testSignedOutIsNilButUnreadableStorageIsAFailure() async throws {

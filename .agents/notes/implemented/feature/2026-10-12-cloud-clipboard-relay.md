@@ -34,6 +34,12 @@ Status: implemented
 - **代价**：中继的密钥串在所有平台上都是应用私有目录里的文件，弱于账号路径在 iOS 上的钥匙串和 Android 上的 AndroidKeyStore 加密。令牌明文在偏好文件里，和语音、翻译的凭据一样靠文件权限保护。协议有两份服务端实现要保持一致。新增依赖 axum 0.8（带进 axum-core、matchit、httpdate），只有参考中继用。
 - **已知缺口（后续改动）**：Windows 原生 WinUI 和 Linux 共享设置页显示中继字段。Windows 的地址和令牌先留在窗口草稿中，点击保存才一起交给共享 Rust 偏好库校验和持久化，不在 C++ 复制 URL/token 规则；切回账号删除本机配置。异步状态回调重绘保留草稿，保存或外部修订改变中继配置时清空旧状态并递增代次，旧请求结果不再覆盖新来源。macOS 这边三个入口共用的选路在 `platforms/macos/src/backend/clipboard/BackendCloudClipboardRoute.swift`：偏好目录与中继密钥串目录都是输入法状态目录，中继路径不核对账号、失败也不退回账号；Linux Fcitx5 键盘栏沿用显式 provider socket 优先的约定；没有显式 socket 时，后台先问 `msime_client_cloud_clipboard_source`，选中中继就只调用中继 C ABI，否则才使用自动发现的 socket。中继密钥串放在共享偏好目录，与 Linux 设置面板共用设备身份；中继配置、偏好目录或 socket 变化会清空旧条目并使在途结果失效。没有账号路径的键盘栏不新增账号请求，设备管理仍在已有面板完成。Android 原生宿主已经经 JNI 接上，设置页在「我的 → 云剪贴板」，密钥串由宿主用 AndroidKeyStore 加密、请求经只发请求的 `msime_client_relay_cloud_clipboard_exchange`，取舍见 [Android 接入自建中继](2026-10-12-android-cloud-clipboard-relay.md)。iOS（App Group 容器里的密钥串，并排除备份）和 HarmonyOS（NAPI；共享沙箱落地前键盘读不到偏好，只有设置应用能用）还没接，设置页因此不在这些宿主上显示中继；Tauri 移动端的 `cloud_clipboard_request` 在配置了中继时拒绝（`relay_unsupported`），不走账号。账号页里「云剪贴板」入口仍按是否登录显示，Linux 上配置中继后从「剪贴板」页打开面板。PRIVACY.md 的云剪贴板一节已写明中继的数据流向，各平台接入时再补对应平台的说明。
 
+## macOS 来源有效性
+
+打开面板或窗口时保存来源身份。每次动作前后重新读取来源，账号路径同时核对原账号仍登录；来源改变后拒绝请求或丢弃旧回答，不把旧列表放到新来源下。中继路径另绑定共享偏好的递增修订号，Rust 在读取实际地址与令牌的同一快照内比较 `expected_revision`，失败为 `clipboard_source_changed`，不联网。修订号不含凭据；请求没有该可选字段的既有宿主保持原契约。账号请求可带 `preferences_directory`，Rust 在启动请求前再次拒绝已切为中继的偏好。
+
+原生窗口缓存键区分账号、中继与修订号，更换地址或令牌后不复用旧窗口。选择整份偏好的修订号是为了沿用持久化存储的单调失效契约，而不用在 Swift 携带令牌或计算其摘要；代价是其他偏好变化也会使已打开的中继窗口失效，需要重开。只比较 `source == relay` 虽然省去修订号，但无法区分不同中继空间；只在 Swift 先读一次配置，仍会在真正读取配置的 C ABI 入口前留下切换间隙。
+
 ## Verification
 
 `client-services`：`clipboard_relay_tests.rs` 覆盖地址和令牌规则、规范化与路径前缀拼接、越界路径（`..`、`//`、百分号编码、片段、`@`）被拒、令牌不进 Debug 输出、错误码映射、密钥串的 0600 权限和原子替换、换地址或换令牌后失效、别人可读的密钥串被拒、非法请求不出本机；`client-core` 的偏好测试覆盖校验、序列化省略、凭据清单、诊断快照脱敏和恢复默认保留；设置文件测试锁住导出不写、导入不带；设置同步测试锁住 Android 与桌面导出都不含中继。`host-api`：中继动作集与账号动作集的差别、`source` 与 `configured_relay`、两个 C ABI 的非法输入和未配置。`msime-clipboard-relay`：`store` 的单元测试，以及 `tests/flow.rs` 在 127.0.0.1 上起真实中继、用两台 `RelayClipboard` 跑完整流程（首台建钥、第二台待批准、核对码一致、批准、互传、去重、搜索、置顶、保留期、删除、移除后换钥、重新批准、重置、清空、关闭开关），以及错误令牌、两个令牌的空间隔离、重启后数据还在（同一地址）、超限请求体 413、没有令牌 401。Tauri：选路顺序、专有动作只进中继、非法动作不触发后端、偏好读出中继的单元测试；macOS 上 `cargo test` 与 `clippy -D warnings` 通过。共享页：`apps/desktop/tests/settings/cloud-clipboard-relay.test.tsx`（规则与 Rust 用例一一对应、去掉配置时删键、令牌被拒不算未登录、剪贴板页填写和保存、改回账号）以及原有的设置页和云剪贴板面板测试。
