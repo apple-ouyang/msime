@@ -3019,7 +3019,7 @@ fn the_wubi_wildcard_matches_any_letter_and_keeps_guessing_codes_open() {
             .collect::<Vec<_>>(),
         ["你", "伱"]
     );
-    // 带 `z` 的码不是用户确定下来的编码：唯一候选也不自动上屏，第五个字母也不顶字。
+    // 此快照只验证带 `z` 的猜码不算四码唯一；第五键的顶字边界由真实 runtime 用例验证。
     assert!(!snapshot.wubi_unique_four_code);
     assert!(!snapshot.answered_by_pinyin_fallback);
 }

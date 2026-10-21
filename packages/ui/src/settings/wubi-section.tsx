@@ -49,7 +49,7 @@ export function WubiSection({
       />
       <SwitchRow
         title="z 键通配"
-        description="开启后 z 可匹配码表中该位置的任意字母（含首位），常用于首码不确定时起头。"
+        description="开启后 z 可匹配码表中该位置的任意字母（含首位），常用于首码不确定时起头；同时停用 z 引导的临时拼音反查。"
         checked={state.wubi_z_wildcard}
         onChange={(checked) => onChange({ wubi_z_wildcard: checked })}
       />

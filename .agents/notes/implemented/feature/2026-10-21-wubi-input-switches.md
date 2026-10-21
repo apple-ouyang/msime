@@ -31,7 +31,7 @@ Status: implemented
 - `WubiScheme` 收 `z_wildcard`；`QueryRequest` 新增 `wubi_z_wildcard`，由方案按「通配打开且码里确实有 `z`」算出，provider 只在它为真时改走 GLOB。
 - 通配语句：`z` → `?`，GLOB 元字符（`*` `?` `[` `]`）按字面转义，末尾接 `*` 收入更长编码的前缀行；排序改按权重（模式里的 `?` 永远不会等于真实 key 的那个字节，没有精确行可优先）。
 - **与临时拼音反查互斥**：三条路都要占用 `z`——混输里它是拼音字母、通配里它是未知码位、两者都关时它打开反查。`ImeSession::pinyin_lookup_allowed()` 一处判定，`bind_wubi_scheme` 和 `raw_request_through_scheme` 都读它。
-- 带 `z` 的码不算四码唯一：`InputSession::wubi_unique_four_code` 加 `raw_input.contains('z')` 守卫，与来源逐字一致。猜码后面那个「唯一」候选与好几个码只差一个字母，直接上屏就夺走了这个键存在的理由。
+- 带 `z` 的码不算四码唯一或可顶字的完整四码：共享 runtime 的 `wubi_four_code_is_complete` 与引擎采用相同守卫，猜码后按第五键也不提交首选。`InputSession::wubi_unique_four_code` 加 `raw_input.contains('z')` 守卫，与来源逐字一致。猜码后面那个「唯一」候选与好几个码只差一个字母，直接上屏就夺走了这个键存在的理由。
 
 ### 五码顶字
 
@@ -89,9 +89,11 @@ Status: implemented
 - `msime-client-services`：账号同步导出的键清单与逐键往返带上 `input.wubi_fifth_code_top_commit`。
 - `apps/desktop`：`wubi-preferences.test.ts` 的缺键默认值、`wubi-section.test.tsx` 的两行控件与各自写回的 patch。
 
-命令与结果见本次提交（`cargo test -p msime-engine`、`cargo fmt --all --check`、`cargo clippy -p msime-engine --all-targets --locked -- -D warnings`、`cargo check -p msime-host-api -p msime-input-runtime --all-targets`、`pnpm --filter @msime/desktop test`、`pnpm format:check`、`pnpm run verify-notes`）。
+本次审查补充真实 Runtime 会话回归：86 / 98 方案与混输开关的四种组合均输入 `wqzy` 后再按 `e`，确认通配候选不被五码顶字提前提交；纯五笔允许拒绝第五码，已有组字仍保留。Runtime 五笔定向 22 项、Engine 通配定向 15 项、两 crate 全目标严格 Clippy、`scripts/verify-local.sh --quick` 通过，其中 Linux 原生 94 项测试通过。共享设置页定向 8 项、desktop typecheck、build 与笔记校验通过。
 
-未验证：Windows 与 macOS 原生设置窗口没有在真机上看过这两行；共享 React 页是它们的共同来源，但 Windows 原生设置窗口与 macOS 原生外观面板不会自动出现这两个开关。
+原有命令与结果见本次提交（`cargo test -p msime-engine`、`cargo fmt --all --check`、`cargo clippy -p msime-engine --all-targets --locked -- -D warnings`、`cargo check -p msime-host-api -p msime-input-runtime --all-targets`、`pnpm --filter @msime/desktop test`、`pnpm format:check`、`pnpm run verify-notes`）。
+
+设置界面范围：共享 React 页由 macOS、Linux 与 HarmonyOS 承载；Windows、Android、iOS 的产品设置各自原生绘制，本 PR 没有给它们增加这两个开关。Windows 原生设置和 macOS 原生外观面板不会因共享页改动自动出现新控件。真机设置窗口未验收。
 
 ## Related notes
 

@@ -2880,7 +2880,7 @@ pub(crate) fn wubi_auto_commit_on_fourth_key(request: &WubiAutoCommitRequest) ->
         && request.phrase_prefix_empty
 }
 
-/// 顶字判定的四项输入，每一项都由调用方先问出来，函数本身只看布尔值。
+/// 顶字判定的五项输入，每一项都由调用方先问出来，函数本身只看布尔值。
 pub(crate) struct WubiTopCommitRequest {
     /// 用户开着「第五码将首选上屏」。
     pub top_commit_enabled: bool,
@@ -2906,12 +2906,8 @@ pub(crate) fn wubi_top_commit_on_next_key(request: &WubiTopCommitRequest) -> boo
         && !request.pinyin_continues
 }
 
-/// The reference Engine's `wubi_four_code_is_complete`, read off the snapshot this Engine already
-/// publishes: the guards of `wubi_unique_four_code` without the candidate count. The code is a
-/// native Wubi one (not dedicated English, no local mode, not answered by the pinyin fallback), it
-/// is exactly the four letters the Wubi scheme caps a table-answered code at, the caret is at its
-/// end, and there is a candidate to commit: a four-letter spelling no row matched was not answered
-/// by the table, and committing nothing would still drop the key.
+/// 从引擎快照判断本码表是否答过完整四码：非英文或快捷模式、非拼音回退，光标在末尾且有候选。
+/// 带 `z` 的猜码仍需用户确认，不能把它当成完整编码自动顶字。
 pub(crate) fn wubi_four_code_is_complete(snapshot: &EngineSnapshot) -> bool {
     const WUBI_COMPLETE_CODE_LENGTH: usize = 4;
     scheme_type(snapshot.scheme) == Some(SchemeType::Wubi)
@@ -2920,6 +2916,7 @@ pub(crate) fn wubi_four_code_is_complete(snapshot: &EngineSnapshot) -> bool {
         && !snapshot.nine_key
         && !snapshot.answered_by_pinyin_fallback
         && snapshot.editing_text.len() == WUBI_COMPLETE_CODE_LENGTH
+        && !snapshot.editing_text.contains('z')
         && msime_client_core::is_ascii_alphabetic(&snapshot.editing_text)
         && snapshot.caret_position == WUBI_COMPLETE_CODE_LENGTH
         && !snapshot.candidates.is_empty()
