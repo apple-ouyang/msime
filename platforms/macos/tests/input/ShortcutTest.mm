@@ -9,6 +9,13 @@
 #import "../settings/TestPreferenceSuite.h"
 #import "../settings/PreferenceViewLookup.h"
 
+// 既有候选文字回归使用出厂徽标；包装只属于本测试，不让其他引入控制器的测试产生未使用函数。
+static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
+    return CandidateDisplayWithBadges(candidate, traditional,
+        MSIMECandidateBadgeString(msime::mac::candidate_ai_badge("robot")),
+        MSIMECandidateBadgeString(msime::mac::candidate_fixed_badge(true, "paperclip")));
+}
+
 static NSUInteger missingKeyFontCalls;
 static IMP originalMonospacedFont;
 static NSFont *MissingKeyFont(id cls, SEL selector, CGFloat size, NSFontWeight weight) {
