@@ -11021,6 +11021,13 @@ int main(int argc, char **argv) {
         [controller setValue:session forKey:@"session"];
         [controller setValue:client forKey:@"activeClient"];
         [controller setValue:appearance forKey:@"appearance"];
+        // 夹具直接注入外观，跳过 ensureAppearance；经生产偏好入口补齐候选显示的出厂状态。
+        NSDictionary *candidateDisplayDefaults = @{
+            @"candidate_translation_show_pos": @YES, @"candidate_translation_single_sense": @NO,
+            @"candidate_fixed_badge": @YES, @"candidate_fixed_badge_style": @"paperclip",
+            @"candidate_ai_badge_style": @"robot"
+        };
+        [controller applySharedToolbarPreferences:candidateDisplayDefaults];
         [NSUserDefaults.standardUserDefaults removeObjectForKey:@"MSIMEClientPinnedCandidates"];
         [controller syncPageSize];
         // 上面逐项点过每页候选的弹出菜单，停在最后一项 10。
@@ -12485,6 +12492,30 @@ int main(int argc, char **argv) {
                 assert(scriptButton.frame.size.width > 0 && scriptButton.frame.size.height > 0);
             }
         }
+        // 走实际偏好缓存和候选按钮，确认两类徽标可以独立切换，固定状态与候选身份保持不变。
+        word[@"source"] = @3;
+        word[@"fixed_position"] = @1;
+        for (NSDictionary *badgeCase in @[
+            @{@"ai": @"robot", @"fixed": @"paperclip", @"show": @YES, @"suffix": @" 🤖 📎"},
+            @{@"ai": @"whale", @"fixed": @"pushpin", @"show": @YES, @"suffix": @" 🐳 📌"},
+            @{@"ai": @"whale", @"fixed": @"pushpin", @"show": @NO, @"suffix": @" 🐳"},
+            @{@"ai": @"robot", @"fixed": @"dot", @"show": @YES, @"suffix": @" 🤖 ·"}
+        ]) {
+            NSDictionary *unchanged = [word copy];
+            [controller applySharedToolbarPreferences:@{
+                @"candidate_ai_badge_style": badgeCase[@"ai"],
+                @"candidate_fixed_badge_style": badgeCase[@"fixed"],
+                @"candidate_fixed_badge": badgeCase[@"show"]
+            }];
+            [controller renderCandidates];
+            scriptButton = PageButton(layoutPanel.contentView, 0);
+            assert([scriptButton.toolTip isEqual:[@"漢語(aB)" stringByAppendingString:badgeCase[@"suffix"]]]);
+            assert([scriptButton.title containsString:[@"漢語" stringByAppendingString:badgeCase[@"suffix"]]]);
+            assert(scriptButton.candidateFixed && [scriptButton.candidateID isEqual:word[@"id"]]);
+            assert([word isEqual:unchanged]);
+        }
+        [word removeObjectForKey:@"fixed_position"];
+        [controller applySharedToolbarPreferences:candidateDisplayDefaults];
         NSUInteger contextIndex = 0;
         // The view and the commit context say whether conversion applies (`script_conversion`), as the runtime decides it from the scheme and local mode; the host no longer infers it from those. A view or context without the field converts nothing.
         for (NSDictionary *context in @[@{@"scheme": @0, @"local_mode": @"none", @"script_conversion": @YES}, @{@"scheme": @1, @"local_mode": @"quick_phrase", @"script_conversion": @YES}, @{@"scheme": @3, @"local_mode": @"none", @"script_conversion": @NO}, @{@"scheme": @0, @"local_mode": @"unicode", @"script_conversion": @NO}, @{@"scheme": @0, @"local_mode": @"temporary_japanese", @"script_conversion": @NO}, @{@"scheme": @1, @"local_mode": @"temporary_japanese", @"script_conversion": @NO}, @{@"scheme": @0, @"local_mode": @"none"}, @{}]) {

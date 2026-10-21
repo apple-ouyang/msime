@@ -60,3 +60,5 @@ Status: implemented
 - `pnpm --filter @msime/desktop test`（784 文件 4849 用例）、`cargo test -p msime-client-core`、`cargo clippy -p msime-client-core --all-targets --locked -- -D warnings`、`pnpm format:check` 全绿；`shortcut-test` 目标编过，确认 `InputController.mm` 的宿主改动可编译。
 
 审查整合：旧出厂徽标回归使用的 `CandidateDisplay` 包装仅定义在 `ShortcutTest.mm`，继续调用宿主的 `CandidateDisplayWithBadges` 与共享纯函数表。生产宿主传实际偏好，不保留没有调用方的出厂包装，也不依靠 `unused` 压制警告。整合作者后续修复时移除生产侧重复定义，避免控制器被测试直接包含后同一编译单元重定义。
+
+快捷键测试的主控制器夹具通过直接设置 `appearance` 隔离系统输入源，因此绕过 `ensureAppearance` 的默认缓存初始化。夹具经 `applySharedToolbarPreferences` 明确加载五个出厂显示偏好，随后以真实候选窗口覆盖机器人／鲸鱼、回形针／图钉／圆点及固定徽标关闭的连续切换，同时验证候选身份、固定状态和原始视图不变。生产入口仍由 `ensureAppearance` 初始化；不以空串掩盖缺失的夹具状态。
