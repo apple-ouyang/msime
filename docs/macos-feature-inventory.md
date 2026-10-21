@@ -50,7 +50,7 @@ comm -23 /tmp/ref.txt /tmp/ours.txt   # 这 45 条，应与下表一致
 | `TranslationClient.h/.mm` | 19 / 144 | `platforms/macos/src/cloud/TranslationCache.{h,mm}`、`platforms/macos/src/core/CustomTranslationBatch.{h,mm}` |
 | `ShuangpinKeymap.h/.cpp` | 14 / 96 | `platforms/macos/src/settings/ShuangpinKeymapPanel.{h,mm}` |
 | `Uninstaller.h/.mm` | 15 / 127 | `crates/host-macos/native/uninstaller.mm`（仅大小写不同，有 `shared-uninstaller` CTest） |
-| `CandidateGlossLayout.h` | 29 | `platforms/macos/src/candidate/CandidateItemLayout.h`：释义不再截到固定宽度，放不下时移到候选文字下方并在列内折行 |
+| `CandidateGlossLayout.h` | 29 | `shared/candidate/CandidateItemLayout.h`（macOS 与 Linux 原生画布共用）：释义不再截到固定宽度，放不下时移到候选文字下方并在列内折行 |
 | `CandidateRowFit.h` | 71 | 同上：横排过宽时不再按比例压缩各候选，超出列宽的文字在列内折行，行高按测得的高度增长 |
 | `BackendLocalSnapshot.swift` | 39 | 云端词库快照的 macOS 侧胶水，invoke `MSIMEMacDictionarySync`；功能落在 `crates/host-api/src/dictionary_snapshot.rs` 与 `platforms/macos/src/dictionary/DictionaryWindowController.mm` |
 | `BackendSkinArtworkClient.swift` | 59 | 皮肤封面图客户端；功能落在 Rust `crates/client-services/src/skin/ai.rs` |
