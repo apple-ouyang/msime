@@ -23,7 +23,7 @@ Status: implemented
 2. **顺序**：`engine/contracts/trilingual_input.h:16-19` 的 `Next(ime_enabled, japanese)` 返回 `!ime_enabled ? Chinese : japanese ? English : Japanese`，即 中文 → 日文 → 英文 → 中文。测试把这一点钉住：`server/tests/src/test_input_key_policy.cpp:5-14` 的 `trilingual_shift_cycles_chinese_japanese_english_and_returns_to_chinese`。
 3. **有组字时上屏什么**：`server/src/ipc/event_listener_keys.cpp:903-908` 先保留已选中的词段（`composition.creating_word.word`），再拼上还没选的原始拼音串（`get_pinyin_sequence_with_cases()`）；注释明说「retain an already selected word prefix, then commit the remaining raw spelling without choosing or learning a candidate」。**上屏的是原始拼音串（加上已选词段），不是高亮的候选**，也不学习、不算选词。
 
-这一条和 macOS 现有的「单按修饰键切换时提交原文」是同一条规则（`InputController.mm` 的 `toggleInputModeFromModifierTap`），所以循环改动复用了它，没有另造一套。
+循环开启时，所有参与的切换键先提交原文；关闭时，修饰键轻点继续提交原文，Ctrl+Option+Space 与 Shift+Space 保留原来的取消组字规则。原文提交失败则消费这次切换键并保留当前方案与组字，不能继续换方案。
 
 ### 共享层是纯函数，四个宿主可以共用
 
@@ -31,7 +31,7 @@ Status: implemented
 
 - `LanguageCycleState { mode, scheme, last_chinese_scheme, has_composition }` 是按下循环键那一刻的状态；
 - `next(enabled, state) -> Option<LanguageCycleStep>`，`LanguageCycleStep { mode, commit_raw, scheme }`。`None` 表示这个键不循环（开关关着），调用方照旧走二态切换；
-- `chinese_target(last_chinese_scheme, scheme)` 回答从日语回中文要切到哪个方案。
+- `chinese_target(last_chinese_scheme, scheme)` 回答从英文回中文要切到哪个方案：优先历史中文方案，其次当前中文方案，否则全拼；宿主再按版本与词库可用性选择可运行的中文方案。
 
 C ABI 入口 `msime_client_language_cycle(enabled, mode, scheme, last_chinese_scheme, has_composition)`（`crates/host-api/src/ffi/input.rs`，声明在 `crates/host-api/include/msime_client.h`）把同一个函数原样交给原生宿主，返回 `{mode, scheme, commit_raw}` 或 `null`。Foundation 包装是 `MSIMEClientSession -languageCycleEnabled:...`。这样 Windows、Linux 接上时不必重写顺序，只要在自己的键路径上把状态填进去。
 
@@ -43,7 +43,7 @@ C ABI 入口 `msime_client_language_cycle(enabled, mode, scheme, last_chinese_sc
 
 ### 目前只有 macOS 消费
 
-`HostCapabilities::trilingual_cycle` 只在 `HostPlatform::Macos` 为真。macOS 的 `InputController.mm` 新增 `applyTrilingualCycleIfEnabled`，接进「切换中英文」的四条路径（单按 Shift、单按 Control、Ctrl+Option+Space、Shift+Space，后者两条经新增的 `toggleChineseEnglishMode` 汇合）：先问共享层，`null` 就退回原来的二态切换。
+`HostCapabilities::trilingual_cycle` 只在 `HostPlatform::Macos` 为真。macOS 的 `InputController.mm` 新增 `applyTrilingualCycleIfEnabled`，接进「切换中英文」的四条路径（单按 Shift、单按 Control、Ctrl+Option+Space、Shift+Space，后者两条经新增的 `toggleChineseEnglishMode` 汇合）：先核对版本同时支持中文与日语，再问共享层；`null` 退回各自原来的二态切换。
 
 **这是有意的平台差异，不是漏迁。** Windows 的 TIP 和 Server 是两个进程：循环要新开一条协议（旧版是 `FanyImeProtocol::TrilingualCycle` 能力位 + `DataFromServerMsgType::TrilingualCycle` 回包 + `TrilingualCycleChanged` 推送，见旧版 `engine/contracts/README.md:47-62`）。Linux 的 IBus 和 Fcitx5 各自处理切换键。这两端接上时只需在 `HostCapabilities::for_platform` 里加上自己，并调用已经存在的 `msime_client_language_cycle`，不用改顺序。
 
@@ -63,4 +63,6 @@ C ABI 入口 `msime_client_language_cycle(enabled, mode, scheme, last_chinese_sc
   - Rust：`cargo test -p msime-engine -p msime-client-core -p msime-input-runtime`；`crates/client-core/src/language_cycle.rs` 的 6 个单测（关闭时二态、完整一圈、英文只回中文、有组字时先上屏、无组字不上屏、回到记下的中文方案），`preferences/tests.rs` 的 `trilingual_cycle_defaults_off_and_persists_an_explicit_enable`，`host_surface/tests.rs` 的能力位，`crates/host-api/src/tests.rs` 的 `language_cycle_abi_publishes_the_shared_state_machine`。
   - macOS：`trilingual-cycle-routing`（`platforms/macos/tests/input/TrilingualCycleRoutingTest.mm`）覆盖两侧翻译；`InputController.mm` 只做了 `clang -fsyntax-only`，没有装进输入法在真机上按过。
   - 设置页：`apps/desktop` 的 `input-mode-shortcuts-section` 两个新用例、`pnpm format:check`。
-  - 没验证到的：真机上的循环、Windows 和 Linux 的接线、以及循环在日语方案缺词库时的回退（那一条走现有的 `effective_scheme`，没有为它新增测试）。
+  - 没验证到的：真机上的循环、Windows 和 Linux 的接线、以及循环在日语方案缺词库时的回退（日语缺词库时仍可纯假名输入；版本不提供日语时不启用循环）。
+
+审查补充：`ShortcutTest.mm` 新增真实引擎、偏好持久化与控制器按键回归，覆盖没有中文历史的日语用户从英文回中文、原文提交失败保留组字、完整三态循环，以及关闭开关后组合键取消/修饰键轻点原文提交的既有差异。验证结果待远端原生构建与 CTest 完成后记录。

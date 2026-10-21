@@ -4,7 +4,7 @@
 //! 打开后，参与循环的是「切换中英文」那一组快捷键，不是 Ctrl+Shift+J；顺序由
 //! `engine/contracts/trilingual_input.h` 的 `Next()` 定死：中文 → 日文 → 英文 → 中文。
 //! 有组字时先原样上屏（`CommitRaw`：已选中的词段保留，剩下没选的拼音串照原样上屏），
-//! 再换模式。英文模式下不循环，键交回应用。
+//! 再换模式。英文模式下由同一个切换键回到中文。
 //!
 //! 这里只有纯函数：宿主读当前模式（`LanguageCycleState`）调 [`next`]，拿到目标模式与
 //! 「是否先上屏」，再各自执行。声明了 `HostCapabilities::trilingual_cycle` 的宿主因此共用
@@ -74,14 +74,15 @@ pub fn next(enabled: bool, state: LanguageCycleState) -> Option<LanguageCycleSte
     }
 }
 
-/// 从英文回到中文时要跑哪个方案：`last_chinese_scheme`，没有就退回当前方案。
-/// Windows 的 `japanese_toggle_target` 在 `last_chinese_scheme` 跑不起来时退回本版本默认方案，
-/// 那一层由宿主按自己的版本表判断（`effective_scheme`），这里只回答文档里记着的那个。
+/// 从英文回中文优先用记下的中文方案；没有历史时保留当前中文方案，否则回全拼。
+/// 宿主还需按版本与词库可用性选择能运行的中文方案，不能把日语当作中文回退。
 pub fn chinese_target(
     last_chinese_scheme: Option<ChineseScheme>,
     scheme: InputScheme,
 ) -> InputScheme {
-    last_chinese_scheme.map_or(scheme, InputScheme::from)
+    last_chinese_scheme
+        .or_else(|| ChineseScheme::of(scheme))
+        .map_or(InputScheme::Quanpin, InputScheme::from)
 }
 
 #[cfg(test)]
@@ -165,10 +166,18 @@ mod tests {
             chinese_target(Some(ChineseScheme::Shuangpin), InputScheme::Japanese),
             InputScheme::Shuangpin
         );
-        // 还没有记下过中文方案时留在当前方案，由宿主按 effective_scheme 再退。
+        // 日语没有中文历史时回全拼，不能再次进入日语。
+        for scheme in [
+            InputScheme::Japanese,
+            InputScheme::Korean,
+            InputScheme::Vietnamese,
+            InputScheme::Tibetan,
+        ] {
+            assert_eq!(chinese_target(None, scheme), InputScheme::Quanpin);
+        }
         assert_eq!(
-            chinese_target(None, InputScheme::Japanese),
-            InputScheme::Japanese
+            chinese_target(None, InputScheme::Shuangpin),
+            InputScheme::Shuangpin
         );
     }
 }

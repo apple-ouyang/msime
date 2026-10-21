@@ -19,7 +19,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 - (nullable NSDictionary<NSString *, id> *)setChinesePunctuationEnabled:(BOOL)enabled error:(NSError **)error;
 /// 中日英循环切换的目标（`msime_client_language_cycle`）：中 → 日 → 英 → 中，顺序和「有组字时先上屏」在
 /// `crates/client-core/src/language_cycle.rs`。返回 null 表示这一键不循环（开关关着），宿主照旧自己处理；
-/// 返回 `{mode, scheme, commit_raw}` 时按它执行。`lastChineseScheme` 是 `last_chinese_scheme` 的方案名，
+/// 返回 `{mode, scheme, commit_raw}` 时按它执行。`lastChineseScheme` 是 `last_chinese_scheme` 的引擎方案编号，
 /// -1 表示还没记下。
 - (nullable NSDictionary *)languageCycleEnabled:(BOOL)enabled
                                            mode:(uint8_t)mode

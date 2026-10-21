@@ -116,7 +116,7 @@ export function InputModeShortcutsSection({
         {trilingualCycle && (
           <SwitchRow
             title="中英日循环切换"
-            description="打开后上面的「切换中英文」快捷键按 中文 → 日文 → 英文 → 中文 依次切换，正在组字时先把已经打出来的原始字母上屏。英文模式下这个键交给应用；关着时这一组快捷键仍只在中文和英文之间切换。"
+            description="打开后上面的「切换中英文」快捷键按 中文 → 日文 → 英文 → 中文 依次切换，正在组字时先把已经打出来的原始字母上屏。英文模式下再按切换键回到中文；关着时这一组快捷键仍只在中文和英文之间切换。"
             checked={keybindings.trilingual_cycle ?? false}
             onChange={(checked) => onChange({ trilingual_cycle: checked })}
           />
