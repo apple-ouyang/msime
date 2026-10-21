@@ -26,7 +26,7 @@
 
 | 维度 | 方法 | 结果 |
 | --- | --- | --- |
-| 共享偏好 | 解析 `Preferences` 结构体全部字段（按路径递归可选结构与复用结构，共 321 个字段），检查 macOS 宿主与共享运行时是否消费 | 117 个顶层字段中 94 个有消费；其余 23 个顶层字段与 18 个嵌套子字段必须在 `platforms/macos/tests/settings/preference_coverage.py` 的清单里写明平台为何不适用，清单双向校验。可重跑：`python3 platforms/macos/tests/settings/preference_coverage.py .` → `280 of 321 shared preferences reach the macOS host; the other 41 are accounted for (204 nested fields checked).` |
+| 共享偏好 | 解析 `Preferences` 结构体全部字段（按路径递归可选结构与复用结构，共 324 个字段），检查 macOS 宿主与共享运行时是否消费 | 117 个顶层字段中 94 个有消费；其余 23 个顶层字段与 18 个嵌套子字段必须在 `platforms/macos/tests/settings/preference_coverage.py` 的清单里写明平台为何不适用，清单双向校验。可重跑：`python3 platforms/macos/tests/settings/preference_coverage.py .` → `283 of 324 shared preferences reach the macOS host; the other 41 are accounted for (207 nested fields checked).` |
 | 用户可见文案 | 抽取来源 macOS 全部源文件的中文字面量（含单字符与错误消息），逐条在目标中检索 | 694 条（去重后；可重跑：`python3 platforms/macos/scripts/extract_source_literals.py <来源检出>`）；未命中的均为措辞差异或已由 Tauri 页以不同表述覆盖，逐簇核实后无功能缺口 |
 | 符号 | 抽取来源 ObjC 方法、C/C++ 函数、Swift 函数名，逐个在目标中按名与按文本检索 | 517 个（可重跑：见 [macos-feature-inventory.md](macos-feature-inventory.md) 第六节的命令）；未命中项经逐簇核实后归为三类：目标以不同命名实现、按架构下沉到 Engine 或共享运行时、仅 iOS 使用 |
 
@@ -249,7 +249,7 @@ macOS 的 `ctest --test-dir <build>` 是门禁而不是一份总在红的名单�
 
 以下检查在 `ctest --test-dir <build>` 中运行，新增偏好、新增 TCC 调用、图标改名或本地识别器被关掉都会直接失败，而不是等到安装后才发现：
 
-- `preference-coverage`：共享偏好要么被 macOS 宿主消费，要么在清单中写明不适用的理由。当前解析 `Preferences` 的 321 个字段（117 个顶层 + 204 个嵌套），280 个有消费，41 个写明理由（23 个顶层 + 18 个嵌套），清单双向校验，所以既不会漏掉新偏好，也不会留下陈旧的豁免。脚本按裸字段名判定「有消费」，且会剥掉文档注释再匹配（`traditional_chinese_variant` 此前只在一处文档注释里出现，被误判为已消费）；这条轴看不见「名字出现过、但行为没接」的差异，也不覆盖 `.py` 与测试文件里的引用。
+- `preference-coverage`：共享偏好要么被 macOS 宿主消费，要么在清单中写明不适用的理由。当前解析 `Preferences` 的 324 个字段（117 个顶层 + 207 个嵌套），280 个有消费，41 个写明理由（23 个顶层 + 18 个嵌套），清单双向校验，所以既不会漏掉新偏好，也不会留下陈旧的豁免。脚本按裸字段名判定「有消费」，且会剥掉文档注释再匹配（`traditional_chinese_variant` 此前只在一处文档注释里出现，被误判为已消费）；这条轴看不见「名字出现过、但行为没接」的差异，也不覆盖 `.py` 与测试文件里的引用。
 - `settings-route-coverage`：设置页的页面清单在 TypeScript 里，路由词表在 Rust 里，中间没有东西连着；这一项把两边对起来，少一个分类的页面等于没有宿主能打开它。
 - `bundle-contents`：产物 bundle 的图标、本地化与本地识别器链接。
 - `info-plist-icons`、`info-plist-usage`：模板 plist 的图标引用与 TCC 用途字符串（含每种语言的本地化）。
