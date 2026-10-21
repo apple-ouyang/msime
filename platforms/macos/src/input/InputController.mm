@@ -977,13 +977,19 @@ static unichar MSIMEASCIIForSmartChinesePunctuation(unichar character) {
     default: return 0;
     }
 }
-// 直角引号样式下出这个字的引号键：「」是 `'`，『』是 `"`；其他字为 0。
-static unichar MSIMECornerQuoteKey(id mark) {
-    if (![mark isKindOfClass:NSString.class] || [mark length] != 1) return 0;
-    switch ([mark characterAtIndex:0]) {
-    case 0x300C: case 0x300D: return '\''; // 「 」
-    case 0x300E: case 0x300F: return '"'; // 『 』
-    default: return 0;
+// 直角引号两组字：「」是 0x300C/0x300D，『』是 0x300E/0x300F。
+static BOOL MSIMEIsCornerQuoteMark(id mark) {
+    if (![mark isKindOfClass:NSString.class] || [mark length] != 1) return NO;
+    const unichar c = [mark characterAtIndex:0];
+    return c >= 0x300C && c <= 0x300F;
+}
+// 这个字所属的一组由哪个键出：corner 样式下 `'` 出「」、`"` 出『』；契约第 3 版起引擎里 `{` `}` 也分别出这两组。普通中文方案的 `{` `}` 在到达引擎前被上面的宿主分支拦成「/」，仍按契约分组判：`{` 算出「」的键，`}` 不算——把它算进「」组会让 `}` 上的屏的」被改回「。注音的大千键位 `{` `}` 由引擎 `SHIFT_PUNCTUATION` 固定出『』，也不算出这两组的键。
+static BOOL MSIMEKeyProducesCornerQuote(unichar key, unichar mark, int scheme) {
+    const BOOL zhuyin = scheme == msime::mac::scheme::Zhuyin;
+    switch (mark) {
+    case 0x300C: case 0x300D: return key == '\'' || (!zhuyin && key == '{'); // 「 」
+    case 0x300E: case 0x300F: return key == '"' || (!zhuyin && key == '}');  // 『 』
+    default: return NO;
     }
 }
 // View 报告的引号与方头括号样式（host-api 已解析好 corner_when_traditional）；英文模式下的中文标点按它出字。
@@ -1535,11 +1541,15 @@ static NSImage *MSIMECandidateLogoImage() {
 }
 
 // Arms the space conversion from what a punctuation commit actually put in the document, as the reference's _NoteCommittedChinesePunctuation does: the committed tail decides, so a candidate committed together with its mark (nihao, gives 你好，) arms too, and the ASCII target comes from the mark map rather than the key pressed (the backslash key gives 、, which converts to /). Called after apply:, so an opening mark this host has just auto-closed is seen as a pending closing and does not arm. Anything else disarms.
-- (void)noteCommittedChinesePunctuation:(NSDictionary *)transition client:(id)client {
+- (void)noteCommittedChinesePunctuation:(NSDictionary *)transition key:(unichar)key client:(id)client {
     NSString *commit = transition[@"commit"];
-    const unichar ascii = [commit isKindOfClass:NSString.class] && commit.length
-        ? MSIMEASCIIForSmartChinesePunctuation([commit characterAtIndex:commit.length - 1])
-        : 0;
+    unichar ascii = 0;
+    if ([commit isKindOfClass:NSString.class] && commit.length) {
+        const unichar mark = [commit characterAtIndex:commit.length - 1];
+        ascii = MSIMEASCIIForSmartChinesePunctuation(mark);
+        // 直角引号的 ASCII 孪生按出的键算：`{` 出的「转回 `{`，不是样式键 `'`。
+        if (ascii && MSIMEKeyProducesCornerQuote(key, mark, MSIMEViewScheme(_view))) ascii = key;
+    }
     if (!_appearance.smartPunctuation || !_appearance.smartPunctuationSpaceConvert || !ascii ||
         _pendingPairedClosing || ![self schemeAllowsSmartPunctuationGestures]) {
         [self clearSmartPunctuationSpaceConversion];
@@ -6577,7 +6587,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         if (transition) {
             [self apply:transition];
             // Only the idle route commits the Engine's Chinese form; the ASCII route leaves the tail ASCII.
-            if (!hasComposition && keypadPunctuation != '.') [self noteCommittedChinesePunctuation:transition client:sender];
+            if (!hasComposition && keypadPunctuation != '.') [self noteCommittedChinesePunctuation:transition key:(unichar)keypadPunctuation client:sender];
             if (MSIMEStrictBoolean(transition[@"handled"])) return YES;
         }
         if (keypadPunctuation == '.') {
@@ -6949,7 +6959,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [self apply:transition];
     // A punctuation key is the only route that arms the space conversion, as in the reference, whose punctuation handler is the one caller: a candidate picked with Space or a digit never arms, even when its text ends in a mark.
     if (command == UINT32_MAX && event.characters.length == 1 && MSIMEASCIIPunctuation([event.characters characterAtIndex:0]))
-        [self noteCommittedChinesePunctuation:transition client:sender];
+        [self noteCommittedChinesePunctuation:transition key:[event.characters characterAtIndex:0] client:sender];
     if (MSIMEStrictBoolean(transition[@"handled"])) return YES;
     // Match Apple: Engine gets first refusal, then finish any composition before fallback.
     if ([_view[@"editing_text"] length]) {
@@ -7088,12 +7098,13 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             markEndsLongerCommit = YES;
         }
     }
-    const BOOL quoteKey = !markEndsLongerCommit || punctuationKey == '"' || punctuationKey == '\'';
-    // 直角引号（quote_style 为 corner）同理：」改回「，』改回『，但只在按的正是出这个字的引号键（`'` 出「」，`"` 出『』）时改。注音的大千键位 `]` `}` 自己出」』（引擎的 `SHIFT_PUNCTUATION`），那是用户要打的后半个，改回前半个就成了再开一对。
+    const BOOL quoteKey = !markEndsLongerCommit || punctuationKey == '"' || punctuationKey == '\'' ||
+        punctuationKey == '{' || punctuationKey == '}';
+    // 直角引号同理：」改回「，』改回『，但只在按的正是出这个字的引号键时改——corner 样式的 `'` `"`，以及契约第 3 版起非注音方案的 `{` `}`。注音的大千键位 `]` `}` 自己出」』（引擎的 `SHIFT_PUNCTUATION`），那是用户要打的后半个，改回前半个就成了再开一对。
     static NSDictionary<NSString *, NSString *> *const reopenings = @{@"”": @"“", @"’": @"‘", @"」": @"「", @"』": @"『"};
-    const unichar cornerQuoteKey = MSIMECornerQuoteKey(mark);
+    const BOOL cornerQuoteMark = MSIMEIsCornerQuoteMark(mark);
     if (_appearance.pairedPunctuation && [mark isKindOfClass:NSString.class] && quoteKey && reopenings[mark] &&
-        (!cornerQuoteKey || cornerQuoteKey == punctuationKey) &&
+        (!cornerQuoteMark || MSIMEKeyProducesCornerQuote(punctuationKey, [mark characterAtIndex:0], MSIMEViewScheme(_view))) &&
         !_pendingPairedClosing && !MSIMEPairedPunctuationExcludedHost()) {
         NSMutableDictionary *reopened = [transition mutableCopy];
         NSString *opening = reopenings[mark];
@@ -7103,8 +7114,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         transition = reopened;
     }
     NSString *openedClosing = nil;
-    // 注音 `[` `{` 出的「『同样不补后半个：这个宿主只在 `'` `"` 上跨过」』，`]` `}` 到了引擎照样再出一个，补了就成了「内容」」。没有按键的整段上屏（例如候选）照旧按字补。
-    const BOOL cornerQuoteFromOtherKey = cornerQuoteKey && punctuationKey && cornerQuoteKey != punctuationKey;
+    // 注音 `[` `{` `]` `}` 出的「』」『同样不补后半个：这个宿主只在出这个字的键上配对，`]` `}` 到了引擎照样再出一个，补了就成了「内容」」。没有按键的整段上屏（例如候选）照旧按字补。
+    const BOOL cornerQuoteFromOtherKey = cornerQuoteMark && punctuationKey &&
+        !MSIMEKeyProducesCornerQuote(punctuationKey, [mark characterAtIndex:0], MSIMEViewScheme(_view));
     if ([mark isKindOfClass:NSString.class] && mark.length && !cornerQuoteFromOtherKey &&
         _appearance.pairedPunctuation && !_pendingPairedClosing && !MSIMEPairedPunctuationExcludedHost()) {
         for (NSArray<NSString *> *pair in MSIMEPunctuationPairs())
