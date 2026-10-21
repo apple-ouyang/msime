@@ -46,5 +46,11 @@ Windows 正式版（v0.11.1）有一个「符号模式」：没有组字时按 S
   - **Windows、iOS、Android 原生设置页及 macOS 原生回退设置**没加这一行。macOS、Linux、HarmonyOS 共享设置页已经能改 `local_modes.symbol`；原生设置入口需要在后续切片补齐。Linux 没有独立的原生设置页。
   - **移动宿主的菜单**没加符号入口：iOS、Android、HarmonyOS 的触屏模式表仍是原来的项。屏幕键盘进符号模式的路径与实体键盘相同（发带 Shift 的 `S`），但菜单里没有磁贴，这一片没做。
   - **Windows 的 `utility.symbol_mode` 配置键**没有映射：`scripts/test-reference-config-coverage.py` 里已经加上 `utility.symbol_mode → local_modes.symbol` 的映射（181 条），所以这个键不再被报成无人应答；Windows 原生设置页那一行仍缺。
-  - 未在真机或模拟器上验收任何平台；这一片的证据是 Rust 单测、`cargo check`、共享设置页的 vitest 和契约检查。
+  - 未做物理设备与蓝牙键盘验收；Android 模拟器证据见下方验证，其他平台的系统入口仍未验收。
 - 已检索的相关笔记：[打拼音出符号](2026-10-13-symbol-candidates.md) 是 `symbol_candidates.tsv` 与「来源复用 Emoji」的来源，本篇复用了它的查询函数、写法规则和偏好写法；[内置拆字反查](2026-10-13-builtin-chaizi-mode.md) 是「编进引擎的本地表 + CC BY 署名 + 声明渠道」这套做法的先例，本篇的生成器、锁文件与契约检查照它写；[Shift+字母进入快捷模式的总开关](2026-10-11-shift-letter-entry-switch.md) 是入口判定的位置，符号模式一并受它约束。
+
+## Verification
+
+审查修正后，精确分组 `xl` 的结果与希腊小写组完整相等，非精确 `x` 保留多组前缀查询。引擎符号定向测试、engine/runtime/host-api 严格 Clippy、完整 quick 门禁通过（构建机 run `20261021-200130`），Linux 原生 108 项通过。共享设置页 400 项、类型检查、生产构建、笔记校验与 Fcitx 标签契约通过；Windows notices 的合成目录补齐新增许可。使用真实固定资源暂存后重新生成 iOS 工程，许可已加入资源构建阶段。
+
+Android 原生 APK 与合成编辑器已构建，API 28 的四个共享客户端 crate 设备单测通过；API 28 装包主流程及 API 35 整体验证仍在运行，完成后补充最终结果。生成表检查因上游缓存缺失跳过下载比较，不把它记作重新下载生成已验证。
