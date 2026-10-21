@@ -24,7 +24,7 @@ Status: implemented
 3. 匹配前剥掉 `///` / `//!` 文档注释行：散文里点名一个偏好不等于有人读它。
 4. `NOT_APPLICABLE` 增补 `traditional_chinese_variant`、`keybindings.switch_language_ctrl_space`、`keybindings.toggle_japanese_ctrl_shift_j`、`wubi_candidate_selection.second_key/third_key`、`fuzzy_pinyin.seeded`，并记录 `custom_theme.keyboard` 中 macOS 不读取的触屏设计字段，每条写明理由。
 
-结果：317 个字段（114 顶层 + 203 嵌套）中 276 个有消费，41 个豁免（23 顶层 + 18 嵌套），脚本 exit 0。
+结果：320 个字段（117 顶层 + 203 嵌套）中 279 个有消费，41 个豁免（23 顶层 + 18 嵌套），脚本 exit 0。
 
 **文案轴。** 新增 `platforms/macos/scripts/extract_source_literals.py`，口径固定为「来源 `platforms/macos/src` 单行含汉字字符串字面量、按内容去重」= **694**。旧文档的 623 / 643 来自一次没有记录、无法复跑的过滤，两个数互相矛盾，一并改成脚本口径。
 
@@ -40,14 +40,14 @@ Status: implemented
 
 ## Consequences
 
-- 覆盖数字从「文档说了算」变成「脚本说了算」：断言 958、文案 694、符号 517、文件 45、偏好 317 字段中 276 有消费 / 41 豁免，每条都附了可重跑命令。
+- 覆盖数字从「文档说了算」变成「脚本说了算」：断言 958、文案 694、符号 517、文件 45、偏好 320 字段中 279 有消费 / 41 豁免，每条都附了可重跑命令。
 - 结论的措辞跟着收紧：`macos-parity.md` 从「明确缺口一档现在是空的」改成「相对固定基线 `663d7db`，在本次抽到的维度上没有发现新缺口」，并单列「哪些仍不覆盖」。
 - 偏好门禁的已知边界写进了脚本 docstring：裸字段名判定消费，看不见「名字出现过、但行为没接」；不覆盖 `.py` 与测试文件里的引用；经辅助方法读字段的（`WubiCandidateSelectionPreferences::slot`）需要人工豁免并写明消费点。
 - 断言轴 865 条未逐条核对是真实的欠账，不是可以靠改正则消掉的；要清掉它得按测试文件逐个读来源测试、在目标找对应实现，工作量按文件数算（22 个文件），不该再包装成「已核对」。
 
 ## Verification
 
-- `python3 platforms/macos/tests/settings/preference_coverage.py .` → `276 of 317 shared preferences reach the macOS host; the other 41 are accounted for (203 nested fields checked).`，exit 0；改前同一条命令是 `92 of 114 ... the other 22 are accounted for.`，exit 0（漏检 `traditional_chinese_variant`）。
+- `python3 platforms/macos/tests/settings/preference_coverage.py .` → `279 of 320 shared preferences reach the macOS host; the other 41 are accounted for (203 nested fields checked).`，exit 0；改前同一条命令是 `92 of 114 ... the other 22 are accounted for.`，exit 0（漏检 `traditional_chinese_variant`）。
 - 注入探针：在 `NavigationPreferences` 加 `zzzprobe` 后新脚本报 `navigation.zzzprobe is not read on macOS and has no entry here` 并 exit 1，旧脚本 exit 0；还原后 exit 0。
 - `python3 platforms/macos/scripts/extract_source_assertions.py /tmp/msime-audit/MSIME-Apple` → 958 / 847 / 111 / 845；旧命令 `grep -hoE 'require\([^,]*,\s*"[^"]+"' *.mm *.cpp | wc -l` → 93。
 - `python3 platforms/macos/scripts/extract_source_literals.py /tmp/msime-audit/MSIME-Apple` → 694 去重 / 852 出现。
