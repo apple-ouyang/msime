@@ -1837,30 +1837,38 @@ fn temporary_japanese_raw_commit_learns_with_the_r_prefix() {
 /// 关掉后回车照常上屏，只是不学词。
 #[test]
 fn enter_learns_english_word_follows_the_preference() {
-    // 出厂（开）：专用英文里回车上屏的字母学进词库。
-    let dir = tempfile::tempdir().unwrap();
-    let value = options(dir.path());
-    let mut session = Session::new(&value).unwrap();
-    session.set_dedicated_english(true).unwrap();
-    type_text(&mut session, b"hello");
-    let result = session.command(Command::CommitRaw).unwrap();
-    assert!(result.has_commit);
-    assert_eq!(result.commit, "hello");
-    assert_eq!(result.diagnostic, "");
-    assert_eq!(english_word_count(&value, "hello"), 1);
-
-    // 关：照常上屏，词库不动。
-    let off_dir = tempfile::tempdir().unwrap();
-    let mut off = options(off_dir.path());
-    off.learn_english_on_enter = false;
-    let mut session = Session::new(&off).unwrap();
-    session.set_dedicated_english(true).unwrap();
-    type_text(&mut session, b"hello");
-    let result = session.command(Command::CommitRaw).unwrap();
-    assert!(result.has_commit);
-    assert_eq!(result.commit, "hello");
-    assert_eq!(result.diagnostic, "");
-    assert_eq!(english_word_count(&off, "hello"), 0);
+    for enabled in [false, true] {
+        for (route, typed, committed, learned) in [
+            ("dedicated", "hello", "hello", "hello"),
+            ("incomplete_pinyin", "xyz", "xyz", "xyz"),
+            ("temporary_english", "Yrustacean", "Yrustacean", "rustacean"),
+            ("temporary_japanese", "Rkk", "Rkk", "rkk"),
+            ("complete_pinyin", "ni", "ni", "ni"),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let mut value = options(dir.path());
+            value.learn_english_on_enter = enabled;
+            let mut session = Session::new(&value).unwrap();
+            session.set_dedicated_english(route == "dedicated").unwrap();
+            for byte in typed.bytes() {
+                assert!(
+                    session
+                        .character(byte, byte.is_ascii_uppercase())
+                        .unwrap()
+                        .handled
+                );
+            }
+            let result = session.command(Command::CommitRaw).unwrap();
+            assert!(result.handled && result.has_commit, "{route}");
+            assert_eq!(result.commit, committed, "{route}");
+            assert_eq!(result.diagnostic, "", "{route}");
+            assert_eq!(
+                english_word_count(&value, learned),
+                i64::from(enabled && route != "complete_pinyin"),
+                "{route}"
+            );
+        }
+    }
 }
 
 /// bridge.cpp:1349-1357: a local-mode commit that is not an English word (here the Unicode mode's hex digits) is still committed; the failed learning is reported beside it rather than undoing it.

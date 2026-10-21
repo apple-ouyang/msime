@@ -2869,9 +2869,8 @@ impl<E: InputEngine> Runtime<E> {
             .and_then(|reading| reading.strip_suffix(self.cached.editing_text.as_str()))
             .unwrap_or("");
         let picked = selected_by_digit || selection_action;
-        // Escape throws the whole composition away, the chosen pieces with it - the reference's
-        // _HandleCancel clears `word_for_creating_word` in the same breath. 第一次 Esc 保留已选词时除外：
-        // 这一下只丢掉没选的拼写，词段留下。
+        // Esc 默认丢弃整段组字和已选词，与参考实现的 _HandleCancel 一致。
+        // 开启保留已选词时，第一次只丢掉未选拼写，词段留下。
         let discarded = matches!(action, Action::Command(Command::Cancel)) && !escape_keeps_word;
         // Segment editing on an emptied reading leaves the held phrase for the next segment key or Backspace, instead of sending it to the document (the reference's `keep_creating_word_after_empty_raw`).
         let keep_empty = matches!(

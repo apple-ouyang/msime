@@ -2240,6 +2240,64 @@ fn escape_keeps_the_selected_word_when_the_preference_is_on() {
 }
 
 #[test]
+fn real_engine_escape_preserves_selection_history_and_followup_actions() {
+    for action in [
+        Action::Command(Command::Cancel),
+        Action::Command(Command::Backspace),
+        Action::SegmentBackspace,
+        Action::Command(Command::CommitRaw),
+        Action::Command(Command::CommitCandidate),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut runtime = ai_answer_runtime(directory.path(), 5);
+        rusqlite::Connection::open(
+            directory
+                .path()
+                .join("dictionaries")
+                .join(msime_engine::assets::MAIN_DICTIONARY),
+        )
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER); \
+            INSERT INTO tbl_1_h VALUES('hao','h','好',100);",
+        )
+        .unwrap();
+        runtime.set_phrase_preedit(true);
+        runtime.set_escape_keeps_selected_word(true);
+        type_characters(&mut runtime, "nihao");
+        runtime.set_caret(Some(2)).unwrap();
+        let id = runtime
+            .view()
+            .candidates
+            .iter()
+            .find(|row| row.text == "你")
+            .unwrap()
+            .id;
+        let selected = runtime.dispatch(Action::Select(id)).unwrap();
+        assert_eq!(selected.commit, None);
+        assert_eq!(selected.view.phrase_prefix, "你");
+        assert_eq!(selected.view.editing_text, "hao");
+        let kept = runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+        assert!(kept.handled);
+        assert_eq!(kept.commit, None);
+        assert_eq!(kept.view.phrase_prefix, "你");
+        assert!(kept.view.editing_text.is_empty());
+        assert_eq!(runtime.phrase_selections.len(), 1);
+        let restored = matches!(action, Action::Command(Command::Backspace));
+        let committed = matches!(
+            action,
+            Action::Command(Command::CommitRaw | Command::CommitCandidate)
+        );
+        let result = runtime.dispatch(action).unwrap();
+        assert!(result.handled);
+        assert_eq!(result.commit.as_deref(), committed.then_some("你"));
+        assert!(result.view.phrase_prefix.is_empty());
+        assert_eq!(result.view.editing_text, if restored { "ni" } else { "" });
+        assert!(runtime.phrase_selections.is_empty());
+    }
+}
+
+#[test]
 fn ai_context_keeps_the_recent_tail_on_a_character_boundary() {
     let mut runtime = runtime();
     runtime.focused = true;
