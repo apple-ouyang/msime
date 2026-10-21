@@ -53,6 +53,8 @@ export function testHost(
     input_mode_status_item: macos,
     candidate_english_font: platform === "windows" || macos || android,
     english_suggestions: android,
+    // 英文模式的 AI 候选：除 HarmonyOS 外都过会话组字（host_surface.rs）。
+    english_ai_candidates: !harmony,
     helpcode_shift_entry: android || harmony,
     skin_directory_import: false,
     touch_toolbar_components: false,

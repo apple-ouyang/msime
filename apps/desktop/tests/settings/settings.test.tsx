@@ -10485,9 +10485,9 @@ test("the AI page is grouped like the other pages", async () => {
   await settingsReady();
   const page = screen.getByRole("group", { name: "AI 辅助" });
   expect(page.querySelector(".section")).toBeNull();
-  // 桌面没有润色测试，服务配置直接可见，提示词单独折叠。Windows 固定候选数量，不出现「联想」组；
-  // 桌面宿主自己发请求，「网络」组给出代理设置。
-  expect(pageGroupTitles(page)).toEqual(["服务", "网络"]);
+  // 桌面没有润色测试，服务配置直接可见，提示词单独折叠。Windows 固定候选数量，所以「联想」组里
+  // 只剩「英文模式也请求 AI 候选」；桌面宿主自己发请求，「网络」组给出代理设置。
+  expect(pageGroupTitles(page)).toEqual(["服务", "联想", "网络"]);
   const endpoint = within(page).getByLabelText("AI 接口地址");
   expect(endpoint.closest("details")).toBeNull();
   const prompt = within(page).getByLabelText("AI 联想自定义提示词") as HTMLTextAreaElement;
@@ -10516,8 +10516,12 @@ test.each(["macos", "windows", "linux", "harmony"])(
     );
     await settingsReady();
     const page = screen.getByRole("group", { name: "AI 辅助" });
-    expect(within(page).queryByRole("region", { name: "联想" })).toBeNull();
+    // 候选数量固定为三，所以没有这一行；但「联想」组里的「英文模式也请求 AI 候选」在
+    // 过会话组字的宿主上仍然出现（HarmonyOS 的英文键面不走会话，整组不出现）。
     expect(within(page).queryByLabelText("AI 候选数量")).toBeNull();
+    expect(within(page).queryByRole("region", { name: "联想" }) !== null).toBe(
+      platform !== "harmony",
+    );
   },
 );
 
@@ -10535,7 +10539,12 @@ test("the macOS AI page shows the service and network groups", async () => {
   );
   await settingsReady();
   const page = screen.getByRole("group", { name: "AI 辅助" });
+<<<<<<< HEAD
   expect(pageGroupTitles(page)).toEqual(["服务", "网络"]);
+=======
+  // macOS 固定候选数量，所以「联想」组里只有「英文模式也请求 AI 候选」这一行。
+  expect(pageGroupTitles(page)).toEqual(["服务", "联想"]);
+>>>>>>> 9aca79da5 (fix(capabilities): 宿主能力位补上英文 AI 候选并修正 AI 页断言)
   expect(within(page).queryByRole("button", { name: "发送并润色" })).toBeNull();
 });
 

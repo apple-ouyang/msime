@@ -201,6 +201,8 @@ fn capabilities_describe_each_host() {
             && linux.floating_toolbar_voice
             && linux.floating_toolbar_input_scheme
     );
+    // 英文模式的 AI 候选：Linux 走会话组字，所以设置页给这个开关。
+    assert!(linux.english_ai_candidates);
     assert!(linux.panel_shortcuts);
     assert!(linux.number_row_selection);
     assert!(linux.voice_capture_devices);
@@ -558,6 +560,8 @@ fn harmony_groups_with_mobile_hosts_and_claims_nothing_unwritten() {
     assert!(!HostPlatform::Harmony.is_desktop());
     let harmony = HostCapabilities::for_platform(HostPlatform::Harmony);
     assert!(harmony.mobile_settings);
+    // HarmonyOS 的英文键面不走会话组字，所以没有这个开关（#9015）。
+    assert!(!harmony.english_ai_candidates);
     assert!(!harmony.panel_windows);
     assert!(!harmony.window_chrome);
     // ArkUI enumerates the installed families, so the page can offer them.
