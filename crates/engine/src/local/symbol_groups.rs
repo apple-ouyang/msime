@@ -67,7 +67,7 @@ fn normalize(code: &str) -> String {
     code.to_ascii_lowercase()
 }
 
-/// 符号模式的行：先按整串分组码出，再按分组码前缀出，最后按符号名整串出。`code` 是去掉入口字母之后的输入。
+/// 符号模式的行：先按整串分组码出，未命中时按分组码前缀出，最后按符号名整串出。`code` 是去掉入口字母之后的输入。
 pub fn query_symbol_mode(code: &str, limit: usize) -> Vec<WordItem> {
     let code = normalize(code);
     if code.is_empty() || limit == 0 {
@@ -87,17 +87,10 @@ pub fn query_symbol_mode(code: &str, limit: usize) -> Vec<WordItem> {
         ));
     };
     let groups = groups();
-    // 整串命中的组排在前面，其余按前缀命中的组按表的先后。
-    for exact in [true, false] {
-        for group in groups {
-            let hit = if exact {
-                group.code == code
-            } else {
-                group.code != code && group.code.starts_with(&code)
-            };
-            if !hit {
-                continue;
-            }
+    // 有整串分组码时只返回该组，输入尚未完整时才按前缀列出相关组。
+    let exact = groups.iter().any(|group| group.code == code);
+    for group in groups {
+        if (exact && group.code == code) || (!exact && group.code.starts_with(&code)) {
             for symbol in group.symbols() {
                 push(symbol);
             }
@@ -163,7 +156,13 @@ mod tests {
     #[test]
     fn group_codes_give_their_whole_group() {
         let xl = query_symbol_mode("xl", SYMBOL_MODE_LIMIT);
-        assert!(texts(&xl).starts_with(&["α", "β", "γ"]), "{:?}", texts(&xl));
+        let expected: Vec<_> = groups()
+            .iter()
+            .find(|group| group.code == "xl")
+            .unwrap()
+            .symbols()
+            .collect();
+        assert_eq!(texts(&xl), expected);
         let sx = query_symbol_mode("SX", SYMBOL_MODE_LIMIT);
         assert!(sx.iter().any(|row| row.word == "∑"), "{:?}", texts(&sx));
         let jt = query_symbol_mode("jt", SYMBOL_MODE_LIMIT);
@@ -172,6 +171,15 @@ mod tests {
         assert_eq!(texts(&szq)[0], "⓪", "{:?}", texts(&szq));
         assert!(query_symbol_mode("", SYMBOL_MODE_LIMIT).is_empty());
         assert!(query_symbol_mode("x'1", SYMBOL_MODE_LIMIT).is_empty());
+    }
+
+    #[test]
+    fn incomplete_group_code_lists_multiple_groups() {
+        let rows = query_symbol_mode("x", SYMBOL_MODE_LIMIT);
+        let values = texts(&rows);
+        assert!(values.contains(&"α"));
+        assert!(values.contains(&"Α"));
+        assert_eq!(values.iter().filter(|&&value| value == "α").count(), 1);
     }
 
     #[test]

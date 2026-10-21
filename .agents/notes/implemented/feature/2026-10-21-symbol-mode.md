@@ -14,10 +14,10 @@ Windows 正式版（v0.11.1）有一个「符号模式」：没有组字时按 S
 
 - **入口**：第 14 个本地模式 `LocalInputMode::Symbol`，名字 `symbol`，入口键 `S`。判定在 `local_mode_for_entry`：受总开关 `shift_letter_entry` 约束，方案用 `opens_local_modes`（全拼、双拼），和 E、M 一致；五笔下不进，因为分组码与符号名都是字母，不经方案的拼写。进入后只收字母：撇号、数字、`;` 都交还宿主，`spelling_symbols` 为空。和 E、M 一样不显示注释、不补辅助码。
 - **行的来源复用 `CandidateSource::Emoji`（6）**。符号行选中时整段上屏、结束组字，不学习、不调频、不进个人上下文，不能置顶、固定或删除，不请求释义——这些规则今天由「来源是 Emoji」统一给出，与混排符号行同一条路。新增 `CandidateSource::Symbol` 要改线上值、`from_u8`、`CATALOG_SOURCES`、`normalize_online_slots`、各宿主的结束组字判断，漏一处就是只在某个平台出现的组字残留；[打拼音出符号那篇](2026-10-13-symbol-candidates.md) 已经权衡过一次，结论相同。
-- **两条查法共用一次查询**（`local::symbol_groups::query_symbol_mode`）：先整串分组码命中的组，再按分组码前缀命中的组，最后符号名。整串优先是为了让 `xl` 只出希腊字母小写，不被 `xld`、`xlc` 这类同前缀的组掺进来。同一个符号只出一行，合计最多 `SYMBOL_MODE_LIMIT`（200，与 Windows `query_symbols` 的默认上限一致，一个组最多 214 个符号）。符号名走已有的 `local::symbol_candidates::query_mixed_symbols`，所以 `alpha` 得 α、`infinity` 得 ∞、`gamma` 得 γ Γ，和「打拼音出符号」用同一张自写表。
+- **两条查法共用一次查询**（`local::symbol_groups::query_symbol_mode`）：先查整串分组码；没有精确组时才查前缀组，最后查符号名。整串优先是为了让 `xl` 只出希腊字母小写，不被 `xld`、`xlc` 这类同前缀的组掺进来。同一个符号只出一行，合计最多 `SYMBOL_MODE_LIMIT`（200，与 Windows `query_symbols` 的默认上限一致，一个组最多 214 个符号）。符号名走已有的 `local::symbol_candidates::query_mixed_symbols`，所以 `alpha` 得 α、`infinity` 得 ∞、`gamma` 得 γ Γ，和「打拼音出符号」用同一张自写表。
 - **分组码表另建一张**：`crates/engine/src/local/symbol_groups.tsv`（`编码<TAB>中文组名<TAB>符号...`，87 组、3 929 个符号、约 43 KB），`symbol_groups.rs` 用 `include_str!` 编进引擎，第一次查询时解析一次。没往 `symbol_candidates.tsv` 里塞分组码：那张表的每一行是「名称 + 拼音」，写法规则（中文名称只含汉字、音节数等于字数、单音节只收派和度、拉丁名称至少四个字母）由它的单测钉死，分组码不是名称、没有读音，塞进去要么放宽这些规则、要么在表里造出假拼音。
 - **默认开**，与 Windows 出厂 `symbol_mode = true` 对齐。Engine 的 `LocalModeOptions::symbol`、`EngineOptions::local_symbol` 默认 `true`；共享偏好是 `local_modes.symbol: bool`，`#[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]`，缺键读作开、只有用户关掉时文档里才出现 `"symbol": false`。这和混输符号的 `mixed_input.symbols` 是同一套写法（[那篇笔记](2026-10-13-symbol-candidates.md) 记过这个先例）。共享设置页的 `localModeControlState` 按 `symbol ?? true` 读，所以桌面和触屏宿主上勾选状态都与实际一致。
-- **设置页一行**：`packages/ui/src/settings/local-mode-options.ts` 的 `localModeRows` 在颜文字之后、超级简拼之前加「符号快捷输入(S 模式)」，说明写分组码与符号名两种查法，iOS 用触屏入口文案；它跟着「Shift+字母进入快捷模式」总开关一起禁用。Windows 原生设置（`platforms/windows/settings/main.cpp` 的 `modes` 数组）、macOS 原生设置（`AppearancePreferences.mm` 的 `LocalModeControls`）、Linux 的 `local_mode_enabled_by_default` 不在这一片的验收范围里，仍未列出这个开关，见「没做的」。
+- **设置页一行**：`packages/ui/src/settings/local-mode-options.ts` 的 `localModeRows` 在颜文字之后、超级简拼之前加「符号快捷输入(S 模式)」，说明写分组码与符号名两种查法，iOS 用触屏入口文案；它跟着「Shift+字母进入快捷模式」总开关一起禁用。macOS、Linux、HarmonyOS 的共享设置页可以修改该开关。Windows、iOS、Android 的原生设置页及 macOS 的原生回退设置未添加此项，见「没做的」。
 - **脚本插件 ABI**：`LOCAL_MODE` 表加 `("symbol", 14)`，`LocalModeClass::Symbol = 14`。符号行不在可读文本白名单里（`local_mode_allows_text` 只放 0–5），和拆字 13 一样。
 
 ### 分组码来源与许可判断
@@ -43,7 +43,7 @@ Windows 正式版（v0.11.1）有一个「符号模式」：没有组字时按 S
   - 表是生成物（43 KB），改表要发引擎版本；上游改动要重新生成并复核样例数。
   - 一个组最多 214 行（康熙部首），候选列表会长，靠翻页。
 - **没做的**：
-  - **Windows、macOS、Linux 原生设置页**没加这一行。共享设置页已经能改 `local_modes.symbol`，三个原生页读的是同一份文档，缺的只是那一行勾选；它们各自有自己的模式表与快照测试（`platforms/macos/tests/settings/LocalModePreferencesTest.mm` 的 `buttons.count == 10` 之类），改动面在 C++/ObjC 侧、本机也不能跑它们的 CTest，留给下一个切片。
+  - **Windows、iOS、Android 原生设置页及 macOS 原生回退设置**没加这一行。macOS、Linux、HarmonyOS 共享设置页已经能改 `local_modes.symbol`；原生设置入口需要在后续切片补齐。Linux 没有独立的原生设置页。
   - **移动宿主的菜单**没加符号入口：iOS、Android、HarmonyOS 的触屏模式表仍是原来的项。屏幕键盘进符号模式的路径与实体键盘相同（发带 Shift 的 `S`），但菜单里没有磁贴，这一片没做。
   - **Windows 的 `utility.symbol_mode` 配置键**没有映射：`scripts/test-reference-config-coverage.py` 里已经加上 `utility.symbol_mode → local_modes.symbol` 的映射（181 条），所以这个键不再被报成无人应答；Windows 原生设置页那一行仍缺。
   - 未在真机或模拟器上验收任何平台；这一片的证据是 Rust 单测、`cargo check`、共享设置页的 vitest 和契约检查。

@@ -903,6 +903,22 @@ impl<E: InputEngine> Runtime<E> {
             return false;
         }
         // 脚本插件的操作只按候选身份重放，不运行脚本：停顿的时机不能透露给脚本。是否挪动按重放之后的座位比较。
+        // 重排会就地挪动 `cached`，先记下高亮那一条。高亮还在第一条时不用记：落定之后仍停在第一条。
+        let previous_highlight = self.highlighted;
+        let marked = if previous_highlight == 0 {
+            None
+        } else {
+            self.cached
+                .candidates
+                .get(previous_highlight)
+                .cloned()
+                .map(|text| {
+                    (
+                        text,
+                        self.cached.candidate_codes.get(previous_highlight).cloned(),
+                    )
+                })
+        };
         let replayed = self.has_candidate_ops();
         if replayed {
             let mut order = std::mem::take(&mut self.settled_order_scratch);
@@ -919,7 +935,13 @@ impl<E: InputEngine> Runtime<E> {
         }
         if moved {
             self.snapshot_valid = true;
-            self.highlighted = 0;
+            // 用户还停在第一条时，落定重排换上来的词就是新的第一条。已经翻页或移动过高亮时，
+            // 停在原来那一条上，不能弹回第一页。
+            if let Some((text, code)) = &marked {
+                self.keep_highlight_on_same_candidate(previous_highlight, text, code.as_deref());
+            } else {
+                self.highlighted = 0;
+            }
             let _ = self.advance();
             self.bump_candidates_epoch();
         }
@@ -2112,6 +2134,44 @@ impl<E: InputEngine> Runtime<E> {
         Ok(())
     }
 
+    /// 组字没变时，异步改写候选不能把用户已经翻到的页弹回第一页。
+    ///
+    /// 高亮还停在第一条时留在第一条：云候选插进第二格，空格选中的仍是新的第一条。
+    /// 已经翻页或移动过高亮时，按文本和编码找回那一条。它若被排回更前的页，不跟回去，
+    /// 停在原来那一页的开头。否则云联想回包一到，`+` 刚翻开的下一页就会弹回第一页。
+    fn keep_highlight_on_same_candidate(
+        &mut self,
+        previous_highlight: usize,
+        text: &str,
+        code: Option<&str>,
+    ) {
+        let visible = self.visible_len();
+        if visible == 0 {
+            self.highlighted = 0;
+            return;
+        }
+        let page_size = self.page_size.max(1);
+        let page = previous_highlight / page_size;
+        let page_start = page * page_size;
+        let found = self
+            .cached
+            .candidates
+            .iter()
+            .enumerate()
+            .filter(|(index, candidate)| {
+                *index < visible
+                    && *index / page_size >= page
+                    && candidate.as_str() == text
+                    && code.is_none_or(|expected| {
+                        self.cached.candidate_codes.get(*index).map(String::as_str)
+                            == Some(expected)
+                    })
+            })
+            .min_by_key(|(index, _)| index.abs_diff(previous_highlight))
+            .map(|(index, _)| index);
+        self.highlighted = found.unwrap_or(page_start).min(visible - 1);
+    }
+
     pub(crate) fn refresh(&mut self) -> Result<(), RuntimeError> {
         // 派发类调用里先问插件指令，行在取快照之前写进引擎：同一次派发，代次不变。
         self.run_command_provider();
@@ -2173,23 +2233,33 @@ impl<E: InputEngine> Runtime<E> {
         // 派发类调用里的 refresh 重新运行插件，其余只重放；隐藏的行数和插件注释的变化也算候选视图的变化。
         let plugin_marks_changed = self.transform_candidates();
         self.snapshot_valid = true;
-        if self.cached.editing_text == previous.editing_text
+        let composition_held = self.cached.editing_text == previous.editing_text
             && self.cached.scheme == previous.scheme
             && self.cached.local_mode == previous.local_mode
             && self.cached.reading == previous.reading
             && self.cached.dedicated_english == previous.dedicated_english
-            && self.cached.candidates == previous.candidates
-            && self.cached.candidate_codes == previous.candidate_codes
-            && self.cached.candidate_annotations == previous.candidate_annotations
-            && self.cached.candidate_sources == previous.candidate_sources
-            && self.cached.candidate_positions == previous.candidate_positions
-            && self.cached.candidate_corrected == previous.candidate_corrected
-            && self.cached.candidate_answers_key == previous.candidate_answers_key
-            && self.cached.candidate_static_evidence == previous.candidate_static_evidence
             && self.cached.conversion == previous.conversion
-            && self.cached.conversion_focus_start == previous.conversion_focus_start
-        {
-            self.highlighted = previous_highlight.min(self.visible_len().saturating_sub(1));
+            && self.cached.conversion_focus_start == previous.conversion_focus_start;
+        if composition_held {
+            let candidates_held = self.cached.candidates == previous.candidates
+                && self.cached.candidate_codes == previous.candidate_codes
+                && self.cached.candidate_annotations == previous.candidate_annotations
+                && self.cached.candidate_sources == previous.candidate_sources
+                && self.cached.candidate_positions == previous.candidate_positions
+                && self.cached.candidate_corrected == previous.candidate_corrected
+                && self.cached.candidate_answers_key == previous.candidate_answers_key
+                && self.cached.candidate_static_evidence == previous.candidate_static_evidence;
+            if candidates_held {
+                self.highlighted = previous_highlight.min(self.visible_len().saturating_sub(1));
+            } else if previous_highlight > 0 {
+                if let Some(text) = previous.candidates.get(previous_highlight) {
+                    let code = previous
+                        .candidate_codes
+                        .get(previous_highlight)
+                        .map(String::as_str);
+                    self.keep_highlight_on_same_candidate(previous_highlight, text, code);
+                }
+            }
         }
         let cached = &self.cached;
         if cached.preedit != previous.preedit

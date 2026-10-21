@@ -168,9 +168,12 @@ impl InputSession {
                         accepted = caret > 0;
                     }
                 }
-                LocalInputMode::Emoji
-                | LocalInputMode::Kaomoji
-                | LocalInputMode::TemporaryJapanese => accepted = accepted || value == b'\'',
+                LocalInputMode::Emoji | LocalInputMode::Kaomoji => {
+                    accepted = accepted || value == b'\'';
+                }
+                LocalInputMode::TemporaryJapanese => {
+                    accepted = accepted || matches!(value, b'\'' | b'-');
+                }
                 // 与 `handle_local_character` 同一组规则：符号模式只收字母。
                 LocalInputMode::Symbol => accepted = value.is_ascii_alphabetic(),
                 LocalInputMode::SuperJianpin | LocalInputMode::TemporaryEnglish => {}
