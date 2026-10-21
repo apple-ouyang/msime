@@ -69,6 +69,19 @@ NOT_APPLICABLE = {
     "smart_punctuation_migrated": "not a setting: the one-time marker client-core's PreferencesStore sets while reading the document, after turning the old macOS default (smart punctuation off) on; the host reads the migrated values through msime_client_load_preferences",
     "fuzzy_pinyin.seeded": "not a setting: `FuzzyPinyinPreferences::seeded` 是内部标记，用来区分「首次开启」和「有意清空规则」，落盘但不渲染（`crates/client-core/src/preferences.rs` 的 `seed_fuzzy_pinyin_rules` 读它、设置页不显示）；宿主不消费它是设计如此",
     "second_third_candidate": "';' and '\\'' picking the second and third candidate are routed only by the Windows TIP and Server so far (.agents/notes/implemented/feature/2026-10-09-second-third-candidate-keys.md); the shared page does not show the switch, so no macOS user can turn on something the host ignores",
+    "custom_theme.keyboard.key_background": "触屏键盘的自定义设计；macOS 的 AppearancePreferences 仅透传 keyboard，屏幕键盘不消费此设计",
+    "custom_theme.keyboard.key_foreground": "触屏键盘的自定义设计；macOS 的 AppearancePreferences 仅透传 keyboard，屏幕键盘不消费此设计",
+    "custom_theme.keyboard.action_background": "触屏键盘的自定义设计；macOS 的 AppearancePreferences 仅透传 keyboard，屏幕键盘不消费此设计",
+    "custom_theme.keyboard.border_width": "触屏键盘的自定义设计；macOS 的 AppearancePreferences 仅透传 keyboard，屏幕键盘不消费此设计",
+    "custom_theme.keyboard.key_shape": "触屏键盘的自定义设计；macOS 的 AppearancePreferences 仅透传 keyboard，屏幕键盘不消费此设计",
+    "custom_theme.keyboard.key_material": "触屏键盘的自定义设计；macOS 的 AppearancePreferences 仅透传 keyboard，屏幕键盘不消费此设计",
+    "custom_theme.keyboard.key_opacity": "触屏键盘的自定义设计；macOS 的 AppearancePreferences 仅透传 keyboard，屏幕键盘不消费此设计",
+    "custom_theme.keyboard.gradient_end": "触屏键盘的自定义设计；macOS 的 AppearancePreferences 仅透传 keyboard，屏幕键盘不消费此设计",
+    "custom_theme.keyboard.gradient_horizontal": "触屏键盘的自定义设计；macOS 的 AppearancePreferences 仅透传 keyboard，屏幕键盘不消费此设计",
+    "custom_theme.keyboard.pattern_opacity": "触屏键盘的自定义设计；macOS 的 AppearancePreferences 仅透传 keyboard，屏幕键盘不消费此设计",
+    "custom_theme.keyboard.custom_border_color": "触屏键盘的自定义设计；macOS 的 AppearancePreferences 仅透传 keyboard，屏幕键盘不消费此设计",
+    "custom_theme.keyboard.photo_shade": "触屏键盘的自定义设计；macOS 的 AppearancePreferences 仅透传 keyboard，屏幕键盘不消费此设计",
+    "custom_theme.keyboard.photo_position": "触屏键盘的自定义设计；macOS 的 AppearancePreferences 仅透传 keyboard，屏幕键盘不消费此设计",
 }
 
 
@@ -101,8 +114,27 @@ def struct_fields(source: str) -> dict[str, list[tuple[str, str]]]:
 
 
 def type_name(field_type: str) -> str:
-    """取字段类型里参与递归的那个结构体名（去掉泛型与包装）。"""
-    return field_type.strip().rstrip(">").split("<")[0].strip()
+    """取参与递归的结构名，只解开 Option 可选包装，不展开集合。"""
+    name = field_type.strip()
+    while match := re.fullmatch(r"(?:std::option::)?Option\s*<(.+)>", name):
+        name = match.group(1).strip()
+    return name
+
+
+def preference_paths(structs: dict[str, list[tuple[str, str]]], exempt: set[str]) -> list[str]:
+    """按字段路径展开嵌套结构；同类型的兄弟字段各自检查，只有当前路径遇环才停。"""
+    paths: list[str] = []
+
+    def walk(struct: str, prefix: str, ancestors: frozenset[str]) -> None:
+        for field, field_type in structs.get(struct, []):
+            path = f"{prefix}.{field}" if prefix else field
+            paths.append(path)
+            nested = type_name(field_type)
+            if nested in structs and nested not in ancestors and path not in exempt:
+                walk(nested, path, ancestors | {nested})
+
+    walk("Preferences", "", frozenset({"Preferences"}))
+    return paths
 
 
 def strip_doc_comments(text: str) -> str:
@@ -149,22 +181,8 @@ def main() -> int:
     # 递归到每个嵌套结构体。字段按名字核对（与顶层同一口径）：宿主读嵌套项时用的是 Objective-C 访问器或
     # 共享文档里的 JSON 键（`AppearancePreferences.mm` 的 `merged[@"voice_input"]`），不会拼出 Rust 的
     # `struct.field` 路径，所以限定名在这里会大面积误报。已豁免的父结构不再下降，它的理由已经覆盖整块。
-    all_fields: list[str] = []
-    unreachable: list[str] = []
-    visited: set[str] = set()
-
-    def walk(struct: str, prefix: str) -> None:
-        for field, field_type in structs.get(struct, []):
-            path = f"{prefix}.{field}" if prefix else field
-            all_fields.append(path)
-            if field not in reachable:
-                unreachable.append(path)
-            nested = type_name(field_type)
-            if nested in structs and nested not in visited and path not in NOT_APPLICABLE:
-                visited.add(nested)
-                walk(nested, path)
-
-    walk("Preferences", "")
+    all_fields = preference_paths(structs, set(NOT_APPLICABLE))
+    unreachable = [path for path in all_fields if path.rsplit(".", 1)[-1] not in reachable]
 
     failures = []
     for field in unreachable:

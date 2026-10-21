@@ -9,7 +9,7 @@
 2026-09-20 本次对照使用以下不可变对象：
 
 - 来源：`metasequoiaime/MSIME-Apple`，通过 `git ls-remote --symref origin HEAD` 确认默认分支 `develop`，远端 HEAD `663d7db619e45ebf3750db7c216438edd800f696`。实际读取的是本机检出 `63c51eddb5bc82c574ba7f8ca41db453e129db81`，它比默认分支多一个已提交改动（候选行宽适配：`CandidateRowFit.h`、`CandidatePanel.mm`、`CandidatePanelTests.mm`）。该检出 `git status --porcelain -- platforms/macos shared` 为空，未读取未提交内容；多出的那一项已由本仓库 #3029 覆盖。
-- 目标：`metasequoiaime/msime` 的 `develop`，固定提交 `17ab45eb4234418faf2635fd6bf960d9c73f68f8`。
+- 目标：`metasequoiaime/msime` 的 `develop`，固定提交 `17ab45eb4234418faf2765fd6bf960d9c73f68f8`。
 
 来源功能入口以该检出的 `platforms/macos/src/`（73 个文件）、`shared/apple-bridge/`、`shared/backend/`、`shared/backend-ui/` 交叉核对，并以 `PreferencesWindowController.mm`（3323 行）作为用户可见设置面的索引。索引只是入口，逐字段、逐动作的下钻在后面各节里逐条记录。
 
@@ -26,7 +26,7 @@
 
 | 维度 | 方法 | 结果 |
 | --- | --- | --- |
-| 共享偏好 | 解析 `Preferences` 结构体全部字段（递归 30 个嵌套结构，共 291 个字段），检查 macOS 宿主与共享运行时是否消费 | 114 个顶层字段中 91 个有消费；其余 23 个顶层字段与 5 个嵌套子字段必须在 `platforms/macos/tests/settings/preference_coverage.py` 的清单里写明平台为何不适用，清单双向校验。可重跑：`python3 platforms/macos/tests/settings/preference_coverage.py .` → `263 of 291 shared preferences reach the macOS host; the other 28 are accounted for (177 nested fields checked).` |
+| 共享偏好 | 解析 `Preferences` 结构体全部字段（按路径递归可选结构与复用结构，共 317 个字段），检查 macOS 宿主与共享运行时是否消费 | 114 个顶层字段中 91 个有消费；其余 23 个顶层字段与 18 个嵌套子字段必须在 `platforms/macos/tests/settings/preference_coverage.py` 的清单里写明平台为何不适用，清单双向校验。可重跑：`python3 platforms/macos/tests/settings/preference_coverage.py .` → `276 of 317 shared preferences reach the macOS host; the other 41 are accounted for (203 nested fields checked).` |
 | 用户可见文案 | 抽取来源 macOS 全部源文件的中文字面量（含单字符与错误消息），逐条在目标中检索 | 694 条（去重后；可重跑：`python3 platforms/macos/scripts/extract_source_literals.py <来源检出>`）；未命中的均为措辞差异或已由 Tauri 页以不同表述覆盖，逐簇核实后无功能缺口 |
 | 符号 | 抽取来源 ObjC 方法、C/C++ 函数、Swift 函数名，逐个在目标中按名与按文本检索 | 517 个（可重跑：见 [macos-feature-inventory.md](macos-feature-inventory.md) 第六节的命令）；未命中项经逐簇核实后归为三类：目标以不同命名实现、按架构下沉到 Engine 或共享运行时、仅 iOS 使用 |
 
@@ -99,7 +99,7 @@
 
 > 2026-10-15 补注：上表 `PreferencesWindowController.mm/.h` 一行的理由是重跑当时的记录。目标现在保留着同名的 `platforms/macos/src/settings/PreferencesWindowController.mm` 与 `AppearancePreferences.mm`，只在设置应用无法启动时由 `platforms/macos/src/core/DesktopSettingsLauncher.h` 的回退分支打开；2026-10-15 定下的设置界面归属（见[设置界面按平台归属](ARCHITECTURE.md#设置界面按平台归属)）把这套 AppKit 窗口冻结为回退、不加新功能，macOS 的主设置面仍是 Tauri 设置应用，所以这 78 个符号照旧不逐个找对应物。
 
-- 「目标也有同名文件」的那 **28 个**（控制器 15、悬浮工具栏 6、候选面板 7）逐条对照，全部有对应物：`MetasequoiaTogglePinnedWord` → `MSIMETogglePinnedCandidate`；`availableGlossColumnsPrimary` / `setArmedGlossColumn` → `_armedGlossColumn` 与其夹取；`commitGlossAtVisibleOffset` / `insertGlossForModifiedDigit` → `commitCandidateGlossColumn:` 及其 Option/Control 分支；`handleSolitaryShiftFlags` → `MSIMEModifierTap` 与 #3179 的原样上屏；`translationDictionary` → `candidate_glosses_with_user`；`LocalModeOptionsMatch` → 目标比的是整个 `Preferences` 值；`toolbarWidth` / `visibleButtonCount` / `applyItemVisibility` → `_preferredSize` 与 `_appliedComponentMask`；`MetasequoiaIsUsableCaretRect` → `MSIMEValidCaret`。
+- 「目标也有同名文件」的那 **41 个**（控制器 15、悬浮工具栏 6、候选面板 7）逐条对照，全部有对应物：`MetasequoiaTogglePinnedWord` → `MSIMETogglePinnedCandidate`；`availableGlossColumnsPrimary` / `setArmedGlossColumn` → `_armedGlossColumn` 与其夹取；`commitGlossAtVisibleOffset` / `insertGlossForModifiedDigit` → `commitCandidateGlossColumn:` 及其 Option/Control 分支；`handleSolitaryShiftFlags` → `MSIMEModifierTap` 与 #3179 的原样上屏；`translationDictionary` → `candidate_glosses_with_user`；`LocalModeOptionsMatch` → 目标比的是整个 `Preferences` 值；`toolbarWidth` / `visibleButtonCount` / `applyItemVisibility` → `_preferredSize` 与 `_appliedComponentMask`；`MetasequoiaIsUsableCaretRect` → `MSIMEValidCaret`。
 - 唯一没有同名对应物且**确实不该有**的是 `rightMouseDown`：目标把候选菜单挂在按钮的 `menu` 属性上，右键由 AppKit 自带的 `menuForEvent:` 接手，而不是覆写鼠标事件——用的是框架自身的契约。
 - 其中不属于上述两类、最像功能的一组逐个核过并都已覆盖：Option/Control + 数字取释义（`CandidateGlossRequestForModifiers` → `commitCandidateGlossColumn:`）、待上屏列（`setArmedGlossColumn` → `_armedGlossColumn` 与其夹取）、候选置顶（`MetasequoiaTogglePinnedWord` → `MSIMETogglePinnedCandidate` 与 `MSIMECandidatePinCode`）、释义调度（`scheduleCandidateTranslations` → `synchronizeCandidateGloss` / `synchronizeAccountGloss` 与空闲延迟）、反馈诊断（`copyFeedbackReport` → Tauri 反馈页的「复制报告」）、学习数据清除（`ResetMetasequoiaLearnedData` → Tauri「清除学习数据」→ `resetLearnedData` 能力 → `reset_learned_data` → 引擎）。
 - 单点对照另外确认：`ActionForSolitaryShift` 对应 #3179 之后的单击 Shift 行为，`NextArmedGlossColumn` 对应 `cycleArmedGlossColumnBackwards:`，`browseVoiceModel` 对应 #3212 新增的 `pickVoiceModelPath`，`MetasequoiaCandidateWantsOnlineGloss` 对应 #3156 的 `MSIMEOnlineGlossCandidates`。
@@ -249,7 +249,7 @@ macOS 的 `ctest --test-dir <build>` 是门禁而不是一份总在红的名单�
 
 以下检查在 `ctest --test-dir <build>` 中运行，新增偏好、新增 TCC 调用、图标改名或本地识别器被关掉都会直接失败，而不是等到安装后才发现：
 
-- `preference-coverage`：共享偏好要么被 macOS 宿主消费，要么在清单中写明不适用的理由。当前解析 `Preferences` 的 291 个字段（114 个顶层 + 177 个嵌套），263 个有消费，28 个写明理由（23 个顶层 + 5 个嵌套），清单双向校验，所以既不会漏掉新偏好，也不会留下陈旧的豁免。脚本按裸字段名判定「有消费」，且会剥掉文档注释再匹配（`traditional_chinese_variant` 此前只在一处文档注释里出现，被误判为已消费）；这条轴看不见「名字出现过、但行为没接」的差异，也不覆盖 `.py` 与测试文件里的引用。
+- `preference-coverage`：共享偏好要么被 macOS 宿主消费，要么在清单中写明不适用的理由。当前解析 `Preferences` 的 317 个字段（114 个顶层 + 203 个嵌套），276 个有消费，41 个写明理由（23 个顶层 + 18 个嵌套），清单双向校验，所以既不会漏掉新偏好，也不会留下陈旧的豁免。脚本按裸字段名判定「有消费」，且会剥掉文档注释再匹配（`traditional_chinese_variant` 此前只在一处文档注释里出现，被误判为已消费）；这条轴看不见「名字出现过、但行为没接」的差异，也不覆盖 `.py` 与测试文件里的引用。
 - `settings-route-coverage`：设置页的页面清单在 TypeScript 里，路由词表在 Rust 里，中间没有东西连着；这一项把两边对起来，少一个分类的页面等于没有宿主能打开它。
 - `bundle-contents`：产物 bundle 的图标、本地化与本地识别器链接。
 - `info-plist-icons`、`info-plist-usage`：模板 plist 的图标引用与 TCC 用途字符串（含每种语言的本地化）。
