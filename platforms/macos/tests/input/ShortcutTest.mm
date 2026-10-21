@@ -193,8 +193,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
 - (NSDictionary *)rerankSettledWithError:(NSError **)error {
     (void)error; ++self.settledRerankCalls; return @{@"moved":@NO};
 }
-// The settle timer asks these two. Answering "already decided, nothing moved" keeps a timer that
-// fires inside an unrelated test from reordering that test's candidates.
+// 停顿计时器调用这两个入口；回答已完成且顺序未变，避免计时器在其他用例中触发时重排候选。
 - (NSDictionary *)startSettledRerankWithError:(NSError **)error {
     (void)error; ++self.settledRerankCalls; return @{@"status":@"done", @"moved":@NO, @"current":@YES};
 }

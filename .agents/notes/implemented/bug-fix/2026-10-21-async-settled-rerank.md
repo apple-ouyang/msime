@@ -26,7 +26,7 @@ macOS 的停顿计时器和按键入口共用主线程，桌面整句模型同�
 
 ## Verification
 
-新增合成候选与模型回归覆盖同步/异步一致、线程转移、按键失效、取消归还、静态证据、开关关闭及关闭重开、同值配置、模型替换与移除的发布/丢弃路径，以及评分期间移动高亮。编译、完整运行时测试、C ABI 和 macOS 原生轮询验证结果随本 PR 验证补充。
+新增合成候选与模型回归覆盖同步/异步一致、线程转移、按键失效、取消归还、静态证据、开关关闭及关闭重开、同值配置、模型替换与移除的发布/丢弃路径，以及评分期间移动高亮。远端 arm64 Mac 的完整运行时测试 347 项、C ABI `settled` 8 项、引擎排序 21 项（另 1 项忽略）及三个 crate 的严格 Clippy 通过。完整 `--quick` 通过，包含 Android/WASM 编译、Android JVM 门禁、Linux 原生 108 项、macOS 宿主和共享 Apple bridge 编译；macOS `shortcut`、`shortcut-translations` 两项真实原生测试通过。未配置 Windows 交叉工具链及 HarmonyOS 打包环境，对应阶段明确跳过，不算验证通过。
 
 ## Consequences
 
