@@ -185,3 +185,116 @@ fn a_score_in_flight_keeps_the_fast_reranker_and_refuses_a_second_model() {
     assert!(runtime.settled_reranker.is_some());
     assert!(runtime.has_reranker());
 }
+
+#[test]
+fn disabling_during_scoring_rejects_the_result_but_keeps_the_model() {
+    let mut runtime = lattice_runtime();
+    let request = runtime.begin_settled_rerank().unwrap();
+    let generation = runtime.generation;
+    runtime.set_settled_rerank_enabled(false);
+    let applied = runtime.apply_settled_rerank(score_settled_rerank(request));
+    assert!(!applied.current && !applied.moved);
+    assert_eq!(runtime.cached.candidates, ["甲", "乙"]);
+    assert_eq!(runtime.generation, generation);
+    assert!(runtime.settled_reranker.is_some());
+    assert!(!runtime.rerank_settled());
+    runtime.set_settled_rerank_enabled(true);
+    assert!(runtime.rerank_settled());
+    assert_eq!(runtime.cached.candidates, ["乙", "甲"]);
+}
+
+#[test]
+fn toggling_off_and_back_on_does_not_revalidate_an_old_score() {
+    let mut runtime = lattice_runtime();
+    let request = runtime.begin_settled_rerank().unwrap();
+    runtime.set_settled_rerank_enabled(false);
+    runtime.set_settled_rerank_enabled(true);
+    let applied = runtime.apply_settled_rerank(score_settled_rerank(request));
+    assert!(!applied.current && !applied.moved);
+    assert_eq!(runtime.cached.candidates, ["甲", "乙"]);
+    assert!(runtime.rerank_settled());
+}
+
+#[test]
+fn replacing_the_model_rejects_the_old_score_and_keeps_the_new_model() {
+    for publish in [false, true] {
+        let mut runtime = lattice_runtime();
+        let request = runtime.begin_settled_rerank().unwrap();
+        let generation = runtime.generation;
+        runtime.set_settled_reranker(Some(Reranker::new(std::sync::Arc::new(favouring_model(
+            &['甲', '乙'],
+            &['甲'],
+        )))));
+        let score = score_settled_rerank(request);
+        if publish {
+            let applied = runtime.apply_settled_rerank(score);
+            assert!(!applied.current && !applied.moved);
+        } else {
+            runtime.discard_settled_rerank(score);
+        }
+        assert_eq!(runtime.cached.candidates, ["甲", "乙"]);
+        assert_eq!(runtime.generation, generation);
+        assert!(runtime.settled_reranker.is_some());
+        assert!(!runtime.rerank_settled());
+        assert_eq!(runtime.cached.candidates, ["甲", "乙"]);
+    }
+}
+
+#[test]
+fn removing_the_model_during_scoring_never_restores_it() {
+    for publish in [false, true] {
+        let mut runtime = lattice_runtime();
+        let request = runtime.begin_settled_rerank().unwrap();
+        let generation = runtime.generation;
+        runtime.set_settled_reranker(None);
+        let score = score_settled_rerank(request);
+        if publish {
+            let applied = runtime.apply_settled_rerank(score);
+            assert!(!applied.current && !applied.moved);
+        } else {
+            runtime.discard_settled_rerank(score);
+        }
+        assert_eq!(runtime.cached.candidates, ["甲", "乙"]);
+        assert_eq!(runtime.generation, generation);
+        assert!(runtime.settled_reranker.is_none());
+        assert!(runtime.begin_settled_rerank().is_none());
+    }
+}
+
+#[test]
+fn reapplying_the_same_switch_value_keeps_the_in_flight_score_valid() {
+    let mut runtime = lattice_runtime();
+    let request = runtime.begin_settled_rerank().unwrap();
+    runtime.set_settled_rerank_enabled(true);
+    let applied = runtime.apply_settled_rerank(score_settled_rerank(request));
+    assert!(applied.current && applied.moved);
+    assert_eq!(runtime.cached.candidates, ["乙", "甲"]);
+}
+
+#[test]
+fn a_highlight_moved_during_scoring_stays_on_the_selected_word() {
+    let mut runtime = Runtime::new(
+        Fixture {
+            words: vec!["甲".into(), "乙".into(), "丙".into()],
+            codes: vec!["a".into(); 3],
+            sources: vec![LATTICE_SOURCE; 3],
+            text: "a".into(),
+            ..Fixture::default()
+        },
+        5,
+    )
+    .unwrap();
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    runtime.set_settled_reranker(Some(Reranker::new(std::sync::Arc::new(favouring_model(
+        &['甲', '乙', '丙'],
+        &['乙'],
+    )))));
+    let request = runtime.begin_settled_rerank().unwrap();
+    runtime.dispatch(Action::NextCandidate).unwrap();
+    runtime.dispatch(Action::NextCandidate).unwrap();
+    assert_eq!(runtime.cached.candidates[runtime.highlighted], "丙");
+    let applied = runtime.apply_settled_rerank(score_settled_rerank(request));
+    assert!(applied.current && applied.moved);
+    assert_eq!(runtime.cached.candidates[runtime.highlighted], "丙");
+}

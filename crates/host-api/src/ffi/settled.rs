@@ -1,9 +1,8 @@
-//! Settled rerank that does not run the model on the session thread.
+//! 在会话线程外运行停顿模型。
 //!
-//! The 24M desktop model measures p95 153ms. macOS delivers keystrokes on the same thread as the
-//! settle timer, so a synchronous `msime_client_rerank_settled` makes the next key — often space,
-//! pressed once the user has paused to look — wait until the forward pass returns. The worker
-//! below owns the reranker and a copy of the rows. It never calls `with_session`.
+//! 桌面 24M 模型的实测 p95 为 153ms；macOS 按键和停顿定时器共用主线程，
+//! 同步评分会让随后到达的空格等按键排队。工作线程独占模型和候选副本，
+//! 不调用 `with_session`。
 
 use crate::*;
 use std::collections::HashMap;
@@ -51,8 +50,7 @@ fn job_inner(job: &SettledJob) -> std::sync::MutexGuard<'_, SettledJobInner> {
     job.inner.lock().unwrap_or_else(|error| error.into_inner())
 }
 
-/// Drop an in-flight score for a session that is going away. The worker may still be inside the
-/// model; it sees `abandoned` and drops the reranker instead of publishing it.
+/// 会话销毁时放弃在途评分；工作线程完成后发现 `abandoned` 就释放模型，不再发布。
 pub(crate) fn abandon_settled_job(handle: u64) {
     let job = {
         let mut registry = registry();
@@ -149,7 +147,7 @@ fn spawn_score(
                     inner.phase = SettledPhase::Done;
                 }
                 Err(_) => {
-                    // The request, including the reranker, was dropped by the unwind.
+                    // 展开栈时已释放请求及其模型。
                     inner.abandoned = true;
                     inner.phase = SettledPhase::Done;
                 }
@@ -179,13 +177,9 @@ fn settled_on_session(session: &mut HostSession) -> Result<Value, String> {
     }
 }
 
-/// Start a settled rerank without running the model on this thread.
-///
-/// `{"status":"done","moved":false,"current":true}` when nothing should change, or when only the
-/// cheap presentation passes ran here. `current` means this composition has been answered.
-/// `{"status":"done","moved":true,"current":true,"view":...}` when those passes reordered.
-/// `{"status":"pending","token":N}` when the model is scoring in the background. One score per
-/// session: a second start returns the same token.
+/// 在后台启动停顿重排。无需模型或只做呈现整理时返回 `status: done` 和 `current: true`，
+/// 顺序变化时附带 `moved: true` 与 `view`；后台评分返回 `status: pending` 和 `token`。
+/// 每会话只允许一个任务，重复启动返回相同的令牌。
 #[no_mangle]
 pub extern "C" fn msime_client_start_settled_rerank(handle: u64) -> *mut c_char {
     response(|| {
@@ -207,9 +201,8 @@ pub extern "C" fn msime_client_start_settled_rerank(handle: u64) -> *mut c_char 
     })
 }
 
-/// Collect a score started by [`msime_client_start_settled_rerank`]. Pending until the worker
-/// finishes. `accept` is false when the host has already left this composition: the model is put
-/// back and the list is not reordered. Call it on the session thread.
+/// 收集后台评分，未完成时返回 `pending`。宿主已离开原组字时传 `accept: false`，
+/// 只归还仍适用的模型，不重排候选。必须在会话线程调用。
 #[no_mangle]
 pub extern "C" fn msime_client_poll_settled_rerank(
     handle: u64,

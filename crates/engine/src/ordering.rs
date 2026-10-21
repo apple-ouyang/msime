@@ -294,16 +294,11 @@ fn any_corrected_key<'a, R: OrderRowSource<'a> + ?Sized>(scheme: u8, rows: &'a R
     corrections_may_lead(scheme) && (0..rows.len()).any(|index| rows.get(index).corrected)
 }
 
-/// Whether `rerank_pick` would run the model. False for every decline that happens before the
-/// forward pass: the host can skip moving the settled model off the session thread.
+/// 判断 `rerank_pick` 是否需要运行模型，提前拒绝时宿主无需把停顿模型移出会话线程。
 ///
-/// A Korean Hanja list is a table in frequency order for one syllable, not Chinese text the
-/// language model can read. A Wubi list the table answered is ranked by the table: the Engine
-/// seats the Wubi rows first (`merge_pinyin_fallback`) and appends the mixed-in pinyin rows after
-/// them. Those pinyin rows are corrections of the same letters (dyn read as dun), so the
-/// corrected-key rule below would strip the exact code hit (态 on dyn) of its dictionary exemption
-/// and let the model promote a longer code's row (太快 on dynn) over it. Only a list the pinyin
-/// fallback answered alone is pinyin, and that one is reranked like pinyin.
+/// 韩文汉字候选按单音节词频排表，不能用中文模型评分。五笔码表回答的列表先排表码行，
+/// 再追加拼音纠错行；若让纠错规则撤销表码首选的豁免，就会把 `dyn` 的「态」挤到
+/// `dynn` 的「太快」之后。只有完全由拼音兜底回答的五笔列表才按拼音重排。
 pub fn rerank_needs_model<'a, R: OrderRowSource<'a> + ?Sized>(
     scheme: u8,
     answered_by_pinyin_fallback: bool,
