@@ -49,3 +49,5 @@ Fcitx5 键盘栏的选路回归（`platforms/linux/tests/clipboard/cloud_clipboa
 Windows 的独立 C++20 选路回归覆盖配置读取失败、空或未知来源、中继和账号成功/失败，以及中继鉴权错误独立于账号未登录。原生 `settings_ui.ps1` 增加令牌遮罩、草稿不写盘、Rust 拒绝非法 HTTP 地址、成对保存、重读和切回账号的回归，使用合成配置及本机拒绝连接的端口；本机无法运行 WinUI，Windows CI 的编译与 UIA 结果另行记录。
 
 没有验证的：真实 TLS 反向代理后的中继、装机后的 Linux 设置窗口和面板、Windows 上 `cfg(not(unix))` 分支的编译（编译机没有 `x86_64-pc-windows-gnu` 目标，要在装了 MinGW 的机器上跑 `cargo check -p msime-desktop --target x86_64-pc-windows-gnu --lib`）。合并前要在 Linux 上对着一台部署在 https 下的参考中继走一遍：填地址和令牌、两台设备批准、互传、移除、重置、改回账号。
+
+macOS 来源绑定审查的远端 run `20261021-213705` 完整 quick 通过（含 Linux 原生 108 项、Android/WASM、macOS 和 Apple bridge 编译）；Rust `cloud_clipboard` 15 项、Host API 严格 Clippy、共享 Swift 后端 139 项通过。原生 `backend-account-swift`、`backend-account-entry`、`cloud-clipboard-selection`、`cloud-clipboard-deletion` 四项通过（4.83 秒），另单独执行 `desktop-cloud-provider` 通过（0.28 秒），覆盖旧窗口换来源/修订号、账号令牌轮换和错误提示。没有实际部署的 TLS 中继与装机界面证据，以上只计源码、构建与原生测试层。
