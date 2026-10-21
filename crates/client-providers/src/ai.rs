@@ -541,6 +541,30 @@ mod tests {
     }
 
     #[test]
+    fn request_body_carries_the_composition_mode() {
+        // #9015：请求体里的 mode 让提示词区分拼音与英文模式；旧的请求文档没有这个键，反序列化后按 pinyin。
+        let user_message = |mode: AiCandidateMode| {
+            let request = AiSuggestionRequest {
+                segmented_pinyin: vec!["acces".into()],
+                context: String::new(),
+                candidate_limit: 3,
+                mode,
+            };
+            let body =
+                chat_completion_body(&request, "deepseek", "synthetic-model", "synthetic prompt")
+                    .unwrap();
+            let user = body["messages"][1]["content"].as_str().unwrap().to_owned();
+            serde_json::from_str::<serde_json::Value>(&user).unwrap()["mode"].clone()
+        };
+        assert_eq!(user_message(AiCandidateMode::English), "english");
+        assert_eq!(user_message(AiCandidateMode::Pinyin), "pinyin");
+        let legacy: AiSuggestionRequest =
+            serde_json::from_str(r#"{"segmented_pinyin":["ni"],"context":"","candidate_limit":3}"#)
+                .unwrap();
+        assert_eq!(legacy.mode, AiCandidateMode::Pinyin);
+    }
+
+    #[test]
     fn rejects_control_characters_in_suggestions() {
         let response = AiSuggestionResponse {
             candidates: vec![AiSuggestion {
