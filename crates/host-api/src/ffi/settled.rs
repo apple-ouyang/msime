@@ -22,7 +22,7 @@ struct SettledJobInner {
 
 enum SettledPhase {
     Running,
-    Ready(msime_input_runtime::SettledRerankScore),
+    Ready(Box<msime_input_runtime::SettledRerankScore>),
     Done,
 }
 
@@ -141,7 +141,7 @@ fn spawn_score(
             }));
             let mut inner = job_inner(&worker);
             match scored {
-                Ok(score) if !inner.abandoned => inner.phase = SettledPhase::Ready(score),
+                Ok(score) if !inner.abandoned => inner.phase = SettledPhase::Ready(Box::new(score)),
                 Ok(score) => {
                     drop(score);
                     inner.phase = SettledPhase::Done;
@@ -194,7 +194,7 @@ pub extern "C" fn msime_client_start_settled_rerank(handle: u64) -> *mut c_char 
                 Ok(token) => Ok(json!({"status": "pending", "token": token})),
                 Err(request) => {
                     let score = msime_input_runtime::score_settled_rerank(*request);
-                    publish(session, score)
+                    publish(session, *score)
                 }
             }
         })
@@ -241,10 +241,10 @@ pub extern "C" fn msime_client_poll_settled_rerank(
                 Take::Ready(score) => {
                     remove_job(handle, token);
                     if !accept {
-                        session.runtime.discard_settled_rerank(score);
+                        session.runtime.discard_settled_rerank(*score);
                         Ok(json!({"status": "done", "moved": false, "current": false}))
                     } else {
-                        publish(session, score)
+                        publish(session, *score)
                     }
                 }
             }
@@ -254,7 +254,7 @@ pub extern "C" fn msime_client_poll_settled_rerank(
 
 enum Take {
     Pending,
-    Ready(msime_input_runtime::SettledRerankScore),
+    Ready(Box<msime_input_runtime::SettledRerankScore>),
     Absent,
 }
 
