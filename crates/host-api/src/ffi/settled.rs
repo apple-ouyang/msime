@@ -194,7 +194,7 @@ pub extern "C" fn msime_client_start_settled_rerank(handle: u64) -> *mut c_char 
                 Ok(token) => Ok(json!({"status": "pending", "token": token})),
                 Err(request) => {
                     let score = msime_input_runtime::score_settled_rerank(*request);
-                    publish(session, *score)
+                    publish(session, score)
                 }
             }
         })
