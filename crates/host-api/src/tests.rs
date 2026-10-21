@@ -256,6 +256,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         autocorrect_neighbor: false,
         fuzzy_pinyin_rules: 0,
         wubi_mixed_pinyin: false,
+        wubi_z_wildcard: false,
         wubi_profile: 0,
         helpcode: false,
         show_helpcode: false,
@@ -13698,6 +13699,26 @@ fn voice_number_normalization_follows_the_model_kind() {
 }
 
 #[test]
+fn voice_number_normalization_preserves_approximate_percentages() {
+    for kind in ["online_transducer", "offline_transducer"] {
+        let request = json!({
+            "text": "约百分之二十点几，精确值百分之三点五，末尾百分之三点",
+            "kind": kind,
+        })
+        .to_string();
+        let response =
+            read(unsafe { msime_client_voice_normalize_numbers(request.as_ptr(), request.len()) });
+        assert_eq!(
+            response,
+            json!({"ok": true, "value": {
+                "text": "约百分之二十点几，精确值3.5%，末尾百分之三点"
+            }}),
+            "{kind}",
+        );
+    }
+}
+
+#[test]
 fn voice_hotword_correction_preserves_an_exact_dictionary_word() {
     let request = json!({
         "text": "名天和铭天",
@@ -18081,6 +18102,37 @@ fn voice_endpoint_issue_export_uses_shared_validation_without_echoing_input() {
     });
     assert_eq!(result["ok"], true);
     assert_eq!(result["value"]["accepted"], false);
+}
+
+#[test]
+fn voice_websocket_endpoint_export_serializes_one_transport_descriptor() {
+    let endpoint = "wss://例子.invalid:8443/合成🍃/%2F?lang=zh+cn&empty=";
+    let result =
+        read(unsafe { msime_client_voice_websocket_endpoint(endpoint.as_ptr(), endpoint.len()) });
+    assert_eq!(
+        result,
+        serde_json::json!({"ok":true,"value":{
+            "socket_host":"xn--fsqu00a.invalid",
+            "port":8443,
+            "host_header":"xn--fsqu00a.invalid:8443",
+            "request_target":"/%E5%90%88%E6%88%90%F0%9F%8D%83/%2F?lang=zh+cn&empty="
+        }})
+    );
+    let invalid = "wss://fixture.invalid:65536/stream";
+    assert_eq!(
+        read(unsafe { msime_client_voice_websocket_endpoint(invalid.as_ptr(), invalid.len()) }),
+        serde_json::json!({"ok":false,"error":"invalid voice websocket endpoint"})
+    );
+    for (pointer, length) in [
+        (std::ptr::null(), 1),
+        (b"\xff".as_ptr(), 1),
+        (endpoint.as_ptr(), 65_537),
+    ] {
+        assert_eq!(
+            read(unsafe { msime_client_voice_websocket_endpoint(pointer, length) }),
+            serde_json::json!({"ok":false,"error":"invalid voice websocket endpoint"})
+        );
+    }
 }
 
 #[test]
