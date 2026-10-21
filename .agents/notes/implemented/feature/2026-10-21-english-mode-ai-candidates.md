@@ -30,8 +30,8 @@ wire 兼容：`mode` 拼音时不写进 JSON，`#[serde(default)]` 让旧宿主�
 
 代价：多一个偏好和一条 wire 字段；宿主提示词要能处理两种 `mode`。
 
-**未完成，这个分支还得继续做：** 设置页开关还没有。`packages/ui/src/settings/ai-assistant-preferences.ts` 与 `ai-settings-content.tsx` 目前都不认识 `english_candidates`，用户只能手改 `preferences.json` 才能打开它。
+设置页：AI 页「联想」组里新增「英文模式也请求 AI 候选」开关（`packages/ui/src/settings/ai-settings-page-section.tsx`），显示与否由 `HostCapabilities.english_ai_candidates` 决定（缺省按提供处理，英文键面不经会话组字的宿主报 `false`）；`AiAssistantPreferences.english_candidates` 是可选字段，旧文档没有它时按关闭渲染。
 
-`#9015` 评论里「中文模式中英混输（`wodegithub`、`woyongtypescript`）时 AI 从不请求」是另一件事：`ai_eligible` 要求每一段都是完整拼音，`git` 这类切不成拼音的段会被判掉。这次没有动它。
+`#9015` 评论里「中文模式中英混输（`wodegithub`、`woyongtypescript`）时 AI 从不请求」这次**分开放**，不在这批做：`ai_eligible` 要求每一段都是完整拼音，混输里的 `git` 段会被判掉；要放行混输得让分段里允许非拼音段，提示词、分段形状和资格规则都跟「字母串 + `mode:"english"`」的英文契约不同，把两件事捆进同一个隐私敏感的切片会让审查和「开关关闭时零行为变化」的边界都说不清。维护者要做时建议在 `OnlineQueryMode` 加第三个值或复用 `pinyin` 并放宽分段资格，另开 issue。
 
-验证：`cargo test -p msime-engine -p msime-client-core -p msime-client-providers` 全绿（430 + 230 + 17，0 失败）；`cargo fmt --all --check` 与 `cargo clippy -p msime-engine -p msime-client-core -p msime-client-providers --all-targets --locked -- -D warnings` 均通过。
+验证：`cargo test -p msime-engine -p msime-client-core -p msime-client-providers` 全绿（2377 + 431 + 231，0 失败）；引擎侧 `dedicated_english_asks_ai_only_when_the_switch_is_on`、`temporary_english_asks_ai_only_when_the_switch_is_on`、`the_english_ai_switch_leaves_the_pinyin_online_query_unchanged` 覆盖「关→不发、开→发、拼音不变」三点；client-core 断言偏好默认关、缺键按关、恢复默认收回；client-providers 断言请求体 `"mode":"english"`/`"pinyin"` 与旧文档兼容。`cargo fmt --all --check` 与 `cargo clippy --all-targets --locked -- -D warnings`（五个改到的 crate）均通过。已知：`msime-host-api` 的 `vocabulary_boundary_imports_reviews_and_reports_one_whole_status` 用固定日期 `2026-09-24` 断言 `due`，真实日期过了窗口后基线上也会失败，与本次改动无关。
