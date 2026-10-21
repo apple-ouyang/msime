@@ -10539,12 +10539,9 @@ test("the macOS AI page shows the service and network groups", async () => {
   );
   await settingsReady();
   const page = screen.getByRole("group", { name: "AI 辅助" });
-<<<<<<< HEAD
-  expect(pageGroupTitles(page)).toEqual(["服务", "网络"]);
-=======
-  // macOS 固定候选数量，所以「联想」组里只有「英文模式也请求 AI 候选」这一行。
-  expect(pageGroupTitles(page)).toEqual(["服务", "联想"]);
->>>>>>> 9aca79da5 (fix(capabilities): 宿主能力位补上英文 AI 候选并修正 AI 页断言)
+  // macOS 固定候选数量，所以「联想」组里只有「英文模式也请求 AI 候选」这一行；桌面宿主自己发
+  // 请求，「网络」组给出代理设置。
+  expect(pageGroupTitles(page)).toEqual(["服务", "联想", "网络"]);
   expect(within(page).queryByRole("button", { name: "发送并润色" })).toBeNull();
 });
 
