@@ -58,3 +58,5 @@ Status: implemented
 - `crates/client-core/src/preferences/tests.rs` 的 `candidate_translation_display_defaults_follow_windows_factory_config` 与 `candidate_badge_defaults_follow_windows_factory_config` 钉住出厂默认、旧文档回退和显式选择往返。
 - `apps/desktop/tests/settings/candidate-settings-layout.test.tsx` 钉住外观页的三行与保存 patch。
 - `pnpm --filter @msime/desktop test`（784 文件 4849 用例）、`cargo test -p msime-client-core`、`cargo clippy -p msime-client-core --all-targets --locked -- -D warnings`、`pnpm format:check` 全绿；`shortcut-test` 目标编过，确认 `InputController.mm` 的宿主改动可编译。
+
+审查整合：旧出厂徽标回归使用的 `CandidateDisplay` 包装仅定义在 `ShortcutTest.mm`，继续调用宿主的 `CandidateDisplayWithBadges` 与共享纯函数表。生产宿主传实际偏好，不保留没有调用方的出厂包装，也不依靠 `unused` 压制警告。整合作者后续修复时移除生产侧重复定义，避免控制器被测试直接包含后同一编译单元重定义。
