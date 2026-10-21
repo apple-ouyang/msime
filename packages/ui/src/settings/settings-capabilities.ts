@@ -100,6 +100,8 @@ export function settingsCapabilities({
   const showEffectIntensity = host ? host.fixed_effect_intensity === undefined : true;
   // 宿主固定了 AI 联想的候选数量（`HostCapabilities.fixed_ai_candidate_limit`，macOS、Windows、Linux、鸿蒙）时不给「候选数量」。
   const showAiCandidateLimit = host ? host.fixed_ai_candidate_limit === undefined : true;
+  // 英文模式的 AI 候选开关：共享核心层各宿主都能发英文查询，只有英文键面不经会话的宿主报 false。
+  const showEnglishAiCandidates = host?.english_ai_candidates !== false;
   // HarmonyOS 没有粒子浮层：每种样式都是候选卡片闪一下，火花和 Power Mode 闪得更亮，所以那里的样式说明不能许诺火花。Windows 和 macOS 一样在光标处画火花。
   const typingEffectsFlashOnly = showTypingEffectStyles && harmony;
   const showWordbookPacks = host ? host.wordbook_packs : false;
@@ -162,6 +164,7 @@ export function settingsCapabilities({
     showTypingEffectPacks,
     showEffectIntensity,
     showAiCandidateLimit,
+    showEnglishAiCandidates,
     typingEffectsFlashOnly,
     showWordbookPacks,
     showSymbolSetPacks,

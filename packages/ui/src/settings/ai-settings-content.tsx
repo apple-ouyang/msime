@@ -50,6 +50,8 @@ export interface AiSettingsContentProps {
   androidPlatform: boolean;
   /** 宿主让用户选 AI 候选数量（`settingsCapabilities` 的 `showAiCandidateLimit`）。 */
   candidateLimitShown: boolean;
+  /** 宿主给「英文模式 AI 候选」开关（`settingsCapabilities` 的 `showEnglishAiCandidates`）。 */
+  englishAiCandidatesShown: boolean;
   providerCredentials: ProviderCredentialStatus | undefined;
   storedAiCredential: ProviderCredentialStatus["ai"][number] | undefined;
   aiCredentialInput: string;
@@ -95,6 +97,7 @@ export function AiSettingsContent({
   iosPlatform,
   androidPlatform,
   candidateLimitShown,
+  englishAiCandidatesShown,
   providerCredentials,
   storedAiCredential,
   aiCredentialInput,
@@ -209,6 +212,9 @@ export function AiSettingsContent({
       candidateLimitShown={candidateLimitShown}
       candidateLimit={ai.candidate_limit}
       onCandidateLimitChange={(candidate_limit) => updateAi({ candidate_limit })}
+      englishAiCandidatesShown={englishAiCandidatesShown}
+      englishAiCandidates={ai.english_candidates ?? false}
+      onEnglishAiCandidatesChange={(english_candidates) => updateAi({ english_candidates })}
       promptId={ai.prompt_id}
       promptCustom1={ai.prompt_custom_1 ?? ""}
       promptCustom2={ai.prompt_custom_2 ?? ""}

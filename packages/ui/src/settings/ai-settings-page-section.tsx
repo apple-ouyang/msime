@@ -51,6 +51,10 @@ export interface AiSettingsPageSectionProps {
   candidateLimitShown: boolean;
   candidateLimit: number;
   onCandidateLimitChange: (candidateLimit: number) => void;
+  /** 「英文模式 AI 候选」开关：英文键面不经会话组字的宿主（`HostCapabilities.english_ai_candidates === false`）不显示。 */
+  englishAiCandidatesShown: boolean;
+  englishAiCandidates: boolean;
+  onEnglishAiCandidatesChange: (enabled: boolean) => void;
   /** 当前的提示词槽位（`prompt_id`）。页面只编辑这一个槽位，不再提供切换：留空的槽位回退到内置提示词，切换三个槽位几乎没人用。 */
   promptId?: string;
   promptCustom1: string;
@@ -91,6 +95,9 @@ export function AiSettingsPageSection({
   candidateLimitShown,
   candidateLimit,
   onCandidateLimitChange,
+  englishAiCandidatesShown,
+  englishAiCandidates,
+  onEnglishAiCandidatesChange,
   promptId,
   promptCustom1,
   promptCustom2,
@@ -186,18 +193,29 @@ export function AiSettingsPageSection({
         </MoreOptions>
         {desktopCredentialTest && <SettingsGroupBlock>{desktopCredentialTest}</SettingsGroupBlock>}
       </GroupList>
-      {candidateLimitShown && (
+      {(candidateLimitShown || englishAiCandidatesShown) && (
         <GroupList title="联想">
-          <TextInputRow
-            title="候选数量"
-            description="每次 AI 联想给出的候选个数，1 到 10"
-            label="AI 候选数量"
-            type="number"
-            min="1"
-            max="10"
-            value={String(candidateLimit)}
-            onChange={(value) => onCandidateLimitChange(clamp(Number(value) || 3, 1, 10))}
-          />
+          {candidateLimitShown && (
+            <TextInputRow
+              title="候选数量"
+              description="每次 AI 联想给出的候选个数，1 到 10"
+              label="AI 候选数量"
+              type="number"
+              min="1"
+              max="10"
+              value={String(candidateLimit)}
+              onChange={(value) => onCandidateLimitChange(clamp(Number(value) || 3, 1, 10))}
+            />
+          )}
+          {englishAiCandidatesShown && (
+            <SwitchRow
+              title="英文模式也请求 AI 候选"
+              description="英文模式下把已输入的字母串和前文发给 AI 服务做补全与拼写纠错；关闭时英文模式不联网。"
+              aria-label="英文模式也请求 AI 候选"
+              checked={englishAiCandidates}
+              onChange={onEnglishAiCandidatesChange}
+            />
+          )}
         </GroupList>
       )}
       {networkSection}

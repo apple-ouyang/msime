@@ -18,6 +18,7 @@ function AiAssistanceContent() {
     windowsPlatform,
     macosPlatform,
     showAiCandidateLimit,
+    showEnglishAiCandidates,
     busy,
     page,
     aiModels,
@@ -75,6 +76,7 @@ function AiAssistanceContent() {
       iosPlatform={iosPlatform}
       androidPlatform={androidPlatform}
       candidateLimitShown={showAiCandidateLimit}
+      englishAiCandidatesShown={showEnglishAiCandidates}
       providerCredentials={providerCredentials}
       storedAiCredential={storedAiCredential}
       aiCredentialInput={aiCredentialInput}
