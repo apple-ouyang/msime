@@ -25,6 +25,8 @@ Windows 正式版的 `installer/default_config/config.default.toml:162-167` 有 
 - 本机、局域网目标 **never** 走代理，哪怕是 https。`localhost`、回环、RFC 1918、链路本地、CGNAT（含 Tailscale 的 `100.64.0.0/10`）、IPv6 唯一本地地址和 `.local`，实现在 `network::is_local_host`，`ai::endpoint::is_local_network_host` 转调这一份，两个判断不再各写一套。
 - 其余 https 目标在 `system` 和 `custom` 下走代理，`none` 下直连。
 
+代理端口必须显式填写；URL 库会折叠 `http:80` 和 `https:443`，因此从原始 authority 判断端口是否存在，再用规范化端口生成地址。标准端口和前导零合法，缺端口与端口 0 非法；Rust 与设置页保持一致。
+
 `custom` 但 `proxy_server` 为空或不合规时，`NetworkPreferences::effective_mode` 返回 `System`，就是「留空按 system 处理」。
 
 三种模式都只对用户内容请求生效；`system` 下不显式挂代理，由 reqwest 按系统或环境变量决定，系统自己的排除列表照旧生效。为了让 `system` 真能读到 macOS 系统设置和 Windows 注册表，`msime-client-providers` 与 `msime-client-services` 的 reqwest 打开了 `system-proxy` 特性（`Cargo.lock` 因此新增 `system-configuration` 和 `windows-registry`，两者都是 reqwest 官方特性自带的可选依赖）。
@@ -56,13 +58,13 @@ Windows 正式版的 `installer/default_config/config.default.toml:162-167` 有 
 
 `ai/endpoint.rs` 的原有约束原样保留，并向前延伸一步：`blocking_client_builder` 对 `http` 地址仍然直接 `no_proxy()`，注释不变；对 `https` 地址改为经 `proxy::configure_blocking_for(builder, url)`，它内部再跑一次 `should_use_proxy(url, current().effective_mode(), is_local_host(url))`，本机和局域网目标得到的是 `no_proxy()`。所以代理只会看到目标主机名（CONNECT）和 TLS 密文，看不到 API Token、提示词或输入内容；而且用户填的 HTTP 代理只对 https 目标生效，代理本身即使在公网上也拿不到明文。
 
-`proxy::configure_blocking`（不带具体 url 的版本，给那些目标在建立时才确定的客户端用，例如账号客户端和模型下载）挂的是 `reqwest::Proxy::custom`，每个目标逐个跑同一个 `should_use_proxy`，不是无条件代理。这两个 `proxy.rs`（providers 和 services 各一份）内容相同：两个 crate 同级、互不引用，而 `client-core` 的编译图里有意不放 reqwest。判据只写在 `client-core` 一份。
+固定源站的账号与中继客户端使用 `proxy::configure_blocking_for`，三种模式都先排除明文与本地目标。`proxy::configure_blocking` 只用于公网 HTTPS 客户端：`custom` 挂 `reqwest::Proxy::custom` 逐目标判断，`system` 保留 reqwest 系统代理；不能把它用于可能访问本机的源站。这两个 `proxy.rs`（providers 和 services 各一份）内容相同：两个 crate 同级、互不引用，而 `client-core` 的编译图里有意不放 reqwest。判据只写在 `client-core` 一份。
 
 ### 设置如何到达出口
 
 `crates/client-core/src/network.rs` 有一份进程内的 `RwLock<NetworkPreferences>`。`PreferencesStore::load`、`read_locked` 的「没有文件」分支和 `save_locked` 都调用 `network::install`，所以任何读到或保存了偏好的进程（设置窗口、输入宿主、MCP）接着发出的请求都用最新的代理。默认是 `system`，没有偏好文件时也不会突然直连。
 
-账号客户端是进程内共用的（为了线程和文件描述符），它的代理由 `build` 时固定，因此 `shared_default_client` 记住建它时的 `network::current`，设置变了就重建一份；否则用户在设置页换代理后，账号请求会一直用旧代理。
+账号默认连接池在进程内共用，宿主自报 User-Agent 的对象各自缓存连接池。每条请求路径（包括 multipart、快照、流式下载和头像）在发出前检查 `network::current`，设置变了才重建；长期缓存的账号会话同样生效。构造对象时重建不够，因为 FFI 还缓存着旧对象。建立连接池和记录代理版本使用同一份设置快照，已开始的请求可继续使用旧池。
 
 设置页在「AI 辅助」页新增「网络」一组（macOS、Windows、Linux 桌面；iOS、Android、鸿蒙的请求走平台自己的网络栈，不显示）。`proxy_server` 的本地检查与 Rust 的 `valid_proxy_server` 同口径；不合规时 `Preferences::validate` 返回 `InvalidNetwork`，整份保存失败，而不是存下一个用不了的地址。
 
@@ -92,3 +94,7 @@ Windows 正式版的 `installer/default_config/config.default.toml:162-167` 有 
 - `cargo fmt --all --check`、`cargo clippy -p msime-client-core -p msime-client-providers -p msime-client-services --all-targets --locked -- -D warnings` 通过。
 - `cargo check -p msime-host-api -p msime-input-runtime --all-targets` 通过（跨 crate 检查）。
 - `pnpm --filter @msime/desktop test` 785 个文件、4852 个用例全绿；`pnpm format:check` 通过。
+
+审查回归：显式标准端口 `:80` / `:443`（含前导零、IPv6）的代理地址与设置页采用同一规则；未写端口、端口零、空用户凭据与空查询拒绝。账号默认和自报 User-Agent 的长期客户端实际请求先后通过两台合成 CONNECT 代理，下一次请求使用新池；本机剪贴板中继在设置系统代理环境后仍只把合成令牌发给源站。两项传输回归分别在独立测试进程运行，避免全局偏好及代理环境影响并行测试。三 crate 严格 Clippy、网络规则 14 项、设置页 4 项、类型检查、生产构建与远端 `verify-local.sh --quick` 通过；quick 包含 macOS 与共享 Apple 桥构建、Android JNI/JVM、Linux 原生 108 项 CTest 和 Linux 设置外壳检查。Windows 编译在远端缺交叉工具链而跳过，仍由 PR 的平台 CI 把关；HarmonyOS 真打包未运行。
+
+独立进程隔离后的服务层全套回归通过：`cargo test -p msime-client-services` 为 1,276 项单测与 4 项集成测试通过、1 项忽略，随后严格 Clippy 通过。

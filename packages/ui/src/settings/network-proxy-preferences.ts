@@ -24,7 +24,7 @@ export function updateNetworkProxy(
 export function networkProxyServerIssue(value: string): string {
   const server = value.trim();
   if (server === "") return "";
-  if (server.length > 512) return "代理地址过长。";
+  if (new TextEncoder().encode(server).length > 512) return "代理地址过长。";
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f]/.test(server) || server.includes("\\") || server.includes("#")) {
     return "代理地址不能包含控制字符、反斜杠或 # 片段。";
@@ -39,9 +39,14 @@ export function networkProxyServerIssue(value: string): string {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     return "代理只支持 http:// 或 https:// 地址。";
   }
-  if (url.username || url.password) return "代理地址不能带用户名或密码。";
-  if (!url.port) return "请写出代理端口，例如 127.0.0.1:7890。";
+  const authority = candidate.split("://")[1]?.split(/[/?#]/)[0] ?? "";
+  if (url.username || url.password || authority.includes("@"))
+    return "代理地址不能带用户名或密码。";
+  // URL 会隐藏显式的 :80 / :443，所以端口是否存在按原始 authority 检查。
+  const port = authority.slice(authority.lastIndexOf(":") + 1);
+  if (!/^[0-9]+$/.test(port) || Number(port) === 0)
+    return "请写出有效代理端口，例如 127.0.0.1:7890。";
   if (url.pathname !== "/" && url.pathname !== "") return "代理地址不能带路径。";
-  if (url.search) return "代理地址不能带查询参数。";
+  if (candidate.includes("?")) return "代理地址不能带查询参数。";
   return "";
 }

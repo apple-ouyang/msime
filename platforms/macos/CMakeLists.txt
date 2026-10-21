@@ -92,8 +92,7 @@ target_include_directories(apple-client PUBLIC ../../shared/apple src ../../crat
 # drawn as two clauses, and NSUnderlineStyle* and the marked clause attribute live there. The iOS
 # build of these same sources compiles that block out - UIKit's document proxy takes a plain string.
 # CoreAudio and AudioToolbox for host-api's microphone capture (cpal), which every consumer of the archive links whether or not it records.
-# SystemConfiguration for `reqwest`'s `system-proxy` feature: it reads the user's proxy settings
-# through system-configuration, which links SCDynamicStore* from that framework.
+# reqwest 的 system-proxy 功能通过 SystemConfiguration 读取系统代理设置。
 set(MSIME_HOST_LIBRARY_FRAMEWORKS "-framework Foundation" "-framework Security" "-framework CoreText" "-framework CoreAudio" "-framework AudioToolbox" "-framework SystemConfiguration")
 target_link_libraries(apple-client PUBLIC "${MSIME_HOST_LIBRARY}" ${SQLITE_TARGET} ${MSIME_HOST_LIBRARY_FRAMEWORKS} "-framework AppKit")
 if(TARGET shared-doubao-auth)

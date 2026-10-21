@@ -58,11 +58,22 @@ test("proxy server validation matches the Rust rule", () => {
     "127.0.0.1:7890",
     "http://127.0.0.1:7890",
     "https://proxy.example.test:8443",
+    "http://proxy.example.test:80",
+    "https://proxy.example.test:443",
+    "proxy.example.test:00080",
+    "http://[::1]:80",
   ]) {
     expect(networkProxyServerIssue(valid)).toBe("");
   }
   for (const invalid of [
     "127.0.0.1",
+    "http://proxy.example.test",
+    "https://proxy.example.test",
+    "http://[::1]",
+    "http://proxy.example.test:",
+    "http://proxy.example.test:0",
+    "http://@proxy.example.test:80",
+    "http://proxy.example.test:80?",
     "socks5://127.0.0.1:1080",
     "http://user:pass@127.0.0.1:7890",
     "http://127.0.0.1:7890/path",

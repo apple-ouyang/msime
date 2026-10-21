@@ -93,10 +93,20 @@ pub fn normalized_proxy_url(value: &str) -> Option<String> {
     } else {
         format!("http://{value}")
     };
+    // URL 库会省略显式的标准端口，是否写端口必须从原始 authority 判断。
+    let authority = candidate
+        .split_once("://")?
+        .1
+        .split(['/', '?', '#'])
+        .next()?;
+    let port = authority.rsplit_once(':')?.1;
+    if port.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
     let url = url::Url::parse(&candidate).ok()?;
     if !matches!(url.scheme(), "http" | "https")
         || !crate::endpoint::valid_endpoint_shape(&candidate, &url, url.scheme())
-        || url.port().is_none_or(|port| port == 0)
+        || url.port_or_known_default().is_none_or(|port| port == 0)
         || !matches!(url.path(), "" | "/")
         || url.query().is_some()
         || url.cannot_be_a_base()
@@ -104,7 +114,11 @@ pub fn normalized_proxy_url(value: &str) -> Option<String> {
         return None;
     }
     let host = url.host_str()?;
-    Some(format!("{}://{host}:{}", url.scheme(), url.port()?))
+    Some(format!(
+        "{}://{host}:{}",
+        url.scheme(),
+        url.port_or_known_default()?
+    ))
 }
 
 /// 主机是否属于本机或局域网：回环、RFC 1918 私有地址、链路本地、CGNAT（含 Tailscale）和 IPv6 唯一本地地址，
@@ -337,6 +351,23 @@ mod tests {
                 Some("http://proxy.example.test:8080"),
             ),
             (" [::1]:7890 ", Some("http://[::1]:7890")),
+            (
+                "http://proxy.example.test:80",
+                Some("http://proxy.example.test:80"),
+            ),
+            (
+                "https://proxy.example.test:443",
+                Some("https://proxy.example.test:443"),
+            ),
+            (
+                "proxy.example.test:00080",
+                Some("http://proxy.example.test:80"),
+            ),
+            ("http://[::1]:80", Some("http://[::1]:80")),
+            ("http://proxy.example.test", None),
+            ("https://proxy.example.test", None),
+            ("http://[::1]", None),
+            ("http://proxy.example.test:", None),
             ("", None),
             ("127.0.0.1", None),
             ("127.0.0.1:0", None),

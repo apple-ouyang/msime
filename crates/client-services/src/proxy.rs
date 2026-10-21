@@ -6,14 +6,22 @@
 //! 这里和 `msime-client-services` 的 `proxy` 模块内容相同：两个 crate 是同级的，互不引用，
 //! 而 `client-core` 的编译图里有意不放 reqwest（输入运行时和后端引擎都用它）。判据只写一份。
 
-use msime_client_core::network::{current, normalized_proxy_url, should_use_proxy, ProxyMode};
+use msime_client_core::network::{
+    current, normalized_proxy_url, should_use_proxy, NetworkPreferences, ProxyMode,
+};
 use reqwest::blocking::ClientBuilder;
 use reqwest::Url;
 
 /// 按当前偏好配置一个只会请求 `https` 目标的客户端。`custom` 下每个目标仍按 [`should_use_proxy`] 再判断一次，
 /// 所以本机或局域网目标、以及任何明文 `http` 目标都不会交给代理。
 pub fn configure_blocking(builder: ClientBuilder) -> ClientBuilder {
-    let preferences = current();
+    configure_blocking_with_preferences(builder, &current())
+}
+
+fn configure_blocking_with_preferences(
+    builder: ClientBuilder,
+    preferences: &NetworkPreferences,
+) -> ClientBuilder {
     match preferences.effective_mode() {
         ProxyMode::None => builder.no_proxy(),
         ProxyMode::System => builder,
@@ -30,8 +38,17 @@ pub fn configure_blocking(builder: ClientBuilder) -> ClientBuilder {
 
 /// 按当前偏好配置一个只发往 `url` 的客户端。目标不该走代理时（明文 `http`、本机或局域网）显式直连。
 pub fn configure_blocking_for(builder: ClientBuilder, url: &Url) -> ClientBuilder {
-    if should_use_proxy(url, current().effective_mode(), is_local(url)) {
-        configure_blocking(builder)
+    configure_blocking_for_with_preferences(builder, url, &current())
+}
+
+/// 使用同一份设置快照建立连接池，避免缓存的版本与实际代理设置不一致。
+pub(crate) fn configure_blocking_for_with_preferences(
+    builder: ClientBuilder,
+    url: &Url,
+    preferences: &NetworkPreferences,
+) -> ClientBuilder {
+    if should_use_proxy(url, preferences.effective_mode(), is_local(url)) {
+        configure_blocking_with_preferences(builder, preferences)
     } else {
         builder.no_proxy()
     }
@@ -45,7 +62,6 @@ fn is_local(url: &Url) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use msime_client_core::network::{install, NetworkPreferences};
 
     fn url(value: &str) -> Url {
         Url::parse(value).unwrap()
@@ -54,7 +70,6 @@ mod tests {
     /// 构造客户端只为验证配置不报错；不会发出请求。
     #[test]
     fn every_mode_builds_a_client() {
-        let previous = current();
         for preferences in [
             NetworkPreferences::default(),
             NetworkPreferences {
@@ -70,21 +85,27 @@ mod tests {
                 proxy_server: String::new(),
             },
         ] {
-            install(&preferences);
             for target in [
                 "https://api.example.test/v1",
                 "http://127.0.0.1:11434/v1",
                 "https://studio.local/v1",
             ] {
                 assert!(
-                    configure_blocking_for(ClientBuilder::new(), &url(target))
-                        .build()
-                        .is_ok(),
+                    configure_blocking_for_with_preferences(
+                        ClientBuilder::new(),
+                        &url(target),
+                        &preferences
+                    )
+                    .build()
+                    .is_ok(),
                     "{preferences:?} {target}"
                 );
             }
-            assert!(configure_blocking(ClientBuilder::new()).build().is_ok());
+            assert!(
+                configure_blocking_with_preferences(ClientBuilder::new(), &preferences)
+                    .build()
+                    .is_ok()
+            );
         }
-        install(&previous);
     }
 }
