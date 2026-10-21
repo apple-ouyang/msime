@@ -21,6 +21,13 @@ const DESKTOP_LOCK: &str = include_str!("../../../resources/desktop-dictionary.l
 const LANGUAGE_LOCK: &str = include_str!("../../../resources/language-dictionaries.lock.json");
 const HANDWRITING_LOCK: &str = include_str!("../../../resources/handwriting-model.lock.json");
 const SETTLED_MODEL_LOCK: &str = include_str!("../../../resources/settled-model.lock.json");
+const GRAMMAR_MODELS_LOCK: &str = include_str!("../../../resources/grammar-models.lock.json");
+
+/// `grammar-models.lock.json` 里三个语法模型各自的工件名，每种型号一个资源包，
+/// 选小模型不用连带下载全部 ~645MB。
+const GRAMMAR_WANXIANG_ARTIFACTS: &[&str] = &["wanxiang-lts-zh-hans.gram"];
+const GRAMMAR_BAGUWEN_ARTIFACTS: &[&str] = &["zh-hans-t-essay-bgw.gram"];
+const GRAMMAR_BAGUWEN_COMPACT_ARTIFACTS: &[&str] = &["zh-hans-t-essay-bgw-compact.gram"];
 const OFFLINE_GLOSSES_LOCK: &str = include_str!("../../../resources/offline-glosses.lock.json");
 /// 各平台的 sherpa-onnx 运行库归档，`fetch_voice_runtime.py` 和打包脚本用的同一份锁。
 const VOICE_RUNTIME_LOCK: &str = include_str!("../../../resources/voice-runtime.lock.json");
@@ -47,6 +54,12 @@ pub enum ResourcePack {
     Handwriting,
     /// 桌面神经联想在输入停顿后使用的落定重排模型（`sentence-model-desktop.safetensors`）。
     SettledModel,
+    /// octagram 语法模型万象 LTS（CC-BY-4.0）：`wanxiang-lts-zh-hans.gram`。
+    GrammarWanxiang,
+    /// octagram 语法模型八股文·词级（LGPL-3.0）：`zh-hans-t-essay-bgw.gram`。
+    GrammarBaguwen,
+    /// octagram 语法模型八股文·词级紧凑（LGPL-3.0）：`zh-hans-t-essay-bgw-compact.gram`。
+    GrammarBaguwenCompact,
     /// 候选的非英文离线释义：`zh-<语言>.db` 六份加上随它们一起分发的 `offline-glosses-NOTICE.txt`（改编自 CC BY-SA 4.0 的维基词典）。
     OfflineGlosses,
     /// Android arm64 上本地语音识别加载的 `libonnxruntime.so` 和 `libsherpa-onnx-c-api.so`，取自 `resources/voice-runtime.lock.json` 固定的 sherpa-onnx `.aar`。
@@ -135,11 +148,14 @@ pub struct PackArchive {
 
 impl ResourcePack {
     /// 每一种资源包，包括锁文件还没固定内容的；只要存在的那些用 [`ResourcePack::available`]。
-    pub const ALL: [ResourcePack; 8] = [
+    pub const ALL: [ResourcePack; 11] = [
         ResourcePack::Japanese,
         ResourcePack::LanguageDictionaries,
         ResourcePack::Handwriting,
         ResourcePack::SettledModel,
+        ResourcePack::GrammarWanxiang,
+        ResourcePack::GrammarBaguwen,
+        ResourcePack::GrammarBaguwenCompact,
         ResourcePack::OfflineGlosses,
         ResourcePack::VoiceRuntime,
         ResourcePack::Wubi,
@@ -165,6 +181,9 @@ impl ResourcePack {
             ResourcePack::LanguageDictionaries => "language-dictionaries",
             ResourcePack::Handwriting => "handwriting",
             ResourcePack::SettledModel => "settled-model",
+            ResourcePack::GrammarWanxiang => "grammar-model-wanxiang",
+            ResourcePack::GrammarBaguwen => "grammar-model-baguwen",
+            ResourcePack::GrammarBaguwenCompact => "grammar-model-baguwen-compact",
             ResourcePack::OfflineGlosses => "offline-glosses",
             ResourcePack::VoiceRuntime => "voice-runtime",
             ResourcePack::Wubi => "wubi",
@@ -196,6 +215,9 @@ impl ResourcePack {
             }),
             ResourcePack::Handwriting
             | ResourcePack::SettledModel
+            | ResourcePack::GrammarWanxiang
+            | ResourcePack::GrammarBaguwen
+            | ResourcePack::GrammarBaguwenCompact
             | ResourcePack::OfflineGlosses
             | ResourcePack::VoiceRuntime
             | ResourcePack::MacosVoiceRuntime => &[],
@@ -223,7 +245,7 @@ impl ResourcePack {
 
     /// 该资源包固定的文件清单，取自仓库内的锁文件。从归档取出的文件（[`ResourcePack::archive`]），URL 记的是归档的地址，长度和 SHA-256 是取出后文件本身的。
     pub fn set(self) -> &'static ResourceSet {
-        static SETS: OnceLock<[ResourceSet; 7]> = OnceLock::new();
+        static SETS: OnceLock<[ResourceSet; 10]> = OnceLock::new();
         static UNPINNED: OnceLock<ResourceSet> = OnceLock::new();
         if self == ResourcePack::MacosVoiceRuntime {
             // 还没固定时是没有文件的空清单，它不能通过 `ResourceSet::validate`，也不会被列出或安装。
@@ -244,6 +266,8 @@ impl ResourcePack {
                 serde_json::from_str(HANDWRITING_LOCK).expect("handwriting model lock is valid");
             let settled: ResourceSet =
                 serde_json::from_str(SETTLED_MODEL_LOCK).expect("settled model lock is valid");
+            let grammar: ResourceSet =
+                serde_json::from_str(GRAMMAR_MODELS_LOCK).expect("grammar models lock is valid");
             let glosses: OfflineGlossesLock =
                 serde_json::from_str(OFFLINE_GLOSSES_LOCK).expect("offline glosses lock is valid");
             let (runtime_commit, archive, members) = voice_runtime_locks();
@@ -255,6 +279,9 @@ impl ResourcePack {
                     artifacts: handwriting.artifacts,
                 },
                 settled,
+                grammar.only(GRAMMAR_WANXIANG_ARTIFACTS),
+                grammar.only(GRAMMAR_BAGUWEN_ARTIFACTS),
+                grammar.only(GRAMMAR_BAGUWEN_COMPACT_ARTIFACTS),
                 ResourceSet {
                     source_commit: glosses.input.source_revision,
                     artifacts: glosses.artifacts,
@@ -279,9 +306,12 @@ impl ResourcePack {
             ResourcePack::LanguageDictionaries => &sets[1],
             ResourcePack::Handwriting => &sets[2],
             ResourcePack::SettledModel => &sets[3],
-            ResourcePack::OfflineGlosses => &sets[4],
-            ResourcePack::VoiceRuntime => &sets[5],
-            ResourcePack::Wubi => &sets[6],
+            ResourcePack::GrammarWanxiang => &sets[4],
+            ResourcePack::GrammarBaguwen => &sets[5],
+            ResourcePack::GrammarBaguwenCompact => &sets[6],
+            ResourcePack::OfflineGlosses => &sets[7],
+            ResourcePack::VoiceRuntime => &sets[8],
+            ResourcePack::Wubi => &sets[9],
             ResourcePack::MacosVoiceRuntime => unreachable!("handled above"),
         }
     }
@@ -554,6 +584,23 @@ pub struct ResourcePackStatus {
     pub schemes: &'static [&'static str],
     /// 不联网安装（[`import`]）时用户要自己下载的文件：有归档的资源包是那个归档，其余是锁文件里的每个文件。
     pub import_files: Vec<local_models::LocalModelImportFile>,
+}
+
+/// 卸载一个已发布的资源包：删除 `<state_root>/resource-packs/<id>` 整层目录，
+/// 返回是否有目录被删。只认安全 state_root 下的目录本身；符号链接不删（
+/// `published_directory` 把它按未安装算），也不处理暂存残留。
+pub fn remove(state_root: &Path, pack: ResourcePack) -> std::io::Result<bool> {
+    if !resource_root_is_safe(state_root) {
+        return Ok(false);
+    }
+    let directory = root(state_root).join(pack.id());
+    let Ok(metadata) = fs::symlink_metadata(&directory) else {
+        return Ok(false);
+    };
+    if !metadata.file_type().is_dir() {
+        return Ok(false);
+    }
+    fs::remove_dir_all(&directory).map(|_| true)
 }
 
 /// 每个资源包在 `state_root` 下的安装状态。

@@ -817,6 +817,22 @@ pub enum CharacterWidthPreference {
     Fullwidth,
 }
 
+/// octagram `.gram` 语法模型选择：`None` 不用语法模型（默认），其余三项
+/// 各对应一个按需下载的资源包（`grammar-model-<变体>`）。白霜（GPL-3.0 且
+/// 构建链许可未声明）本轮不提供。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GrammarModel {
+    #[default]
+    None,
+    /// 万象 LTS（CC-BY-4.0），`wanxiang-lts-zh-hans.gram`。
+    Wanxiang,
+    /// 八股文·词级（LGPL-3.0），`zh-hans-t-essay-bgw.gram`。
+    BaguwenWord,
+    /// 八股文·词级紧凑（LGPL-3.0），`zh-hans-t-essay-bgw-compact.gram`。
+    BaguwenCompact,
+}
+
 /// Candidate sentence-association sources. The dictionary lattice keeps its historical default; neural rerankers are opt-in because they add model work while typing or settling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -830,6 +846,10 @@ pub struct SentenceAssociationPreferences {
     pub neural_keyboard: bool,
     #[serde(default)]
     pub show_next_on_duplicate: bool,
+    /// octagram `.gram` 语法模型：对应资源包装好后引擎才拿到文件路径，
+    /// 选中但还没下载时等于 `None`（逐字节退回无模型基线）。
+    #[serde(default)]
+    pub grammar_model: GrammarModel,
 }
 
 impl Default for SentenceAssociationPreferences {
@@ -839,6 +859,7 @@ impl Default for SentenceAssociationPreferences {
             neural_desktop: false,
             neural_keyboard: false,
             show_next_on_duplicate: false,
+            grammar_model: GrammarModel::None,
         }
     }
 }

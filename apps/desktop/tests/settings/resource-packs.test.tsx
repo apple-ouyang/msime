@@ -36,6 +36,9 @@ const initial: Snapshot = {
 };
 
 const sizes: Record<ResourcePackId, number> = {
+  "grammar-model-wanxiang": 398_497_836,
+  "grammar-model-baguwen": 206_396_460,
+  "grammar-model-baguwen-compact": 40_925_228,
   japanese: 66_544_207,
   "language-dictionaries": 18_900_000,
   handwriting: 26_861_246,
@@ -50,6 +53,9 @@ function fakePacks(
   offered: ResourcePackId[] = ["japanese", "language-dictionaries", "handwriting", "settled-model"],
 ) {
   const states: Record<ResourcePackId, ResourcePackStatus["state"]> = {
+    "grammar-model-wanxiang": "missing",
+    "grammar-model-baguwen": "missing",
+    "grammar-model-baguwen-compact": "missing",
     japanese: "missing",
     "language-dictionaries": "missing",
     handwriting: "missing",
@@ -77,6 +83,7 @@ function fakePacks(
         new Promise<string>((resolve, reject) => pending.set(id, { resolve, reject })),
     ),
     cancel: vi.fn(async () => true),
+    remove: vi.fn(async () => true),
     onProgress: vi.fn(async (listener: (progress: LocalVoiceModelProgress) => void) => {
       listeners.add(listener);
       return () => listeners.delete(listener);

@@ -374,11 +374,37 @@ fn punctuation_lock_code(lock: msime_client_core::preferences::PunctuationLock) 
 /// The Engine's sentence association switches. The desktop model switch is not among them: it gates the runtime's settled reranker (`Runtime::set_settled_rerank_enabled`), the only place that model runs.
 fn engine_sentence_association(
     preferences: &msime_client_core::preferences::SentenceAssociationPreferences,
+    state_root: Option<&std::path::Path>,
 ) -> msime_engine::host::SentenceAssociationOptions {
+    // 选中的语法模型装好后才有文件路径；选中但没装（或包装在别处的 state_root
+    // 下没发布）时留空，引擎逐字节退回无模型基线。
+    let pack = match preferences.grammar_model {
+        msime_client_core::preferences::GrammarModel::None => None,
+        msime_client_core::preferences::GrammarModel::Wanxiang => {
+            Some(ResourcePack::GrammarWanxiang)
+        }
+        msime_client_core::preferences::GrammarModel::BaguwenWord => {
+            Some(ResourcePack::GrammarBaguwen)
+        }
+        msime_client_core::preferences::GrammarModel::BaguwenCompact => {
+            Some(ResourcePack::GrammarBaguwenCompact)
+        }
+    };
+    let collocation_model = state_root
+        .zip(pack)
+        .and_then(|(root, pack)| {
+            pack.set()
+                .artifacts
+                .first()
+                .and_then(|artifact| resource_packs::installed_file(root, pack, &artifact.name))
+        })
+        .unwrap_or_default();
     msime_engine::host::SentenceAssociationOptions {
         word_lattice: preferences.word_lattice,
         neural_keyboard: preferences.neural_keyboard,
         show_next_on_duplicate: preferences.show_next_on_duplicate,
+        collocation_model,
+        collocation_rerank: pack.is_some(),
         ..Default::default()
     }
 }
@@ -694,8 +720,10 @@ impl HostSession {
             &preferences.plugins,
         );
         plugin_tables.fill(&self.plugin_tables, plugin_root, &mut options);
-        options.sentence_association =
-            engine_sentence_association(&preferences.sentence_association);
+        options.sentence_association = engine_sentence_association(
+            &preferences.sentence_association,
+            self.state_root.as_deref(),
+        );
         // 引擎按宿主的每页候选数决定全长组要不要并入补全词；和下面交给 runtime 的值同源。
         let page_size = host_page_size(
             self.page_size_override
@@ -1846,6 +1874,7 @@ impl HostOptions {
             helpcode_fallback_resources: self.helpcode_fallback_resources,
             sentence_association: engine_sentence_association(
                 &self.preferences.sentence_association,
+                absolute_state_root(self.preferences_directory.as_deref()).as_deref(),
             ),
             rescoring_context: String::new(),
             sentence_alternatives: true,

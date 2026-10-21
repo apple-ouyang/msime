@@ -618,6 +618,22 @@ mod tests {
         assert_eq!(emoji.len(), 4);
     }
 
+    /// 真实 `.gram` 的人工验证探针：`GRAM_PROBE_PATH=<file>` 指定模型文件，
+    /// 断言能打开且「一名+医生」的搭配强于「一名+一生」。
+    #[test]
+    #[ignore = "需要真实模型文件：GRAM_PROBE_PATH=<path> cargo test -p msime-engine real_gram -- --ignored"]
+    fn real_gram_loads_and_queries() {
+        let Some(path) = std::env::var_os("GRAM_PROBE_PATH") else {
+            return;
+        };
+        let db = GramDb::load(Path::new(&path)).expect("real .gram loads");
+        let config = GramConfig::default();
+        let right = db.query("一名", "医生", true, &config);
+        let wrong = db.query("一名", "一生", true, &config);
+        eprintln!("一名+医生={right:.4} 一名+一生={wrong:.4}");
+        assert!(right > wrong, "真实模型应偏好医生搭配");
+    }
+
     #[test]
     fn encoded_cursor_helpers() {
         let enc = encode("中国ab一");

@@ -100,3 +100,66 @@ fn missing_or_corrupt_gram_falls_back_to_baseline() {
     assert_eq!(baseline, fallen, "模型缺失时解码输出与基线逐字节一致");
     GramDb::evict_shared(&missing);
 }
+
+/// 真实模型包的读取验证：只在本机有模型文件时运行，路径经 `MSIME_REAL_GRAM` 注入。
+///
+/// 两个模型的覆盖不同（八股文·词级紧凑认得「北京+大学」，白霜/墨奇不认），所以这里只断言
+/// 「能加载、能对已知搭配给出非默认分」；端到端纠正另有一条用八股文固定验证。
+#[test]
+fn a_real_downloaded_gram_model_loads_and_scores() {
+    let Some(path) = option_env!("MSIME_REAL_GRAM") else {
+        eprintln!("skipping: set MSIME_REAL_GRAM=/path/to/model.gram to run this");
+        return;
+    };
+    let db = GramDb::shared(Path::new(path)).expect("real .gram loads");
+    let config = GramConfig::default();
+    // 模型之间的搭配覆盖差别很大：八股文·词级紧凑对常见二元组给 −0.4 到 −4，白霜/墨奇（7 MB）
+    // 很稀疏、多数组合落在未命中惩罚 −6.0 上。所以这里只断言读取端成立——给出有限分，且至少
+    // 一个组合高于未命中惩罚；端到端纠正另有一条用八股文固定验证。
+    let pairs = [("我们", "一起"), ("已经", "完成"), ("非常", "奇怪"), ("这个", "年纪")];
+    let scores: Vec<f64> = pairs
+        .iter()
+        .map(|(a, b)| db.query(a, b, false, &config))
+        .collect();
+    assert!(scores.iter().all(|s| s.is_finite()), "real model must give finite scores: {scores:?}");
+    assert!(
+        scores.iter().any(|s| *s > config.non_collocation_penalty),
+        "at least one known bigram should beat the miss penalty {}. scores={scores:?}",
+        config.non_collocation_penalty
+    );
+}
+
+/// 端到端：八股文·词级紧凑版里「北京+大学」约 −0.39、「北京+大雪」约 −2.68，差 2.3 个自然
+/// 对数量级，足以把词频偏向的串错句拉回来。2026-10-21 用下载的真实模型实测通过。
+#[test]
+fn a_real_baguwen_model_corrects_the_frequency_winner() {
+    let Some(path) = option_env!("MSIME_REAL_GRAM") else {
+        eprintln!("skipping: set MSIME_REAL_GRAM=/path/to/zh-hans-t-essay-bgw-compact.gram");
+        return;
+    };
+    // 只有八股文系的表收「北京+大学」这对；白霜/墨奇（7 MB）覆盖稀疏，跑这条没有意义。
+    if !path.contains("bgw") {
+        eprintln!("skipping: {path} has no 北京+大学 entry; run this with a baguwen model");
+        return;
+    }
+    let db = GramDb::shared(Path::new(path)).expect("real .gram loads");
+    let config = GramConfig::default();
+    let scorer = |tail: &str, word: &str, is_rear: bool| {
+        db.query(tail, word, is_rear, &config) * std::f64::consts::LOG10_E
+    };
+    let rows = table(&[
+        ("bei'jing", &[("北京", 10_000)]),
+        ("da'xue", &[("大学", 1_000), ("大雪", 2_000)]),
+    ]);
+    let text = syllables("bei'jing'da'xue");
+    let plain = LatticeOptions::default();
+    let baseline = decode_sentences(&text, &mut lookup(&rows), &plain);
+    assert_eq!(baseline[0].sentence, "北京大雪", "没有语法模型时词频首选是串错句");
+    let scored_options = LatticeOptions {
+        collocation_scorer: Some(&scorer),
+        collocation_weight: 1.0,
+        ..LatticeOptions::default()
+    };
+    let scored = decode_sentences(&text, &mut lookup(&rows), &scored_options);
+    assert_eq!(scored[0].sentence, "北京大学", "真实模型要把「北京+大学」拉回首位");
+}
