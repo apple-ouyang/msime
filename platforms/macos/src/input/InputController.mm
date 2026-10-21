@@ -404,8 +404,9 @@ static NSString *CandidateDisplayWithBadges(NSDictionary *candidate, BOOL tradit
 }
 
 // 出厂徽标下的候选文字：`ShortcutTest.mm` 用它核对来源标记与简繁转换，取值走同一张纯函数表，
-// 避免测试与宿主默认各写一份。宿主自己绘制时用 `CandidateDisplayWithBadges` 传当前偏好。
-static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
+// 避免测试与宿主默认各写一份。宿主自己绘制时用 `CandidateDisplayWithBadges` 传当前偏好，所以这个
+// 入口在宿主自己的编译单元里没有调用方，标记 `unused`（与 `FrontmostApplicationOwnsFullscreenDisplay` 同）。
+static NSString *__attribute__((unused)) CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
     return CandidateDisplayWithBadges(candidate, traditional,
         MSIMECandidateBadgeString(msime::mac::candidate_ai_badge("robot")),
         MSIMECandidateBadgeString(msime::mac::candidate_fixed_badge(true, "paperclip")));
