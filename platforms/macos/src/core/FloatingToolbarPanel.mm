@@ -533,7 +533,6 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     BOOL _recentInput;
     BOOL _applyingSkin;
     NSTimer *_idleTimer;
-<<<<<<< HEAD
     MSIMEToolbarImageCanvas *_imageCanvas;
     msime::mac::SkinToolbarImage _lightToolbarImage;
     msime::mac::SkinToolbarImage _darkToolbarImage;
@@ -543,12 +542,10 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     NSString *_imagePunctuation;
     NSString *_imageCharacterSet;
     NSSize _barPreferredSize;
-=======
     // 由共享偏好解析出的空闲行为，`noteInputForDelegate:` 只读它。
     msime::mac::FloatingToolbarBehavior _behavior;
     // 上一次应用下去的行为，用来跳过没有变化的偏好快照。
     msime::mac::FloatingToolbarBehavior _appliedBehavior;
->>>>>>> ca3378ffb (feat(macos): 悬浮工具栏自动隐藏可关闭并按偏好延时)
 }
 
 + (instancetype)sharedPanel
