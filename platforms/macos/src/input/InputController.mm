@@ -380,10 +380,12 @@ static NSString *MSIMECandidateBadgeString(const std::string &badge) {
 // 画候选文字（含来源与固定排位的角标）。徽标串由调用方按偏好算好：AI 来源用它替换写死的 🤖，
 // 固定排位追加在来源角标之后，与 Windows candidate_view_model.h 的 text+annotation+badge 顺序一致。
 static NSString *CandidateDisplayWithBadges(NSDictionary *candidate, BOOL traditional, NSString *aiBadge, NSString *fixedBadge) {
-    // 偏好还没应用时 `_aiBadgeString` / `_fixedBadgeString` 是 nil；`stringByAppendingString:`
-    // 收到 nil 会抛 NSInvalidArgumentException，整个输入法崩掉（CI 的 shortcut 测试撞到过）。
-    aiBadge = aiBadge ?: @"";
-    fixedBadge = fixedBadge ?: @"";
+    // 偏好还没应用时（`ensureAppearance` 之前）`_aiBadgeString` / `_fixedBadgeString` 是 nil，
+    // 这里回退到同一组出厂默认（AI `robot`、固定排位 `paperclip`）。上游这一步写死 🤖，回退到
+    // 空串会让徽标在偏好载入前消失；也必须兜住 nil，`stringByAppendingString:` 收到 nil 会抛
+    // NSInvalidArgumentException 把整个输入法带崩（CI 的 shortcut 测试两条都撞到过）。
+    aiBadge = aiBadge ?: MSIMECandidateBadgeString(msime::mac::candidate_ai_badge("robot"));
+    fixedBadge = fixedBadge ?: MSIMECandidateBadgeString(msime::mac::candidate_fixed_badge(true, "paperclip"));
     NSString *annotation = MSIMEParenthesizedAnnotation(candidate[@"annotation"]);
     NSString *text = candidate[@"text"] ?: @"";
     id corrected = candidate[@"corrected"];
