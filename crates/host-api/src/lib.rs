@@ -717,7 +717,7 @@ impl HostSession {
         let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
         // 云候选席位不是 EngineOptions；新引擎默认关闭，每次重建都要恢复当前偏好。
         engine.set_cloud_candidates_enabled(preferences.cloud_candidates);
-        // 英文模式的 AI 候选开关同理：不是 EngineOptions，重建后按最新偏好恢复。
+        // 英文模式的 AI 候选开关同理（#9015）：不是 EngineOptions，重建后按最新偏好恢复。
         engine.set_english_ai_candidates(preferences.ai_assistant.english_candidates);
         if self.punctuation_override.is_some() || self.punctuation_lock_override.is_some() {
             engine
@@ -1032,6 +1032,10 @@ impl HostSession {
         self.set_ai_provider_cache(&requested_preferences);
         self.runtime
             .set_cloud_candidates_enabled(requested_preferences.cloud_candidates)
+            .map_err(|e| e.to_string())?;
+        // 英文模式的 AI 候选开关是宿主状态（#9015）：跟着最新请求的偏好走，不必等 Engine 重建。
+        self.runtime
+            .set_english_ai_candidates(requested_preferences.ai_assistant.english_candidates)
             .map_err(|e| e.to_string())?;
         // 宿主状态，不是 Engine 状态：跟着最新请求的偏好走，不必等这次偏好重建 Engine，也不必等组字结束。
         self.runtime
