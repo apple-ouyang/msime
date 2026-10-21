@@ -37,3 +37,17 @@ Status: implemented
 ## Consequences
 
 模型缺失或损坏时行为与改动前逐字节一致；有模型时词格解码首选可被搭配分改写并标为 `Collocation`。`SentenceAssociationOptions` 不再 `Copy`，host-api 结构体镜像处已同步默认值。后续切片（偏好枚举、资源包 sha256 下载校验、设置页单选）依赖这里的 `collocation_model` 字段与 `evict_shared`。
+
+## 模型目录（与旧版 Windows 正式版一致）
+
+| 模型 | 文件 | 大小 | 许可 | 上游 |
+|---|---|---|---|---|
+| 万象 LTS | `wanxiang-lts-zh-hans.gram` | 约 380 MB | CC-BY-4.0 | `amzxyz/rime-wanxiang-data@LTS` |
+| 八股文·词级 | `zh-hans-t-essay-bgw.gram` | 约 197 MB | LGPL-3.0 | `lotem/rime-octagram-data@20260712` |
+| 八股文·词级紧凑 | `zh-hans-t-essay-bgw-compact.gram` | 约 39 MB | LGPL-3.0 | 同上 |
+| 白霜/墨奇（实验） | `zh-moqi.gram` | 约 7 MB | GPL-3.0，构建链未声明 | `gaboolic/rime-frost@d57f35b3` |
+
+四个模型来自三个仓库，所以锁文件按模型一条记录 `source_commit`，不共用。
+白霜的地址钉在 40 位提交上（上游 `master` 会动），实测该地址的字节与锁里的
+SHA-256 一致。许可声明在 `resources/licenses/rime-baguwen-LGPL-3.0.txt` 与
+`rime-baishuang-GPL-3.0.txt`。
