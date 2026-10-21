@@ -20,7 +20,7 @@ macOS 把这两个行为都写死了：没有输入 10 秒后自动隐藏且始�
 
 旧文档缺这些键时按出厂值读，不写回也不迁移。
 
-共享设置页 `packages/ui/src/settings/pages/floating-toolbar-page.tsx` 在「显示」组里加三行：`auto_hide` 开关、「自动隐藏延时」滑块（1–60 秒，关闭自动隐藏时置灰但保留已选秒数，与 Windows 设置页一致）和 `shadow` 开关。延时的显示值经 `floatingToolbarAutoHideDelay` 投影：缺值、越界、非有限值都回退出厂 5 秒，滑块不会被一个坏值卡住。类型和缺省投影同步在 `floating-toolbar-preferences.ts` 与 `floating-toolbar-defaults.ts`。Linux 的工具栏是输入法菜单里的子菜单，不显示这几行。
+共享设置页 `packages/ui/src/settings/pages/floating-toolbar-page.tsx` 在「显示」组里加三行：`auto_hide` 开关、「自动隐藏延时」滑块（1–60 秒，关闭自动隐藏时置灰但保留已选秒数，与 Windows 设置页一致）和 `shadow` 开关。延时的显示值经 `floatingToolbarAutoHideDelay` 投影：缺值、越界、非有限值都回退出厂 5 秒，滑块不会被一个坏值卡住。类型和缺省投影同步在 `floating-toolbar-preferences.ts` 与 `floating-toolbar-defaults.ts`。能力位 `floating_toolbar_idle_behavior` 仅在 macOS 为真，Linux、Windows 和 HarmonyOS 不显示这几行；Linux 即使能绘制独立悬浮条，也尚未接入这些行为。
 
 判定抽成纯函数 `platforms/macos/src/core/FloatingToolbarBehavior.h`，不依赖任何窗口：
 
@@ -41,7 +41,7 @@ macOS 把这两个行为都写死了：没有输入 10 秒后自动隐藏且始�
 - **收益**：macOS 用户可以关掉自动隐藏、把延时调到 1–60 秒、关掉阴影；新装的出厂行为与 Windows v0.11.1 一致。三个判定都有不依赖窗口的 CTest 覆盖。
 - **代价与已知上限**：
   - macOS 的默认行为翻转：升级后不再自动隐藏，靠 10 秒隐藏的用户要在设置里打开并选延时。这是对齐 Windows 出厂的直接结果。
-  - 新架构 Windows 宿主还不读这三个键，共享设置页在 Windows 上会显示这三行但改了没有效果；等 Windows 宿主搬这三个设置，或加一个宿主能力位按平台隐藏这几行。
+  - 新架构 Windows 宿主还不读这三个键，能力位因此为假；Windows 的原生设置页也没有新增这三项。共享设置页只在真实消费它们的 macOS 显示，其他宿主接入后再开启能力位。
   - `auto_hide_delay` 不做 Rust 层的拒绝式校验：坏值由 macOS 的纯函数回退到 5 秒，避免整份偏好文档因此载入失败。
 
 ## Verification

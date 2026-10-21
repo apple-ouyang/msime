@@ -99,7 +99,7 @@ export function FloatingToolbarSettingsPage() {
           checked={floatingToolbar.enabled}
           onChange={(enabled) => onToolbarChange({ enabled })}
         />
-        {/* 自动隐藏是悬浮窗的行为，且只有真正读这三个值的宿主才列：Linux 的工具栏是输入法菜单，Windows 与 HarmonyOS 的面板还没接（宿主能力位 floating_toolbar_idle_behavior）。 */}
+        {/* 自动隐藏是悬浮窗的行为，且只有真正读这三个值的宿主才列：Linux 的独立悬浮条或菜单，以及 Windows 与 HarmonyOS 的面板尚未接入这些行为（宿主能力位 floating_toolbar_idle_behavior）。 */}
         {showToolbarIdleBehavior && !menuToolbar && (
           <>
             <SwitchRow
