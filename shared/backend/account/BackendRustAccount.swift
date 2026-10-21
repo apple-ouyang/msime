@@ -234,6 +234,7 @@ extension BackendRustClient.Failure: LocalizedError {
     case "account_rate_limited", "community_rate_limited":
       return retryAfterSeconds.map { "操作过于频繁，请约 \(Self.wait($0))后再试。" } ?? "操作过于频繁，请稍后再试。"
     case "account_storage": return "无法安全读取登录状态，请检查设备安全设置。"
+    case "clipboard_source_changed": return "云剪贴板同步来源已更改，请关闭后重新打开。"
     case "account_cancelled", "community_cancelled": return "操作已取消，请重试。"
     case "account_network": return "网络连接失败，请检查网络后重试。"
     case "account_recent_login_required": return "需要重新登录后再注销：请先退出登录，重新登录后再试。"

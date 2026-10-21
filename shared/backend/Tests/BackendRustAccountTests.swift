@@ -186,6 +186,7 @@ final class BackendRustAccountTests: XCTestCase {
     XCTAssertEqual(message("clipboard_device_pending"), BackendAccountClient.Failure.clipboardMessages["clipboard_device_pending"])
     XCTAssertEqual(message("account_blocked_content"), BackendAccountClient.Failure.moderationMessages["blocked_content"])
     XCTAssertEqual(message("rust_client_unavailable"), "账号服务暂不可用，请稍后再试。")
+    XCTAssertEqual(message("clipboard_source_changed"), "云剪贴板同步来源已更改，请关闭后重新打开。")
   }
   func testRateLimitSaysHowLongToWaitWhenKnown() {
     func message(_ seconds: Int?) -> String? {
