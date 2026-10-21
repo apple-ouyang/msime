@@ -76,8 +76,7 @@ HarmonyOS 的 `LocalAsrPolicy.senseVoiceLanguage` 先 `toLowerCase`。Rust 的 `
     识别语言把小写旧值按 `zh-CN` 显示。
 - Rust：`voice_language_default_uses_the_bcp47_region_form` 在 `zh-cn` 默认下失败（`left: "zh-cn"`，
   `right: "zh-CN"`），改后通过。
-- 没跑依赖窗口的原生偏好用例（`local-mode-preferences`、`skin-preview`、`shortcut` 等）：这类用例要 `-window`，
-  本机没有图形会话会 abort。
+- 远端 run `20261021-191249` 的完整 quick 通过；同份源码的 `local-mode-preferences`、`candidate-appearance-defaults`、`voice-hold-defaults`、`candidate-row-layout` 与 `skin-preview` 五项原生 CTest 全部执行通过，共 27.13 秒。布局断言按实际字体与预编辑居中位置核对；本轮没有运行 `shortcut`，不把它计入通过。
 
 ## Alternatives considered
 
@@ -102,5 +101,5 @@ HarmonyOS 的 `LocalAsrPolicy.senseVoiceLanguage` 先 `toLowerCase`。Rust 的 `
   如此，载入共享文档后也会这样，改动只是让窗口跟上）；原生回退值与共享默认从此由新增的两项 CTest 钉住，以后改
   共享默认要同步改原生并更新用例。
 - **保留**：审计里「只有 React 23 条」「只有原生 1 条」「选项不同 9 条」是有意的界面划分和产品取舍，不在本次范围。
-- **顺带发现（不在本次改动范围）**：`PRIVACY.md` 的候选翻译一节还写着 `candidate_translations` 默认 `true`、
-  新装候选翻译开启，与 2026-10-15 的决定和代码默认相反；它是隐私文档，留给维护者决定怎么改。
+- `PRIVACY.md` 同步区分新装关闭与旧文档缺字段时开启；系统离线翻译的前提是用户已开启候选翻译。
+- 字体与字号默认变化后，候选布局回归使用实际字体度量，并验证预编辑在首行中的居中偏移；不能沿用旧系统字体和 16pt 的固定高度。
