@@ -403,12 +403,6 @@ static NSString *CandidateDisplayWithBadges(NSDictionary *candidate, BOOL tradit
     return [text stringByAppendingString:badge];
 }
 
-// 出厂徽标的入口：测试与少数固定调用用它，取值仍走同一张纯函数表，避免与宿主默认漂移。
-static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
-    return CandidateDisplayWithBadges(candidate, traditional,
-        MSIMECandidateBadgeString(msime::mac::candidate_ai_badge("robot")),
-        MSIMECandidateBadgeString(msime::mac::candidate_fixed_badge(true, "paperclip")));
-}
 
 static NSString *MSIMEWubiCodeHint(NSDictionary *candidate, NSDictionary *view, BOOL enabled) {
     if (![candidate isKindOfClass:NSDictionary.class] || ![view isKindOfClass:NSDictionary.class]) return @"";
