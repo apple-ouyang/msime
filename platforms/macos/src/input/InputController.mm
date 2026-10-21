@@ -380,8 +380,11 @@ static NSString *MSIMECandidateBadgeString(const std::string &badge) {
 // 画候选文字（含来源与固定排位的角标）。徽标串由调用方按偏好算好：AI 来源用它替换写死的 🤖，
 // 固定排位追加在来源角标之后，与 Windows candidate_view_model.h 的 text+annotation+badge 顺序一致。
 static NSString *CandidateDisplayWithBadges(NSDictionary *candidate, BOOL traditional, NSString *aiBadge, NSString *fixedBadge) {
+    // 未提供缓存时回退出厂徽标；显式空串保留关闭状态，不把 nil 传给字符串拼接。
+    aiBadge = aiBadge ?: MSIMECandidateBadgeString(msime::mac::candidate_ai_badge("robot"));
+    fixedBadge = fixedBadge ?: MSIMECandidateBadgeString(msime::mac::candidate_fixed_badge(true, "paperclip"));
     NSString *annotation = MSIMEParenthesizedAnnotation(candidate[@"annotation"]);
-    NSString *text = candidate[@"text"];
+    NSString *text = candidate[@"text"] ?: @"";
     id corrected = candidate[@"corrected"];
     if (MSIMEStrictBoolean(corrected)) text = [text stringByAppendingString:@"*"];
     if (annotation.length) text = [text stringByAppendingString:annotation];

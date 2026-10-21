@@ -12388,6 +12388,11 @@ int main(int argc, char **argv) {
             assert(([CandidateDisplay(@{@"text":@"汉语", @"source":source}, NO) isEqual:@"汉语"]));
         assert(([CandidateDisplay(@{@"text":@"汉语", @"annotation":@"(aB)", @"source":@2}, YES) isEqual:@"漢語(aB) ☁️"]));
         assert(([CandidateDisplay(@{@"text":@"汉语", @"annotation":@"(aB)", @"source":@3}, NO) isEqual:@"汉语(aB) 🤖"]));
+        // nil 表示尚未提供缓存，空串是显式隐藏；两者不能合并成同一个回退行为。
+        NSDictionary *aiFixed = @{@"text": @"汉语", @"source": @3, @"fixed_position": @1};
+        assert([CandidateDisplayWithBadges(aiFixed, NO, nil, nil) isEqual:@"汉语 🤖 📎"]);
+        assert([CandidateDisplayWithBadges(aiFixed, NO, @"", @"") isEqual:@"汉语"]);
+        assert([CandidateDisplayWithBadges(@{@"source": @3}, NO, nil, @"") isEqual:@" 🤖"]);
         NSMutableDictionary *scriptView = [@{@"scheme": @0, @"local_mode": @"none", @"script_conversion": @YES, @"session": @1, @"generation": @20, @"editing_text": @"hanyu", @"caret_position": @5, @"candidates": @[@{@"text": @"汉语", @"highlighted": @YES, @"id": @{@"session": @1, @"generation": @20, @"index": @0}}]} mutableCopy];
         [controller setValue:[scriptView copy] forKey:@"view"];
         NSDictionary *preserved = [[controller valueForKey:@"view"] copy];
