@@ -295,6 +295,13 @@ fn a_highlight_moved_during_scoring_stays_on_the_selected_word() {
     runtime.dispatch(Action::NextCandidate).unwrap();
     assert_eq!(runtime.cached.candidates[runtime.highlighted], "丙");
     let applied = runtime.apply_settled_rerank(score_settled_rerank(request));
+    // 候选导航也推进代次，旧评分先丢弃；随后评分仍须保留导航后的高亮。
+    assert!(!applied.current && !applied.moved);
+    assert_eq!(runtime.cached.candidates, ["甲", "乙", "丙"]);
+    assert_eq!(runtime.cached.candidates[runtime.highlighted], "丙");
+    let request = runtime.begin_settled_rerank().unwrap();
+    let applied = runtime.apply_settled_rerank(score_settled_rerank(request));
     assert!(applied.current && applied.moved);
+    assert_eq!(runtime.cached.candidates[0], "乙");
     assert_eq!(runtime.cached.candidates[runtime.highlighted], "丙");
 }
