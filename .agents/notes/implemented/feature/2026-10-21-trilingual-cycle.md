@@ -66,3 +66,5 @@ C ABI 入口 `msime_client_language_cycle(enabled, mode, scheme, last_chinese_sc
   - 没验证到的：真机上的循环、Windows 和 Linux 的接线、以及循环在日语方案缺词库时的回退（日语缺词库时仍可纯假名输入；版本不提供日语时不启用循环）。
 
 审查补充：`ShortcutTest.mm` 新增真实引擎、偏好持久化与控制器按键回归，覆盖没有中文历史的日语用户从英文回中文、原文提交失败保留组字、完整三态循环，以及关闭开关后组合键取消/修饰键轻点原文提交的既有差异。远端 run `20261021-193234` 的 quick 门禁通过；Rust 路由、偏好与 ABI 定向测试及严格 Clippy 通过。原生源码强制重编并移除临时诊断后，run `20261021-194628` 的 `shortcut`、`trilingual-cycle-routing`、`input-mode-identifiers` 三项 CTest 全部执行通过，共 41.30 秒。早期复用镜像曾因跨分支源文件时间戳回退而读到旧对象；之后显式触碰相关原生源文件再重编，不能把旧缓存的中止计作产品失败或通过。
+
+最新 develop 合并后的 run `20261021-212441` 完整 quick 通过，`shortcut`、`trilingual-cycle-routing` 两项共 43.58 秒通过；单独执行的 `input-mode-identifiers` 通过（0.30 秒）。未做系统输入源中的实体按键验收。
