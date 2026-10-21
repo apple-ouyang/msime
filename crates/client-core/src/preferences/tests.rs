@@ -284,6 +284,19 @@ fn ai_assistant_without_a_provider_key_loads_with_the_default_provider() {
 }
 
 #[test]
+fn english_ai_candidates_default_off_and_reset_by_restore() {
+    // #9015 的隐私边界：默认关、旧文档缺键也按关处理、恢复默认设置时收回。
+    assert!(!Preferences::default().ai_assistant.english_candidates);
+    let ai: AiAssistantPreferences =
+        serde_json::from_value(serde_json::json!({"enabled": true})).unwrap();
+    assert!(!ai.english_candidates);
+    let mut preferences = Preferences::default();
+    preferences.ai_assistant.english_candidates = true;
+    let restored = preferences.restored_to_defaults_for(crate::edition::Edition::full());
+    assert!(!restored.ai_assistant.english_candidates);
+}
+
+#[test]
 fn every_reachable_voice_provider_validates_and_others_are_rejected_on_save() {
     // 阿里云百炼（#6017）走整句识别，id 是 `bailian`。
     assert!(ASR_PROVIDERS.contains(&"bailian"));
