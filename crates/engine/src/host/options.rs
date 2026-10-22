@@ -108,6 +108,8 @@ pub struct EngineOptions {
     pub mixed_japanese: bool,
     pub local_unicode: bool,
     pub local_date_time: bool,
+    /// 「📅日期」入口（`LocalModeOptions::date_time_menu`），依附 `local_date_time`。
+    pub local_date_time_menu: bool,
     pub local_quick_phrase: bool,
     pub local_emoji: bool,
     pub local_kaomoji: bool,
@@ -230,6 +232,7 @@ pub fn prepare_options_for(
         mixed_japanese: false,
         local_unicode: true,
         local_date_time: true,
+        local_date_time_menu: true,
         local_quick_phrase: true,
         local_emoji: true,
         local_kaomoji: true,
@@ -360,6 +363,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     session.local_modes = LocalModeOptions {
         unicode: options.local_unicode,
         date_time: options.local_date_time,
+        date_time_menu: options.local_date_time_menu,
         quick_phrase: options.local_quick_phrase,
         emoji: options.local_emoji,
         kaomoji: options.local_kaomoji,

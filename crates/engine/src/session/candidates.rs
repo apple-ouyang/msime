@@ -694,14 +694,15 @@ impl InputSession {
             return;
         }
         let raw = self.engine.request().raw_input.as_str();
-        let Some((anchor, kind)) = inline_date_time_keyword(|keyword| {
+        let Some((keyword, anchor, kind)) = inline_date_time_keyword(|keyword| {
             raw.bytes()
                 .filter(|&byte| byte != b'\'')
                 .eq(keyword.bytes())
         }) else {
             return;
         };
-        insert_inline_date_time(items, anchor, kind, raw, || self.local_now());
+        let menu = self.local_mode_options.date_time_menu.then_some(keyword);
+        insert_inline_date_time(items, anchor, kind, raw, || self.local_now(), menu);
     }
 }
 

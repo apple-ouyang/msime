@@ -11,6 +11,11 @@ const localModeRows: readonly LocalModeRow[] = [
     "中文模式下按 Shift+T，再输入 rq / riqi / date 输入日期，sj / shijian / time 输入时间，xq / xingqi / week 输入星期，nl / nongli / yinli 输入农历。打开时，拼音（含九键）直接输入 riqi / rq、shijian / sj、xingqi / xq、nongli / nl，日期、时间、星期、农历也会排在对应的词后面",
   ],
   [
+    "date_time_menu",
+    "日期格式入口",
+    "日期时间混入候选时，在第三位放一个「📅日期」入口，选中后候选窗换成该组的全部日期格式，和 T 模式相同",
+  ],
+  [
     "unicode",
     "Unicode 便捷录入(U 模式)",
     "中文模式下按 Shift+U，再输入十六进制码位（如 4e00 / +1f600）。空格上屏；Shift+数字选词",

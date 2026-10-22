@@ -736,6 +736,7 @@ impl HostSession {
         options.mixed_japanese = preferences.mixed_input.japanese;
         options.local_unicode = preferences.local_modes.unicode;
         options.local_date_time = preferences.local_modes.date_time;
+        options.local_date_time_menu = preferences.local_modes.date_time_menu;
         options.local_quick_phrase = preferences.local_modes.quick_phrase;
         options.local_emoji = preferences.local_modes.emoji;
         options.local_kaomoji = preferences.local_modes.kaomoji;
@@ -1909,6 +1910,7 @@ impl HostOptions {
             mixed_japanese: self.preferences.mixed_input.japanese,
             local_unicode: self.preferences.local_modes.unicode,
             local_date_time: self.preferences.local_modes.date_time,
+            local_date_time_menu: self.preferences.local_modes.date_time_menu,
             local_quick_phrase: self.preferences.local_modes.quick_phrase,
             local_emoji: self.preferences.local_modes.emoji,
             local_kaomoji: self.preferences.local_modes.kaomoji,

@@ -329,10 +329,10 @@ impl NineKeySession {
             .filter(|_| initial.is_none() && !filtering)
         {
             let digits = self.digits.as_str();
-            if let Some((anchor, kind)) =
+            if let Some((_keyword, anchor, kind)) =
                 inline_date_time_keyword(|keyword| keyword_spells_digits(grid, keyword, digits))
             {
-                insert_inline_date_time(&mut candidates, anchor, kind, digits, || clock());
+                insert_inline_date_time(&mut candidates, anchor, kind, digits, || clock(), None);
             }
         }
         positions::apply_fixed_positions(

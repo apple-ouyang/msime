@@ -1272,6 +1272,8 @@ impl Default for FrequencyAdjustmentOptions {
 pub struct LocalModeOptions {
     pub unicode: bool,
     pub date_time: bool,
+    /// 「📅日期」入口：日期时间混进普通候选时，第三位放一个入口，选中后候选窗换成这一组的全部格式（参考 `utility.date_time_menu`，出厂开）。依附 `date_time`。
+    pub date_time_menu: bool,
     pub quick_phrase: bool,
     pub emoji: bool,
     pub kaomoji: bool,
@@ -1294,6 +1296,7 @@ impl Default for LocalModeOptions {
         Self {
             unicode: true,
             date_time: true,
+            date_time_menu: true,
             quick_phrase: true,
             emoji: true,
             kaomoji: true,

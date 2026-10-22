@@ -1,6 +1,7 @@
 export type LocalModeKey =
   | "unicode"
   | "date_time"
+  | "date_time_menu"
   | "quick_phrase"
   | "emoji"
   | "kaomoji"
@@ -17,6 +18,8 @@ export type LocalModeKey =
 export type LocalModePreferences = {
   unicode: boolean;
   date_time: boolean;
+  /** 「📅日期」入口：日期时间混入候选时第三位放入口，选中后候选窗换成全部格式。开着时不写入文档，缺键读作开。 */
+  date_time_menu?: boolean;
   quick_phrase: boolean;
   emoji: boolean;
   kaomoji: boolean;
@@ -72,12 +75,14 @@ export function localModeControlState(
 ) {
   // 只有显示总开关的宿主才按它禁用各行；其他宿主的入口保持可用。
   const shiftLetterEntry = !shiftLetterEntrySwitch || (preferences.shift_letter_entry ?? true);
-  // 缺键时的缺省：符号模式与 Windows 正式版的出厂配置一致读作开；拆字由宿主形态决定；其余读作关。
-  const defaultsOn = key === "symbol" || (key === "chaizi" && !shiftLetterEntrySwitch);
+  // 缺键时的缺省：符号模式、日期格式入口与 Windows 正式版的出厂配置一致读作开；拆字由宿主形态决定；其余读作关。
+  const defaultsOn =
+    key === "symbol" || key === "date_time_menu" || (key === "chaizi" && !shiftLetterEntrySwitch);
   return {
     checked: preferences[key] ?? defaultsOn,
     disabled:
       (key === "mention_places" && !preferences.mention) ||
+      (key === "date_time_menu" && !preferences.date_time) ||
       (!shiftLetterEntry && shiftLetterModes.has(key)),
   };
 }

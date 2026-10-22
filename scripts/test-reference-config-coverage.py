@@ -179,6 +179,7 @@ MAPPING: dict[str, str] = {
     "tencent_tmt.secret_key": "tencent_tmt.secret_key",
     "tencent_tmt.target_language": "translation_target_language",
     "utility.clipboard_history": "clipboard_history",
+    "utility.date_time_menu": "local_modes.date_time_menu",
     "utility.date_time_mode": "local_modes.date_time",
     "utility.emoji_mode": "local_modes.emoji",
     "utility.jianpin_mode": "local_modes.super_jianpin",

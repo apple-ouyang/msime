@@ -4868,10 +4868,10 @@ fn date_time_keywords_add_rows_after_their_word() {
     let fixture = Fixture::new(INLINE_DATE_TIME_FIXTURE);
     let mut session = fixture.session();
     TestClock::install(&mut session);
-    let date = ["日期", "2026年8月9日", "2026-08-09", "2026年8月9日 星期日"];
+    let date = ["日期", "2026年8月9日", "📅日期", "2026-08-09", "2026年8月9日 星期日"];
     for keyword in ["riqi", "ri'qi"] {
         type_text(&mut session, keyword);
-        assert_eq!(words(&session)[..4], date, "{keyword}");
+        assert_eq!(words(&session)[..5], date, "{keyword}");
         let snapshot = session.snapshot();
         assert_eq!(snapshot.candidates[1].source, CandidateSource::Generated);
         assert_eq!(snapshot.candidates[1].pinyin, keyword);
@@ -4883,15 +4883,18 @@ fn date_time_keywords_add_rows_after_their_word() {
     let sj = words(&session);
     let at = sj.iter().position(|word| word == "时间").expect("时间");
     assert_eq!(sj[..at], ["手机"]);
-    assert_eq!(sj[at + 1..at + 4], ["14:30", "14:30:00", "下午2:30"]);
+    assert_eq!(
+        sj[at + 1..at + 5],
+        ["14:30", "🕒时间", "14:30:00", "下午2:30"]
+    );
     session.command(Command::Cancel);
 
     type_text(&mut session, "xingqi");
-    assert_eq!(words(&session)[..3], ["星期", "星期日", "周日"]);
+    assert_eq!(words(&session)[..4], ["星期", "星期日", "📅星期", "周日"]);
     session.command(Command::Cancel);
 
     type_text(&mut session, "nongli");
-    assert_eq!(words(&session)[..2], ["农历", "丙午年六月二十七日"]);
+    assert_eq!(words(&session)[..3], ["农历", "丙午年六月二十七日", "📅日期"]);
     session.command(Command::Cancel);
 
     // 不是关键词的组字、关键词的一部分都不加。
@@ -4926,6 +4929,69 @@ fn a_date_time_row_commits_without_learning() {
         0
     );
     assert_eq!(count(&fixture.main_db(), "SELECT count(*) FROM tbl_2_r"), 1);
+}
+
+/// `utility.date_time_menu`：「📅日期」入口跟在第一条行内日期行后面（锚定词在首位时是第三位），选中它不上屏、候选窗换成这一组的全部格式；再选一条格式上屏并结束组字；其他键先换回原来的候选再照常处理。
+#[test]
+fn date_time_menu_opens_the_full_format_list() {
+    let fixture = Fixture::new(INLINE_DATE_TIME_FIXTURE);
+    let mut session = fixture.session();
+    TestClock::install(&mut session);
+    type_text(&mut session, "riqi");
+    let first = words(&session);
+    assert_eq!(first[2], "📅日期", "{first:?}");
+    let menu = &session.snapshot().candidates[2];
+    assert_eq!(menu.source, CandidateSource::Generated);
+    assert_eq!(menu.pinyin, "menu:riqi");
+
+    // 选中入口：不上屏，候选窗换成 T 模式的整组格式，组字原样留着。
+    let result = session.select(2);
+    assert!(result.handled);
+    assert!(result.commit.is_none());
+    let page = words(&session);
+    assert_eq!(page.len(), 17, "{page:?}");
+    assert_eq!(page[0], "2026年8月9日");
+    assert_eq!(page[16], "丙午年六月二十七日");
+    assert!(!session.snapshot().preedit.is_empty());
+
+    // 页里选一条格式：照常上屏并结束组字。
+    assert_eq!(session.select(1).commit.as_deref(), Some("2026-08-09"));
+    assert!(session.snapshot().preedit.is_empty());
+
+    // 非选词键先换回原来的候选再照常处理：退格删掉最后一个字母，候选跟着变。
+    type_text(&mut session, "riqi");
+    session.select(2);
+    assert_eq!(words(&session).len(), 17);
+    assert!(session.command(Command::Backspace).handled);
+    let after = words(&session);
+    assert!(
+        !after.contains(&"丙午年六月二十七日".to_owned()),
+        "{after:?}"
+    );
+    assert!(!after.contains(&"📅日期".to_owned()), "{after:?}");
+    session.command(Command::Cancel);
+
+    // 星期、时间的入口文案与参考一致；锚定词不在首位时入口仍在第一条行内行后面。
+    type_text(&mut session, "sj");
+    let sj = words(&session);
+    let at = sj.iter().position(|word| word == "时间").expect("时间");
+    assert_eq!(sj[at + 2], "🕒时间", "{sj:?}");
+    session.command(Command::Cancel);
+    type_text(&mut session, "xingqi");
+    assert_eq!(words(&session)[2], "📅星期");
+    session.command(Command::Cancel);
+    type_text(&mut session, "nongli");
+    assert_eq!(words(&session)[2], "📅日期");
+    session.command(Command::Cancel);
+
+    // 关掉开关时只有行内日期行，没有入口。
+    let mut session = fixture.session_with(|options| options.local_modes.date_time_menu = false);
+    TestClock::install(&mut session);
+    type_text(&mut session, "riqi");
+    assert_eq!(
+        words(&session)[..4],
+        ["日期", "2026年8月9日", "2026-08-09", "2026年8月9日 星期日"]
+    );
 }
 
 /// 词库里没有锚定词时什么都不加；关掉日期时间模式（T 模式）时 26 键、九宫格都不加。

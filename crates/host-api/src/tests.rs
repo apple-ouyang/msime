@@ -279,6 +279,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         mixed_japanese: true,
         local_unicode: true,
         local_date_time: true,
+        local_date_time_menu: true,
         local_quick_phrase: true,
         local_emoji: true,
         local_kaomoji: true,
