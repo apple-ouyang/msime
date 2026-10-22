@@ -1596,17 +1596,18 @@ static void TestPairedPunctuationClosesThePair() {
     [controller flushPendingPairedClosing];
     // 注音的大千键位 `[` `]` `{` `}` 自己出「」『』：`]` 出的」是用户要打的后半个，原样上屏；`[` `{` 出的「『不补后半个，因为这个宿主只在 `'` `"` 上跨过」』。
     client.marked = nil;
+    [controller setValue:@{@"scheme": @(msime::mac::scheme::Zhuyin)} forKey:@"view"];
     [controller setValue:@(']') forKey:@"punctuationKeyInFlight"];
-    [controller apply:@{@"commit": @"」", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    [controller apply:@{@"commit": @"」", @"view": @{@"scheme": @(msime::mac::scheme::Zhuyin), @"editing_text": @"", @"caret_position": @0}}];
     assert([client.committed isEqual:@"」"] && !client.marked.length);
     [controller setValue:@('}') forKey:@"punctuationKeyInFlight"];
-    [controller apply:@{@"commit": @"』", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    [controller apply:@{@"commit": @"』", @"view": @{@"scheme": @(msime::mac::scheme::Zhuyin), @"editing_text": @"", @"caret_position": @0}}];
     assert([client.committed isEqual:@"』"] && !client.marked.length);
     [controller setValue:@('[') forKey:@"punctuationKeyInFlight"];
-    [controller apply:@{@"commit": @"「", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    [controller apply:@{@"commit": @"「", @"view": @{@"scheme": @(msime::mac::scheme::Zhuyin), @"editing_text": @"", @"caret_position": @0}}];
     assert([client.committed isEqual:@"「"] && !client.marked.length);
     [controller setValue:@('{') forKey:@"punctuationKeyInFlight"];
-    [controller apply:@{@"commit": @"你好『", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    [controller apply:@{@"commit": @"你好『", @"view": @{@"scheme": @(msime::mac::scheme::Zhuyin), @"editing_text": @"", @"caret_position": @0}}];
     assert([client.committed isEqual:@"你好『"] && !client.marked.length);
     // 没有按键的整段上屏（例如候选）照旧按字补，后半个不改回前半个。
     [controller apply:@{@"commit": @"「", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
