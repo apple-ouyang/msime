@@ -2040,8 +2040,17 @@ pub const DEFAULT_MIXED_INPUT_MINIMUM_PREFIX: u8 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MixedInputPreferences {
+    /// 候选混输总开关（Windows `utility.mixed_candidates`）：关掉后英文、emoji、颜文字、符号、日文、快捷短语和行内日期时间都不再混进普通候选，各分开关的原值保留。后加的成员，开着时不写进文档，旧版本和没有这个键的文档都按开处理。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub enabled: bool,
     pub english: bool,
     pub minimum_prefix: u8,
+    /// 中文状态下首页最多展示几个英文候选（Windows `general.cn_en_mixed_input_first_page_count`，1–3）：第一行英文进优先位置之后，其余英文紧跟它继续占首页的空位，放不下的照旧接在列表末尾。后加的成员，为 1 时不写进文档，旧版本和没有这个键的文档都按 1 处理。
+    #[serde(
+        default = "default_first_page_count",
+        skip_serializing_if = "is_default_first_page_count"
+    )]
+    pub first_page_count: u8,
     pub emoji: bool,
     pub kaomoji: bool,
     /// 实验选项：全拼、双拼里给整段罗马字补一个日文转换候选（ohayou → おはよう）。后加的成员，缺省为关；关着时不写进文档，旧版本和只写前四项的宿主都还能读。
@@ -2055,14 +2064,27 @@ pub struct MixedInputPreferences {
 impl Default for MixedInputPreferences {
     fn default() -> Self {
         Self {
+            enabled: true,
             english: true,
             minimum_prefix: DEFAULT_MIXED_INPUT_MINIMUM_PREFIX,
+            first_page_count: DEFAULT_MIXED_INPUT_FIRST_PAGE_COUNT,
             emoji: source_mixed_emoji_default(),
             kaomoji: false,
             japanese: false,
             symbols: true,
         }
     }
+}
+
+/// 中文状态下首页默认展示的英文候选数（Windows `cn_en_mixed_input_first_page_count` 的出厂值）。
+pub const DEFAULT_MIXED_INPUT_FIRST_PAGE_COUNT: u8 = 1;
+
+fn default_first_page_count() -> u8 {
+    DEFAULT_MIXED_INPUT_FIRST_PAGE_COUNT
+}
+
+fn is_default_first_page_count(value: &u8) -> bool {
+    *value == DEFAULT_MIXED_INPUT_FIRST_PAGE_COUNT
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -3335,7 +3357,9 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidFloatingToolbar);
         }
-        if !(1..=8).contains(&self.mixed_input.minimum_prefix) {
+        if !(1..=8).contains(&self.mixed_input.minimum_prefix)
+            || !(1..=3).contains(&self.mixed_input.first_page_count)
+        {
             return Err(PreferencesError::InvalidMixedInput);
         }
         if !self.plugins.validate() {

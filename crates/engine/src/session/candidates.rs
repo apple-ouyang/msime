@@ -106,8 +106,11 @@ impl InputSession {
             clone_candidate_rows(&self.prefix_candidates, &mut decoded);
         } else {
             clone_candidate_rows(self.engine.candidates(), &mut decoded);
-            // 快捷短语的独立开关同时约束普通候选入口，联系人在最终混排后单独加入。
-            if self.quick_phrase_candidates && self.local_mode_options.quick_phrase {
+            // 快捷短语的独立开关同时约束普通候选入口，联系人在最终混排后单独加入；混输总开关关掉时也不混。
+            if self.quick_phrase_candidates
+                && self.mixed_candidates_enabled
+                && self.local_mode_options.quick_phrase
+            {
                 self.queries.append_quick_phrase_candidates(
                     self.engine.request().raw_input.as_str(),
                     &mut decoded,
@@ -623,6 +626,8 @@ impl InputSession {
             english_may_lead,
             symbols_allowed,
             japanese,
+            self.engine.request().first_page_rows.get(),
+            self.mixed_candidates_enabled,
         );
         self.insert_inline_date_time(&mut mixed);
         self.apply_candidate_positions(&mut mixed);
@@ -685,6 +690,7 @@ impl InputSession {
     /// 全拼组字正好是 `riqi`、`sj` 这类关键词时，把当前日期、时间、星期或农历接在对应的词后面（#5952）。跟日期时间模式（T 模式）同一个开关；光标前缀解码、只出单字、专用英文和本地模式里不加。
     fn insert_inline_date_time(&self, items: &mut Vec<WordItem>) {
         if !self.local_mode_options.date_time
+            || !self.mixed_candidates_enabled
             || self.prefix_active
             || self.single_character_only
             || self.dedicated_english

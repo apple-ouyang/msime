@@ -2392,6 +2392,8 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
     assert_eq!(
         store.load().unwrap().preferences.mixed_input,
         MixedInputPreferences {
+            enabled: true,
+            first_page_count: 1,
             english: false,
             minimum_prefix: 3,
             emoji: true,
@@ -2404,6 +2406,8 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
     for mask in 0..32 {
         let preferences = Preferences {
             mixed_input: MixedInputPreferences {
+                enabled: true,
+                first_page_count: 1,
                 english: mask & 1 != 0,
                 emoji: mask & 2 != 0,
                 kaomoji: mask & 4 != 0,

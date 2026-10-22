@@ -282,6 +282,8 @@ pub struct NineKeySession {
     english_options: EnglishInputOptions,
     /// 候选里混入 emoji、颜文字和符号（共享偏好 `mixed_input.emoji` / `mixed_input.kaomoji` / `mixed_input.symbols`）。引擎层默认都关，宿主按偏好打开。
     expressive: MixedExpressiveOptions,
+    /// 候选混输总开关（`SessionOptions::mixed_candidates`）：关着时英文、emoji、颜文字、符号和行内日期时间都不混进候选。
+    mixed_candidates_enabled: bool,
     /// 组字里的日期时间行（#5952）读的墙钟；`None` 时不出这些行。跟日期时间模式同一个开关。
     inline_date_time: Option<LocalClock>,
     /// 句子联想设置（`SessionOptions::sentence_association`），与 26 键相同：`word_lattice` 关掉时不出词网格整句行，`neural_keyboard` 打开时用键盘模型给整句重排（#6059）。
@@ -408,6 +410,7 @@ impl NineKeySession {
             fuzzy,
             english_options: english,
             expressive: MixedExpressiveOptions::default(),
+            mixed_candidates_enabled: true,
             inline_date_time: None,
             sentence_association: SentenceAssociationOptions::default(),
             sentence_alternatives: false,
@@ -462,6 +465,11 @@ impl NineKeySession {
     /// 和 26 键共用的 emoji、颜文字混排开关；与英文选项一样只在建会话时设置。
     pub fn set_mixed_expressive(&mut self, options: MixedExpressiveOptions) {
         self.expressive = options;
+    }
+
+    /// 候选混输总开关（`SessionOptions::mixed_candidates`）；与英文选项一样只在建会话时设置。
+    pub fn set_mixed_candidates_enabled(&mut self, enabled: bool) {
+        self.mixed_candidates_enabled = enabled;
     }
 
     /// 数字正好拼出 `riqi`、`sj` 这类关键词时，把当前日期、时间、星期或农历接在对应的词后面，见 `local::date_time::insert_inline_date_time`；`None` 关掉。与 emoji 选项一样只在建会话时设置，测试换时钟时再设一次。
@@ -1572,7 +1580,7 @@ impl NineKeySession {
         if let Some(clock) = self
             .inline_date_time
             .as_ref()
-            .filter(|_| initial.is_none() && !filtering)
+            .filter(|_| self.mixed_candidates_enabled && initial.is_none() && !filtering)
         {
             let digits = self.digits.as_str();
             if let Some((anchor, kind)) =
@@ -1700,9 +1708,10 @@ impl NineKeySession {
         alternatives: &[Path],
         candidates: &[WordItem],
     ) -> (Vec<ExpressiveRow>, Vec<ExpressiveRow>, Vec<SymbolRow>) {
-        let enabled = self.expressive.emoji_candidates
-            || self.expressive.kaomoji_candidates
-            || self.expressive.symbol_candidates;
+        let enabled = self.mixed_candidates_enabled
+            && (self.expressive.emoji_candidates
+                || self.expressive.kaomoji_candidates
+                || self.expressive.symbol_candidates);
         if !enabled || self.digits.len() < MIXED_EXPRESSIVE_MINIMUM_INPUT {
             return (Vec::new(), Vec::new(), Vec::new());
         }
@@ -2063,7 +2072,8 @@ impl NineKeySession {
             if self.digits.is_empty() || !self.locked.is_empty() {
                 return Vec::new();
             }
-        } else if !self.english_options.mixed_candidates
+        } else if !self.mixed_candidates_enabled
+            || !self.english_options.mixed_candidates
             || !self.locked.is_empty()
             || self.digits.len() < self.english_options.minimum_prefix
         {
@@ -6086,6 +6096,7 @@ mod tests {
         let options = EnglishInputOptions {
             mixed_candidates: false,
             minimum_prefix: 2,
+            first_page_count: 1,
         };
         let mut words_only = open(&fixture.paths, false, options);
         words_only.set_english_only(true);

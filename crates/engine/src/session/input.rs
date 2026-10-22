@@ -94,6 +94,8 @@ pub(super) struct InputSession {
     pub english_online_candidates_enabled: bool,
     pub english_online_rows: Vec<WordItem>,
     pub mixed_candidates: Vec<WordItem>,
+    /// 候选混输总开关（`SessionOptions::mixed_candidates`）：关着时英文、emoji、颜文字、符号、日文混输行、行内日期时间和快捷短语都不混进普通候选，各分成员原值保留。
+    pub mixed_candidates_enabled: bool,
     pub local_mode: LocalInputMode,
     /// The scheme to return to after temporary Japanese.
     pub temporary_original_scheme: Option<SchemeType>,
@@ -190,6 +192,7 @@ impl InputSession {
             english_online_candidates_enabled: false,
             english_online_rows: Vec::new(),
             mixed_candidates: Vec::new(),
+            mixed_candidates_enabled: true,
             local_mode: LocalInputMode::None,
             temporary_original_scheme: None,
             local_preedit: String::new(),
@@ -236,6 +239,7 @@ impl InputSession {
             None => session.install_helpcode_keymap(&options.helpcode_schema)?,
         }
         session.frequency = options.frequency;
+        session.mixed_candidates_enabled = options.mixed_candidates;
         session.english_options = options.english;
         session.set_local_mode_options(options.local_modes);
         session.queries.set_command_table(&options.command_table);
@@ -2079,7 +2083,7 @@ fn frequency_options_valid(options: FrequencyAdjustmentOptions) -> bool {
 }
 
 fn english_options_valid(options: EnglishInputOptions) -> bool {
-    (1..=8).contains(&options.minimum_prefix)
+    (1..=8).contains(&options.minimum_prefix) && (1..=3).contains(&options.first_page_count)
 }
 
 fn local_mode_enabled(options: LocalModeOptions, mode: LocalInputMode) -> bool {

@@ -271,8 +271,10 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         frequency_mode: "disabled".into(),
         frequency_trigger_count: 1,
         frequency_linear_step: 1,
+        mixed_candidates: true,
         mixed_english: false,
         english_minimum_prefix: 2,
+        english_first_page_count: 1,
         mixed_emoji: false,
         mixed_kaomoji: false,
         mixed_symbols: false,
@@ -1324,6 +1326,8 @@ fn mixed_input_changes_defer_until_composition_ends() {
     let before = read(msime_client_view(handle));
     let mut preferences = Preferences {
         mixed_input: MixedInputPreferences {
+            enabled: true,
+            first_page_count: 1,
             english: false,
             minimum_prefix: 8,
             emoji: true,
@@ -3780,6 +3784,8 @@ fn nine_key_digits_offer_ranked_english_across_the_host_boundary() {
             learning: false,
             touch_keyboard_layout: TouchKeyboardLayout::NineKey,
             mixed_input: MixedInputPreferences {
+                enabled: true,
+                first_page_count: 1,
                 english: true,
                 minimum_prefix: 2,
                 emoji: false,

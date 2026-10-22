@@ -1356,6 +1356,8 @@ pub struct EnglishInputOptions {
     pub mixed_candidates: bool,
     /// 补全与英文领先的触发字符数，范围 1..=8；26 键中更短的完整词可选，但不抢占中文首选。
     pub minimum_prefix: usize,
+    /// 中文状态下首页最多展示几个英文候选（Windows `general.cn_en_mixed_input_first_page_count`），范围 1..=3：第一行英文进优先位置之后，其余英文紧跟它继续占首页的空位，放不下的照旧接在列表末尾。
+    pub first_page_count: usize,
 }
 
 impl Default for EnglishInputOptions {
@@ -1363,6 +1365,7 @@ impl Default for EnglishInputOptions {
         Self {
             mixed_candidates: false,
             minimum_prefix: 2,
+            first_page_count: 1,
         }
     }
 }
