@@ -1429,6 +1429,8 @@ test("mobile AI settings expose the Apple provider catalog and preserve custom e
     "qwen",
     "kimi",
     "zhipu",
+    "minimax",
+    "volcengine",
     "siliconflow",
     "groq",
     "openrouter",
