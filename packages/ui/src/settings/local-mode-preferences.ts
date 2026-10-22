@@ -78,14 +78,17 @@ export function localModeControlState(
 ) {
   // 只有显示总开关的宿主才按它禁用各行；其他宿主的入口保持可用。
   const shiftLetterEntry = !shiftLetterEntrySwitch || (preferences.shift_letter_entry ?? true);
-  // 缺键时的缺省沿用既有读法：符号模式、日期时间混输、日期格式入口读作开；其余后加成员读作关。拆字缺键的读法由宿主形态决定（桌面关、触屏开），不在这里兜底。
+  // 缺键时的缺省沿用既有读法：符号模式、日期时间混输、日期格式入口读作开；拆字由宿主形态决定（显示总开关的桌面读关、不显示的触屏读开）；其余后加成员读作关。
   const defaultsOn =
-    key === "symbol" || key === "date_time_menu" || key === "date_time_inline";
+    key === "symbol" ||
+    key === "date_time_menu" ||
+    key === "date_time_inline" ||
+    (key === "chaizi" && !shiftLetterEntrySwitch);
   return {
     checked: preferences[key] ?? defaultsOn,
     disabled:
       (key === "mention_places" && !preferences.mention) ||
-      (key === "date_time_menu" && !(preferences.date_time_inline ?? false)) ||
+      (key === "date_time_menu" && !(preferences.date_time_inline ?? true)) ||
       (!shiftLetterEntry && shiftLetterModes.has(key)),
   };
 }
