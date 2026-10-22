@@ -333,6 +333,8 @@ fn legacy_provider_origin(provider: &str) -> Option<&'static str> {
         "qwen" => "https://dashscope.aliyuncs.com:443",
         "kimi" => "https://api.moonshot.cn:443",
         "zhipu" => "https://open.bigmodel.cn:443",
+        "minimax" => "https://api.minimax.cn:443",
+        "volcengine" => "https://ark.cn-beijing.volces.com:443",
         "siliconflow" => "https://api.siliconflow.cn:443",
         "groq" => "https://api.groq.com:443",
         "openrouter" => "https://openrouter.ai:443",

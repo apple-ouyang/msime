@@ -20,6 +20,25 @@ fn catalog_covers_preferences_once_and_keeps_custom_as_the_fallback() {
     }
 }
 
+/// MiniMax 与火山方舟的端点取自 Windows v0.11.1 `ime_config.h` 的 endpoints
+/// 表；两家都是 OpenAI 兼容的 /chat/completions + Bearer Token。
+#[test]
+fn new_presets_match_the_reference_endpoints() {
+    let find = |id| PROVIDERS.iter().find(|entry| entry.id == id).unwrap();
+    let minimax = find("minimax");
+    assert_eq!(
+        minimax.endpoint,
+        "https://api.minimax.cn/v1/chat/completions"
+    );
+    assert_eq!(minimax.model, "MiniMax-M3.1-Flash");
+    let volcengine = find("volcengine");
+    assert_eq!(
+        volcengine.endpoint,
+        "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+    );
+    assert_eq!(volcengine.model, "doubao-seed-1.6-flash");
+}
+
 #[test]
 fn empty_optional_metadata_keeps_the_existing_ui_object_shape() {
     let catalog = serde_json::to_value(ui_provider_catalog()).unwrap();

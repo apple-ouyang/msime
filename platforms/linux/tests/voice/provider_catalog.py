@@ -32,18 +32,28 @@ voice = load_provider("voice_provider_catalog_original")
 EXPECTED = {
     "asr": [
         "bailian",
+        "custom",
         "doubao",
         "everyapi",
         "groq",
+        "minimax",
         "mistral",
         "openai",
-        "siliconflow"
+        "siliconflow",
+        "zhipu"
     ],
     "polish": [
+        "custom",
         "deepseek",
         "groq",
+        "kimi",
+        "minimax",
         "openai",
-        "siliconflow"
+        "openrouter",
+        "qwen",
+        "siliconflow",
+        "volcengine",
+        "zhipu"
     ],
     "models": {
         "asr": {
@@ -53,13 +63,23 @@ EXPECTED = {
             "doubao": "",
             "everyapi": "volc.seedasr.sauc.duration",
             "mistral": "voxtral-mini-latest",
-            "bailian": "qwen3-asr-flash"
+            "bailian": "qwen3-asr-flash",
+            "zhipu": "glm-asr",
+            "minimax": "asr-1.0",
+            "custom": ""
         },
         "polish": {
             "openai": "gpt-4o-mini",
             "groq": "llama-3.3-70b-versatile",
             "siliconflow": "Qwen/Qwen3-8B",
-            "deepseek": "deepseek-v4-flash"
+            "deepseek": "deepseek-v4-flash",
+            "minimax": "MiniMax-M3.1-Flash",
+            "kimi": "kimi-k2-0905-preview",
+            "zhipu": "glm-4-flash",
+            "qwen": "qwen-plus",
+            "volcengine": "doubao-seed-1.6-flash",
+            "openrouter": "openrouter/auto",
+            "custom": ""
         }
     },
     "endpoints": {
@@ -70,13 +90,23 @@ EXPECTED = {
             "everyapi": "https://api.everyapi.ai/v1/audio/transcriptions",
             "mistral": "https://api.mistral.ai/v1/audio/transcriptions",
             "bailian": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-            "doubao": "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
+            "doubao": "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
+            "zhipu": "https://open.bigmodel.cn/api/paas/v4/audio/transcriptions",
+            "minimax": "https://api.minimax.cn/v1/speech_to_text",
+            "custom": ""
         },
         "polish": {
             "openai": "https://api.openai.com/v1/chat/completions",
             "groq": "https://api.groq.com/openai/v1/chat/completions",
             "siliconflow": "https://api.siliconflow.cn/v1/chat/completions",
-            "deepseek": "https://api.deepseek.com/chat/completions"
+            "deepseek": "https://api.deepseek.com/chat/completions",
+            "minimax": "https://api.minimax.cn/v1/chat/completions",
+            "kimi": "https://api.moonshot.cn/v1/chat/completions",
+            "zhipu": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+            "qwen": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+            "volcengine": "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+            "openrouter": "https://openrouter.ai/api/v1/chat/completions",
+            "custom": ""
         }
     },
     "formats": {
@@ -85,6 +115,9 @@ EXPECTED = {
         "siliconflow": "multipart",
         "everyapi": "multipart",
         "mistral": "multipart",
+        "zhipu": "multipart",
+        "minimax": "multipart",
+        "custom": "multipart",
         "bailian": "chat_audio"
     }
 }

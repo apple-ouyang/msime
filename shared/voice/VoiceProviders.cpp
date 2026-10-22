@@ -69,8 +69,14 @@ std::string default_asr_endpoint(std::string_view provider) {
     return "https://api.mistral.ai/v1/audio/transcriptions";
   if (id == "bailian")
     return "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
+  if (id == "zhipu")
+    return "https://open.bigmodel.cn/api/paas/v4/audio/transcriptions";
+  if (id == "minimax")
+    return "https://api.minimax.cn/v1/speech_to_text";
   if (id == "doubao")
     return "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async";
+  if (id == "custom")
+    return {};
   // Keep unknown legacy values on the HTTP provider fallback used by the
   // Windows reference instead of silently selecting the Doubao websocket.
   return "https://api.siliconflow.cn/v1/audio/transcriptions";
@@ -90,7 +96,11 @@ std::string default_asr_model(std::string_view provider) {
     return "voxtral-mini-latest";
   if (id == "bailian")
     return "qwen3-asr-flash";
-  if (id == "doubao")
+  if (id == "zhipu")
+    return "glm-asr";
+  if (id == "minimax")
+    return "asr-1.0";
+  if (id == "doubao" || id == "custom")
     return {};
   return "FunAudioLLM/SenseVoiceSmall";
 }
@@ -100,7 +110,7 @@ std::string asr_request_format(std::string_view provider) {
   if (id == "doubao")
     return "doubao_websocket";
   if (id == "openai" || id == "groq" || id == "siliconflow" || id == "everyapi" ||
-      id == "mistral")
+      id == "mistral" || id == "zhipu" || id == "minimax" || id == "custom")
     return "multipart";
   if (id == "bailian")
     return "chat_audio";
@@ -123,6 +133,20 @@ std::string default_polish_endpoint(std::string_view provider) {
     return "https://api.deepseek.com/chat/completions";
   if (id == "groq")
     return "https://api.groq.com/openai/v1/chat/completions";
+  if (id == "minimax")
+    return "https://api.minimax.cn/v1/chat/completions";
+  if (id == "kimi" || id == "moonshot")
+    return "https://api.moonshot.cn/v1/chat/completions";
+  if (id == "zhipu")
+    return "https://open.bigmodel.cn/api/paas/v4/chat/completions";
+  if (id == "qwen" || id == "dashscope")
+    return "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
+  if (id == "volcengine")
+    return "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
+  if (id == "openrouter")
+    return "https://openrouter.ai/api/v1/chat/completions";
+  if (id == "custom")
+    return {};
   return "https://api.siliconflow.cn/v1/chat/completions";
 }
 
@@ -134,6 +158,20 @@ std::string default_polish_model(std::string_view provider) {
     return "deepseek-v4-flash";
   if (id == "groq")
     return "llama-3.3-70b-versatile";
+  if (id == "minimax")
+    return "MiniMax-M3.1-Flash";
+  if (id == "kimi" || id == "moonshot")
+    return "kimi-k2-0905-preview";
+  if (id == "zhipu")
+    return "glm-4-flash";
+  if (id == "qwen" || id == "dashscope")
+    return "qwen-plus";
+  if (id == "volcengine")
+    return "doubao-seed-1.6-flash";
+  if (id == "openrouter")
+    return "openrouter/auto";
+  if (id == "custom")
+    return {};
   return "Qwen/Qwen3-8B";
 }
 

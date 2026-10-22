@@ -64,6 +64,22 @@
     "title": "智谱 · GLM"
   },
   {
+    "documentation": "https://platform.minimax.cn/docs/api-reference/text-chat-openai",
+    "endpoint": "https://api.minimax.cn/v1/chat/completions",
+    "id": "minimax",
+    "model": "MiniMax-M3.1-Flash",
+    "models": ["MiniMax-M3.1-Flash", "MiniMax-M3"],
+    "title": "MiniMax"
+  },
+  {
+    "documentation": "https://ark.volcengine.com/region:cn-beijing/docs/chat-api",
+    "endpoint": "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+    "id": "volcengine",
+    "model": "doubao-seed-1.6-flash",
+    "models": ["doubao-seed-1.6-flash", "doubao-seed-1.6"],
+    "title": "火山方舟 · 豆包"
+  },
+  {
     "documentation": "https://docs.siliconflow.cn/docs/userguide/capabilities/text-generation",
     "endpoint": "https://api.siliconflow.cn/v1/chat/completions",
     "id": "siliconflow",

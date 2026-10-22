@@ -3034,7 +3034,7 @@ fn default_shuangpin_helpcode() -> HelpcodePreferences {
 }
 
 /// Persisted recognition provider identifiers. Hosts expose only the providers they implement: `system` is the platform speech adapter, not a cloud profile, and `local` is an installed on-device sherpa-onnx model directory named by `asr_model_path`, which needs a host built with the recognizer behind it.
-pub const ASR_PROVIDERS: [&str; 9] = [
+pub const ASR_PROVIDERS: [&str; 12] = [
     "doubao",
     "siliconflow",
     "openai",
@@ -3042,13 +3042,16 @@ pub const ASR_PROVIDERS: [&str; 9] = [
     "everyapi",
     "mistral",
     "bailian",
+    "zhipu",
+    "minimax",
+    "custom",
     "system",
     "local",
 ];
 /// OpenAI-compatible AI services exposed by the Apple settings surface and
 /// shared by every host. Providers that need special request fields are still
 /// handled in `ai.rs`; the rest use the common Chat Completions shape.
-pub const AI_PROVIDERS: [&str; 13] = [
+pub const AI_PROVIDERS: [&str; 15] = [
     "everyapi",
     "openai",
     "anthropic",
@@ -3057,14 +3060,30 @@ pub const AI_PROVIDERS: [&str; 13] = [
     "qwen",
     "kimi",
     "zhipu",
+    "minimax",
+    "volcengine",
     "siliconflow",
     "groq",
     "openrouter",
     "ollama",
     "custom",
 ];
-/// Polishing additionally supports DeepSeek, which offers no recognition.
-pub const POLISH_PROVIDERS: [&str; 5] = ["siliconflow", "openai", "deepseek", "groq", "doubao"];
+/// Polishing additionally supports DeepSeek, which offers no recognition, and
+/// accepts doubao plus legacy ids the catalog resolves without listing.
+pub const POLISH_PROVIDERS: [&str; 12] = [
+    "siliconflow",
+    "openai",
+    "deepseek",
+    "groq",
+    "doubao",
+    "minimax",
+    "kimi",
+    "zhipu",
+    "qwen",
+    "volcengine",
+    "openrouter",
+    "custom",
+];
 
 impl Preferences {
     pub fn active_helpcode(&self) -> HelpcodePreferences {

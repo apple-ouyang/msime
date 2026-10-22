@@ -35,7 +35,8 @@ pub const CHAT_AUDIO_MAX_WAV_BYTES: usize = 7_000_000;
 pub fn asr_request_format(provider: &str) -> Option<&'static str> {
     match provider {
         "doubao" => Some(ASR_REQUEST_DOUBAO_WEBSOCKET),
-        "openai" | "siliconflow" | "groq" | "everyapi" | "mistral" => Some(ASR_REQUEST_MULTIPART),
+        "openai" | "siliconflow" | "groq" | "everyapi" | "mistral" | "zhipu" | "minimax"
+        | "custom" => Some(ASR_REQUEST_MULTIPART),
         "bailian" => Some(ASR_REQUEST_CHAT_AUDIO),
         "local" => Some(ASR_REQUEST_LOCAL),
         _ => None,
@@ -210,6 +211,8 @@ pub fn polish_provider_defaults(provider: &str) -> Option<(&'static str, &'stati
     {
         return Some((preset.endpoint, preset.model));
     }
+    // dashscope/moonshot 是 Windows 目录里的旧 id，对应目录中的 qwen/kimi；
+    // 与 everyapi/mistral 一样只解析不进目录。
     Some(match provider {
         "everyapi" => (
             "https://api.everyapi.ai/v1/chat/completions",
@@ -218,6 +221,14 @@ pub fn polish_provider_defaults(provider: &str) -> Option<(&'static str, &'stati
         "mistral" => (
             "https://api.mistral.ai/v1/chat/completions",
             "mistral-small-latest",
+        ),
+        "dashscope" => (
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+            "qwen-plus",
+        ),
+        "moonshot" => (
+            "https://api.moonshot.cn/v1/chat/completions",
+            "kimi-k2-0905-preview",
         ),
         _ => return None,
     })
