@@ -1676,10 +1676,13 @@ fn default_toolbar_auto_hide_delay() -> u16 {
     5
 }
 
-/// Which optional buttons the touch keyboard's toolbar carries. The first three are the buttons the bar always had; the rest are tools that otherwise sit one tap deeper, in the keyboard's 更多 panel.
+/// 触屏工具栏的可选按钮；撤销和重做目前由 Android 宿主提供，其余宿主只保留设置。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TouchToolbarPreferences {
+    /// 由当前编辑器处理撤销、重做；默认隐藏，输入法不保存文本历史。
+    pub undo: bool,
+    pub redo: bool,
     pub layout: bool,
     pub emoji: bool,
     pub skin: bool,
@@ -1693,6 +1696,8 @@ pub struct TouchToolbarPreferences {
 impl Default for TouchToolbarPreferences {
     fn default() -> Self {
         Self {
+            undo: false,
+            redo: false,
             layout: true,
             emoji: true,
             skin: true,
@@ -2170,6 +2175,21 @@ pub struct SecondThirdCandidatePreferences {
 impl SecondThirdCandidatePreferences {
     fn is_default(&self) -> bool {
         *self == Self::default()
+    }
+
+    /// 这个键选当前页从零计数的第几个候选；关闭或不在键位表里时为 `None`。
+    /// 与 Windows `second_third_candidate_slot` 同一张表，键位枚举目前只有 `;`/`'` 一组。
+    pub fn slot(&self, value: u8) -> Option<usize> {
+        if !self.enabled {
+            return None;
+        }
+        match self.keys {
+            SecondThirdCandidateKeys::SemicolonQuote => match value {
+                b';' => Some(1),
+                b'\'' => Some(2),
+                _ => None,
+            },
+        }
     }
 }
 

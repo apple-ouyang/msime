@@ -197,6 +197,16 @@ export function InputSharedSettingsSection({
         <GroupList title={foldIntoMore && !paging ? "选词" : "选词与翻页"}>
           {wordCharacterRows}
           <SwitchRow
+            title="二三候选"
+            description="开启后，组字时按 ; 选第二个候选、按 ' 选第三个候选；组字中的 ' 不再作为音节分隔符。"
+            checked={preferences.second_third_candidate?.enabled ?? false}
+            onChange={(enabled) =>
+              onPreferencesChange({
+                second_third_candidate: { enabled, keys: "semicolon_quote" },
+              })
+            }
+          />
+          <SwitchRow
             title="退格键回退已选候选词"
             description="关闭后，退格只删除剩余拼写，保留已选文字；拼写删空时上屏已选文字。"
             checked={preferences.backspace_reverts_selection ?? true}
