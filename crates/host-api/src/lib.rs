@@ -947,11 +947,9 @@ impl HostSession {
             state_root,
             Path::new(&self.options.resources),
         ));
-        let grammar_model = engine_sentence_association(
-            &self.applied.sentence_association,
-            state_root,
-        )
-        .collocation_model;
+        let grammar_model =
+            engine_sentence_association(&self.applied.sentence_association, state_root)
+                .collocation_model;
         if cantonese == self.options.cantonese_dictionary
             && zhuyin == self.options.zhuyin_dictionary
             && stroke == self.options.stroke_dictionary

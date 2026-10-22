@@ -1,5 +1,9 @@
 //! Rime octagram（八股文）`.gram` 语法模型的只读查找端。
 //!
+//! Copyright (c) 2014, RIME Developers；移植来源固定于
+//! `57d18b9f58e5284bd891d559f6bdd16cf60341e9`，完整许可见
+//! `resources/licenses/librime-octagram-BSD-3-Clause.txt`。
+//!
 //! 格式与查询语义按 lotem/librime-octagram（BSD-3-Clause）移植，读取端即旧版
 //! Windows 实现 `engine/ngram/octagram/octagram_gram.cpp` 的同款逻辑。文件是
 //! 「Metadata + Darts 双数组 Trie 镜像」：键为「上下文尾部字符 + 词首字符」经

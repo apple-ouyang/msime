@@ -16,7 +16,7 @@ Status: implemented
 
 合并端：`include_collocation_best` 开时首条词格行标 `Collocation`（它是解码最优路径，不是独立来源）；`include_lattice_best` 只在搭配开关同开时才让首行之后的备选继续上榜——无重排通道本来忽略它，基线语义不动。九键词典设置透传新字段，`neural_keyboard` 仍强制关。`series_slot_key` 的参数改为引用，避免 `SentenceAssociationOptions` 失去 `Copy` 后的无谓克隆；grammar 字段不入键——模型路径变化会触发 `set_sentence_association` 里的 `reset_cache`，同一路径下模型内容不可变。
 
-许可：万象 LTS = CC-BY-4.0（可用）；八股文 = LGPL（可用，后续资源包切片需在 NOTICE 注明）；白霜 = GPL-3.0 且构建链许可未声明，本轮排除，进资源包前须重新评估。读取端按 BSD-3 的 librime-octagram 与 darts-clone 布局实现；本 PR 同时接入偏好、锁定 SHA-256 的按需下载与桌面设置，模型不随安装包分发。
+许可：万象 LTS = CC-BY-4.0（可用）；八股文 = LGPL（按资源包附带来源声明）；白霜 = GPL-3.0 且构建链许可未声明，本轮排除，进资源包前须重新评估。读取端按 BSD-3 的 librime-octagram 与 darts-clone 布局实现；本 PR 同时接入偏好、锁定 SHA-256 的按需下载与桌面设置，模型不随安装包分发。
 
 ## Alternatives considered
 
@@ -33,6 +33,8 @@ Status: implemented
   - `zh-moqi.gram`（白霜/墨奇，7 MB）：`load` 成功，但搭配覆盖稀疏，多数二元组落在未命中惩罚 −6.0 上（`我们+一起` −4.867 是少数命中）。端到端纠正那条按模型能力跳过。
   - 两条真实模型测试用 `option_env!("MSIME_REAL_GRAM")` 注入路径，CI 上没有模型包时打印原因后跳过，不会假绿。
 - 未验证：万象 LTS（390 MB，下载太慢未取）与八股文·词级（197 MB）；九键/全拼候选窗的 Collocation 行外观；新架构 Windows 宿主的原生设置页行。
+
+读取端保留 RIME Developers 的版权声明，完整 BSD-3-Clause 文本经六个平台已有许可渠道分发；模型数据许可与代码移植许可分开记录。
 
 ## Consequences
 
