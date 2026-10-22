@@ -412,6 +412,11 @@ fn engine_sentence_association(
     }
 }
 
+/// 资源包卸载前摘掉引擎进程内的 `.gram` 映射，避免 Windows 删除目录时仍被文件句柄占用。
+pub fn evict_grammar_model(path: &std::path::Path) {
+    msime_engine::octagram::GramDb::evict_shared(path);
+}
+
 /// 引擎的引号与方头括号样式，由 client-core 从偏好解析（`corner_when_traditional` 在那里按繁体开关定下）。View 报告的是同一个解析结果。
 fn apply_punctuation_marks(
     options: &mut EngineOptions,
@@ -942,11 +947,17 @@ impl HostSession {
             state_root,
             Path::new(&self.options.resources),
         ));
+        let grammar_model = engine_sentence_association(
+            &self.applied.sentence_association,
+            state_root,
+        )
+        .collocation_model;
         if cantonese == self.options.cantonese_dictionary
             && zhuyin == self.options.zhuyin_dictionary
             && stroke == self.options.stroke_dictionary
             && japanese == self.options.japanese_dictionary
             && wubi == self.options.wubi_dictionary
+            && grammar_model == self.options.sentence_association.collocation_model
         {
             return;
         }

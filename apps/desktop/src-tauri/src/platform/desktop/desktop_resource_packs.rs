@@ -176,6 +176,8 @@ fn offered_by(pack: ResourcePack, edition: &Edition, installation: &Installation
             .components
             .iter()
             .any(|component| component == CHINESE_MAIN_COMPONENT),
+        // 白霜的 GPL 模型及其构建链许可尚未确认，不在桌面设置中提供。
+        ResourcePack::GrammarBaishuang => false,
         // 离线释义和 Android 的语音运行库只给 Android 按需下载；桌面发布包随包带着离线释义，语音运行库也按各平台的打包方式内置。
         ResourcePack::OfflineGlosses | ResourcePack::VoiceRuntime => false,
         ResourcePack::Wubi => {
@@ -289,7 +291,7 @@ pub(crate) async fn resource_pack_remove<R: tauri::Runtime>(
     let root = state_root(store.inner());
     tauri::async_runtime::spawn_blocking(move || {
         for artifact in &pack.set().artifacts {
-            msime_engine::octagram::GramDb::evict_shared(
+            msime_host_api::evict_grammar_model(
                 &resource_packs::root(&root)
                     .join(pack.id())
                     .join(&artifact.name),

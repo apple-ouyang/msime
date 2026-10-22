@@ -124,7 +124,7 @@ impl GramDb {
             return None;
         }
         let array_at = OFFSET_PTR_OFFSET + offset as usize;
-        if array_units > (size.saturating_sub(array_at)) / UNIT_BYTES {
+        if array_at > size || array_units > (size - array_at) / UNIT_BYTES {
             return None;
         }
         // SAFETY: 与 `NgramTable::load` 同一份映射契约——`.gram` 由资源包以

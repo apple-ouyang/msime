@@ -51,3 +51,7 @@ Status: implemented
 白霜的地址钉在 40 位提交上（上游 `master` 会动），实测该地址的字节与锁里的
 SHA-256 一致。许可声明在 `resources/licenses/rime-baguwen-LGPL-3.0.txt` 与
 `rime-baishuang-GPL-3.0.txt`。
+
+## 2026-10-22 审查补充
+
+资源包卸载通过 `msime-host-api` 的边界摘除共享映射，桌面宿主不再直接依赖 Engine；白霜模型因 GPL 及构建链许可未确认继续不在桌面设置提供。模型包安装或删除后，宿主在下一次聚焦时比较当前 `.gram` 路径并触发 Engine 重建。读取端拒绝数组偏移落在文件末尾之外的非法头部。

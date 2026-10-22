@@ -268,7 +268,7 @@ pub unsafe extern "C" fn msime_client_resource_pack_remove(
         let state_root = absolute_directory(&request.state_root, "invalid state root")?;
         let pack = known_resource_pack(&request.pack)?;
         for artifact in &pack.set().artifacts {
-            msime_engine::octagram::GramDb::evict_shared(
+            crate::evict_grammar_model(
                 &resource_packs::root(state_root)
                     .join(pack.id())
                     .join(&*artifact.name),
