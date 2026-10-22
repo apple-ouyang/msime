@@ -630,8 +630,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 英文模式下标点锁定为中文时，按当前 View 的顿号开关选择发给 Engine 的键。
-  static func lockedEnglishPunctuationInput(
+  /// 英文模式下标点锁定为中文时，按当前 View 的顿号开关选择发给 Engine 的键。nonisolated：纯函数，SmartPunctuationTests 这类非隔离测试可直接钉住。
+  nonisolated static func lockedEnglishPunctuationInput(
     for symbol: String, enumerationCommaBackslash: Bool, enumerationCommaSlash: Bool) -> String? {
     KeyboardPunctuationContext.engineInput(
       for: symbol, japanese: false,
