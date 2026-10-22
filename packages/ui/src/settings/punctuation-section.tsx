@@ -1,5 +1,6 @@
 import {
   punctuationControlState,
+  enumerationCommaPatch,
   punctuationMode,
   punctuationModePatch,
   smartPunctuationPatch,
@@ -182,7 +183,13 @@ function PunctuationSwitchRow({
       description={description}
       checked={punctuationControlState(preferences)[preference]}
       disabled={disabled}
-      onChange={(checked) => onChange({ [preference]: checked })}
+      onChange={(checked) =>
+        onChange(
+          preference === "enumeration_comma_backslash" || preference === "enumeration_comma_slash"
+            ? enumerationCommaPatch(preferences, preference, checked)
+            : { [preference]: checked },
+        )
+      }
     />
   );
 }

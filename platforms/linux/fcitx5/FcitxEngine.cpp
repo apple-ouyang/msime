@@ -3434,7 +3434,8 @@ public:
     const auto marks = view_.value("punctuation_marks", Json::object());
     if (!marks.is_object()) return {};
     return msime::linux_host::punctuation_marks_from_view(
-        marks.value("quotes", std::string{}), marks.value("brackets", std::string{}));
+        marks.value("quotes", std::string{}), marks.value("brackets", std::string{}),
+        marks.value("enumeration_comma_backslash", true), marks.value("enumeration_comma_slash", false));
   }
   // The session types Korean: jamo compose in the preedit, punctuation is always half-width ASCII and none of the Chinese punctuation helpers apply. The dedicated English mode keeps its own rules in every scheme.
   bool korean() const {

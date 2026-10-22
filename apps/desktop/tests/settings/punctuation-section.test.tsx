@@ -286,8 +286,7 @@ test("顿号自定义两个开关至少留一个", () => {
   );
   const backslash = () =>
     screen.getByRole("switch", { name: /^顿号自定义 \\/ }) as HTMLInputElement;
-  const slash = () =>
-    screen.getByRole("switch", { name: /^顿号自定义 \// }) as HTMLInputElement;
+  const slash = () => screen.getByRole("switch", { name: /^顿号自定义 \// }) as HTMLInputElement;
   // 缺省：\ 开、/ 关；\ 是唯一开着的那个，变灰不可关。
   expect(backslash().checked).toBe(true);
   expect(backslash().disabled).toBe(true);
@@ -296,7 +295,10 @@ test("顿号自定义两个开关至少留一个", () => {
   expect(backslash().closest("details")?.textContent).toContain("更多选项");
 
   fireEvent.click(slash());
-  expect(onChange).toHaveBeenLastCalledWith({ enumeration_comma_slash: true });
+  expect(onChange).toHaveBeenLastCalledWith({
+    enumeration_comma_backslash: true,
+    enumeration_comma_slash: true,
+  });
 
   // 两个都开时都能点；只剩 / 时 / 变灰。
   rerender(
@@ -312,7 +314,10 @@ test("顿号自定义两个开关至少留一个", () => {
   );
   expect(backslash().disabled).toBe(false);
   fireEvent.click(backslash());
-  expect(onChange).toHaveBeenLastCalledWith({ enumeration_comma_backslash: false });
+  expect(onChange).toHaveBeenLastCalledWith({
+    enumeration_comma_backslash: false,
+    enumeration_comma_slash: true,
+  });
   rerender(
     <PunctuationSection
       preferences={{
@@ -341,6 +346,11 @@ test("顿号自定义两个开关至少留一个", () => {
   );
   expect(backslash().checked).toBe(true);
   expect(slash().checked).toBe(false);
+  fireEvent.click(slash());
+  expect(onChange).toHaveBeenLastCalledWith({
+    enumeration_comma_backslash: true,
+    enumeration_comma_slash: true,
+  });
 });
 
 test("the HarmonyOS phone section keeps both styles under 更多选项", () => {

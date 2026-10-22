@@ -1939,7 +1939,8 @@ msime::linux_host::PunctuationMarks view_punctuation_marks(const Json &view) {
   const auto marks = view.value("punctuation_marks", Json::object());
   if (!marks.is_object()) return {};
   return msime::linux_host::punctuation_marks_from_view(
-      marks.value("quotes", std::string{}), marks.value("brackets", std::string{}));
+      marks.value("quotes", std::string{}), marks.value("brackets", std::string{}),
+        marks.value("enumeration_comma_backslash", true), marks.value("enumeration_comma_slash", false));
 }
 using msime::linux_host::normalize_punctuation_pair;
 using msime::linux_host::paired_closing_from_text;

@@ -1063,7 +1063,9 @@ static msime::input::PunctuationMarks MSIMEViewPunctuationMarks(NSDictionary *vi
     if (![marks isKindOfClass:NSDictionary.class]) return {};
     NSString *quotes = [marks[@"quotes"] isKindOfClass:NSString.class] ? marks[@"quotes"] : @"";
     NSString *brackets = [marks[@"brackets"] isKindOfClass:NSString.class] ? marks[@"brackets"] : @"";
-    return msime::input::punctuation_marks_from_view(quotes.UTF8String, brackets.UTF8String);
+    return msime::input::punctuation_marks_from_view(quotes.UTF8String, brackets.UTF8String,
+        ![marks[@"enumeration_comma_backslash"] isEqual:@NO],
+        [marks[@"enumeration_comma_slash"] isEqual:@YES]);
 }
 static BOOL MSIMEASCIIPunctuation(unichar character) {
     return character > 0x20 && character < 0x7F && !MSIMEASCIIAlphanumeric(character);

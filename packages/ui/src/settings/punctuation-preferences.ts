@@ -21,6 +21,20 @@ export type PunctuationPreferences = {
 };
 
 export type QuoteStyle = "curly" | "corner" | "corner_when_traditional";
+
+/** 按界面显示的归一状态一起保存两个顿号键，避免手改的双关闭文档在点击后撤掉仍显示为开的键。 */
+export function enumerationCommaPatch(
+  preferences: PunctuationPreferences,
+  key: "enumeration_comma_backslash" | "enumeration_comma_slash",
+  checked: boolean,
+): Partial<PunctuationPreferences> {
+  const state = punctuationControlState(preferences);
+  return {
+    enumeration_comma_backslash: state.enumeration_comma_backslash,
+    enumeration_comma_slash: state.enumeration_comma_slash,
+    [key]: checked,
+  };
+}
 export type BracketStyle = "solid" | "hollow";
 
 /** 标点控件显示的有效状态；只补齐缺省值，不改写用户偏好。 */

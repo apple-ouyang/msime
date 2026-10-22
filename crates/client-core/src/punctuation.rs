@@ -34,7 +34,7 @@ impl Default for PunctuationMarks {
     }
 }
 
-/// 从偏好算出生效的标点样式与顿号键，这是唯一的解析处：`corner_when_traditional` 在繁体输出打开时是直角引号，否则是弯引号；「至少留一个」在这里归一，两个顿号键都关掉时按「`\` 开」读，与 Windows 手改配置的归一一致（`ime_config.cpp`）。Windows Server 读偏好 JSON 时照抄样式规则（`server_main.cpp` 的 `tsf_local_config`）。
+/// 从偏好算出生效的标点样式与顿号键，这是唯一的解析处：`corner_when_traditional` 在繁体输出打开时是直角引号，否则是弯引号；「至少留一个」在这里归一，两个顿号键都关掉时按「`\` 开」读，采用 Windows IPC 无效值的反斜杠回退。Windows Server 读偏好 JSON 时照抄样式规则（`server_main.cpp` 的 `tsf_local_config`）。
 pub fn punctuation_marks(preferences: &Preferences) -> PunctuationMarks {
     let corner = match preferences.quote_style {
         QuoteStyle::Curly => false,
@@ -720,7 +720,7 @@ mod tests {
         );
     }
 
-    /// 顿号自定义（契约 `enumerationComma` 段）：`\` 默认开、`/` 默认关；手改文档把两个都关掉时归一成「`\` 开」，与 Windows 手改配置一致。
+    /// 顿号自定义（契约 `enumerationComma` 段）：`\` 默认开、`/` 默认关；手改文档把两个都关掉时归一成「`\` 开」，采用 Windows IPC 无效值的反斜杠回退。
     #[test]
     fn enumeration_comma_keys_keep_at_least_one() {
         let marks = |backslash, slash| {

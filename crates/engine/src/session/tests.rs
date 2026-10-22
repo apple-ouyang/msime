@@ -11424,3 +11424,29 @@ fn custom_helpcode_trigger_preserves_microsoft_final_and_other_input_modes() {
     session.character(b';', false);
     assert!(session.input.helpcode_entry.is_none());
 }
+
+// 顿号开关不能抢占词首的命令模式；组字和裸前缀提交仍按相同的标点表出字。
+#[test]
+fn enumeration_comma_respects_command_prefix_and_composition() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.local_modes.command = true;
+        options.punctuation_marks.enumeration_comma_slash = true;
+    });
+    session.character(b'/', false);
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::Command);
+    assert_eq!(session.punctuation(b',').commit.as_deref(), Some("、，"));
+    type_text(&mut session, "nihao");
+    assert_eq!(
+        session.character(b'/', false).commit.as_deref(),
+        Some("你好、")
+    );
+    let mut disabled = fixture.session_with(|options| {
+        options.local_modes.command = false;
+        options.punctuation_marks.enumeration_comma_slash = true;
+    });
+    assert_eq!(
+        disabled.character(b'/', false).commit.as_deref(),
+        Some("、")
+    );
+}
