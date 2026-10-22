@@ -11437,16 +11437,10 @@ fn enumeration_comma_respects_command_prefix_and_composition() {
     assert_eq!(session.snapshot().local_mode, LocalInputMode::Command);
     assert_eq!(session.punctuation(b',').commit.as_deref(), Some("、，"));
     type_text(&mut session, "nihao");
-    assert_eq!(
-        session.character(b'/', false).commit.as_deref(),
-        Some("你好、")
-    );
+    assert_eq!(session.punctuation(b'/').commit.as_deref(), Some("你好、"));
     let mut disabled = fixture.session_with(|options| {
         options.local_modes.command = false;
         options.punctuation_marks.enumeration_comma_slash = true;
     });
-    assert_eq!(
-        disabled.character(b'/', false).commit.as_deref(),
-        Some("、")
-    );
+    assert_eq!(disabled.punctuation(b'/').commit.as_deref(), Some("、"));
 }
