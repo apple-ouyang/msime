@@ -1449,7 +1449,7 @@ static void TestPunctuation(NSUserDefaults *defaults, MSIMEAppearancePreferences
     assert(!appearance.runtimeChinesePunctuation && session.punctuationCalls == calls);
     for (NSNumber *flags in @[@0, @(NSEventModifierFlagCommand), @(NSEventModifierFlagControl | NSEventModifierFlagShift), @(NSEventModifierFlagControl | NSEventModifierFlagOption), @(NSEventModifierFlagControl | NSEventModifierFlagCommand)])
         assert(!MSIMEToggleChordMatches(msime::mac::FactoryPunctuationToggleChord(), toggleEvent(47, flags.unsignedIntegerValue, NO)));
-    assert(!MSIMEToggleChordMatches(msime::mac::FactoryPunctuationToggleChord(), toggleEvent(65, NSEventModifierFlagControl, NO))); // Keypad decimal.
+    assert(!MSIMEToggleChordMatches(msime::mac::FactoryPunctuationToggleChord(), toggleEvent(65, NSEventModifierFlagControl, NO))); // 小键盘句号。
     // The punctuation preference can be changed while English passthrough is active.
     appearance.englishMode = YES;
     assert([controller handleEvent:toggle client:client]);

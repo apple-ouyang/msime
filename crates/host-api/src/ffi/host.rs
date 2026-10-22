@@ -857,7 +857,7 @@ pub unsafe extern "C" fn msime_client_toggle_hotkey_chords(
         if request.is_null() || length > 64 * 1024 {
             return Err("invalid toggle hotkey request buffer".into());
         }
-        // SAFETY: guaranteed by the documented caller contract; size checked above.
+        // SAFETY: 调用方保证缓冲区可读，上方已检查长度上限。
         let bytes = unsafe { std::slice::from_raw_parts(request, length) };
         let request: Request = serde_json::from_slice(bytes)
             .map_err(|_| "invalid toggle hotkey request".to_owned())?;
