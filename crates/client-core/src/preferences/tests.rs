@@ -2398,6 +2398,8 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
             kaomoji: true,
             japanese: false,
             symbols: true,
+            quick_phrase: true,
+            quick_phrase_frequency: true,
         }
     );
     fs::write(store.path(), &bytes).unwrap();
@@ -2409,6 +2411,8 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
                 kaomoji: mask & 4 != 0,
                 japanese: mask & 8 != 0,
                 symbols: mask & 16 == 0,
+                quick_phrase: true,
+                quick_phrase_frequency: true,
                 minimum_prefix: mask % 8 + 1,
             },
             ..Preferences::default()
