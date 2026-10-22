@@ -42,6 +42,8 @@ struct Fixture {
     reading: String,
     /// What the Engine reports it takes as characters rather than punctuation.
     spelling_symbols: String,
+    /// 引擎快照的 `microsoft_shuangpin`：当前方案是双拼且韵母或零声母编码用 `;` 作第二键。
+    microsoft_shuangpin: bool,
     /// 引擎的首屏门槛，宿主每改一次分页就该跟着换一次。
     first_page_rows: usize,
 }
@@ -1067,7 +1069,7 @@ impl InputEngine for Fixture {
             candidate_corrected: vec![false; self.words.len()],
             candidate_answers_key: vec![true; self.words.len()],
             candidate_list_open: false,
-            microsoft_shuangpin: false,
+            microsoft_shuangpin: self.microsoft_shuangpin,
             shuangpin_profile: "xiaohe".into(),
             answered_by_pinyin_fallback: false,
             wubi_unique_four_code: self.scheme == 2
@@ -1274,6 +1276,192 @@ fn wubi_candidate_shortcuts_respect_scheme_mode_focus_and_live_custom_keys() {
             .as_deref(),
         Some("合成候选2")
     );
+}
+
+fn second_third_runtime(count: usize) -> Runtime<Fixture> {
+    let mut runtime = Runtime::new(
+        Fixture {
+            scheme: 0,
+            local_mode: "none".into(),
+            words: (0..count).map(|i| format!("合成候选{i}")).collect(),
+            ..Fixture::default()
+        },
+        3,
+    )
+    .unwrap();
+    runtime.focus(true).unwrap();
+    runtime.set_second_third_candidate(
+        msime_client_core::preferences::SecondThirdCandidatePreferences {
+            enabled: true,
+            ..Default::default()
+        },
+    );
+    if count > 0 {
+        runtime
+            .dispatch(Action::Character {
+                value: b'a',
+                shift: false,
+            })
+            .unwrap();
+    }
+    runtime
+}
+
+#[test]
+fn second_third_candidate_shortcuts_select_current_page_on_all_character_routes() {
+    for route in 0..3 {
+        for (key, slot) in [(b';', 1), (b'\'', 2)] {
+            let mut runtime = second_third_runtime(6);
+            runtime.dispatch(Action::NextPage).unwrap();
+            let action = match route {
+                0 => Action::Character {
+                    value: key,
+                    shift: false,
+                },
+                1 => Action::Punctuation(key),
+                _ => Action::PunctuationAscii(key),
+            };
+            let transition = runtime.dispatch(action).unwrap();
+            assert_eq!(transition.commit, Some(format!("合成候选{}", 3 + slot)));
+            assert!(transition.view.editing_text.is_empty());
+            assert!(runtime.facts().selection.is_some());
+        }
+    }
+}
+
+#[test]
+fn second_third_candidate_shortcuts_keep_original_route_when_disabled_or_target_is_missing() {
+    for count in [0, 1, 2, 3, 4] {
+        for key in *b";'" {
+            let mut enabled = second_third_runtime(count);
+            let mut plain = second_third_runtime(count);
+            plain.set_second_third_candidate(Default::default());
+            if count > 3 {
+                enabled.dispatch(Action::NextPage).unwrap();
+                plain.dispatch(Action::NextPage).unwrap();
+            }
+            let slot = if key == b';' { 1 } else { 2 };
+            let on_page = if count > 3 { count - 3 } else { count };
+            if slot < on_page {
+                continue;
+            }
+            let original = plain.dispatch(Action::PunctuationAscii(key)).unwrap();
+            let actual = enabled.dispatch(Action::PunctuationAscii(key)).unwrap();
+            assert_eq!(actual.handled, original.handled);
+            assert_eq!(actual.commit, original.commit);
+            assert_eq!(actual.view.editing_text, original.view.editing_text);
+            if count == 0 {
+                assert!(!actual.handled);
+            } else {
+                // 目标候选不在当前页时键不接管：走原标点路径，上屏组字高亮行后接这个键。
+                assert!(actual
+                    .commit
+                    .as_deref()
+                    .is_some_and(|text| text.ends_with(char::from(key))));
+            }
+        }
+    }
+}
+
+#[test]
+fn second_third_candidate_shortcuts_respect_scheme_mode_focus_and_engine_input() {
+    // 方案排除照 Windows `second_third_candidate_scheme`：日文，以及韩文、注音、越南文、
+    // 藏文这些由宿主自己组字或自己开候选列表的方案不接管。
+    for scheme in [3u8, 4, 6, 7, 8] {
+        let mut runtime = second_third_runtime(3);
+        runtime.cached.scheme = scheme;
+        let result = runtime.dispatch(Action::PunctuationAscii(b';')).unwrap();
+        assert_ne!(
+            result.commit.as_deref(),
+            Some("合成候选1"),
+            "scheme {scheme} should keep ';' on its original route"
+        );
+    }
+    // 全拼、双拼、五笔、粤语、笔画照常接管。
+    for scheme in [0u8, 1, 2, 5, 9] {
+        let mut runtime = second_third_runtime(3);
+        runtime.cached.scheme = scheme;
+        let result = runtime.dispatch(Action::PunctuationAscii(b';')).unwrap();
+        assert_eq!(
+            result.commit.as_deref(),
+            Some("合成候选1"),
+            "scheme {scheme} should select with ';'"
+        );
+    }
+    for excluded in 0..3 {
+        let mut runtime = second_third_runtime(3);
+        match excluded {
+            0 => runtime.cached.dedicated_english = true,
+            1 => runtime.cached.local_mode = "url".into(),
+            _ => {
+                runtime.focus(false).unwrap();
+            }
+        }
+        let result = runtime.dispatch(Action::PunctuationAscii(b';')).unwrap();
+        assert_ne!(result.commit.as_deref(), Some("合成候选1"));
+    }
+    // 网址模式或方案拼写里的 `;`/`'` 是输入：引擎在 `spelling_symbols` 里列出时不接管。
+    for key in *b";'" {
+        let mut runtime = second_third_runtime(3);
+        runtime.cached.spelling_symbols = String::from_utf8(vec![key]).unwrap();
+        let result = runtime.dispatch(Action::PunctuationAscii(key)).unwrap();
+        assert_ne!(result.commit.as_deref(), Some("合成候选1"));
+        assert_ne!(result.commit.as_deref(), Some("合成候选2"));
+    }
+    // 微软双拼声母后（自上一个 `'` 起奇数长度的片段）的 `;` 是韵母 ing；偶数长度后是选词键。
+    // 与 Windows `microsoft_shuangpin_final_position`、引擎 `accepts_ing_key` 同一条判断。
+    let mut runtime = Runtime::new(
+        Fixture {
+            scheme: 1,
+            microsoft_shuangpin: true,
+            local_mode: "none".into(),
+            words: (0..3).map(|i| format!("合成候选{i}")).collect(),
+            ..Fixture::default()
+        },
+        3,
+    )
+    .unwrap();
+    runtime.focus(true).unwrap();
+    runtime.set_second_third_candidate(
+        msime_client_core::preferences::SecondThirdCandidatePreferences {
+            enabled: true,
+            ..Default::default()
+        },
+    );
+    // 组字是 "n"：刚打完声母的奇数长度片段，`;` 留给引擎当 ing，不会选第二个候选。
+    runtime
+        .dispatch(Action::Character {
+            value: b'n',
+            shift: false,
+        })
+        .unwrap();
+    let kept = runtime
+        .dispatch(Action::Character {
+            value: b';',
+            shift: false,
+        })
+        .unwrap();
+    assert_ne!(kept.commit.as_deref(), Some("合成候选1"));
+    // 片段自上一个 `'` 重新计数：`ni'i` 的最后一段仍奇数，`;` 还是 ing。
+    runtime.engine.text = "ni'i".into();
+    runtime.refresh().unwrap();
+    let kept_after_apostrophe = runtime
+        .dispatch(Action::Character {
+            value: b';',
+            shift: false,
+        })
+        .unwrap();
+    assert_ne!(kept_after_apostrophe.commit.as_deref(), Some("合成候选1"));
+    // 偶数长度的片段：`;` 照常选第二个候选。
+    runtime.engine.text = "ni".into();
+    runtime.refresh().unwrap();
+    let picked = runtime
+        .dispatch(Action::Character {
+            value: b';',
+            shift: false,
+        })
+        .unwrap();
+    assert_eq!(picked.commit.as_deref(), Some("合成候选1"));
 }
 
 #[test]
@@ -1516,6 +1704,7 @@ fn runtime() -> Runtime<Fixture> {
             positions: Vec::new(),
             reading: String::new(),
             spelling_symbols: String::new(),
+            microsoft_shuangpin: false,
             first_page_rows: 0,
         },
         5,
@@ -1571,6 +1760,7 @@ fn several_candidates_from_one_provider_take_their_seat_as_a_group() {
                 positions: Vec::new(),
                 reading: String::new(),
                 spelling_symbols: String::new(),
+                microsoft_shuangpin: false,
                 first_page_rows: 0,
             },
             9,
@@ -1817,6 +2007,7 @@ fn promoted_english_candidate_keeps_the_first_seat_with_cloud_and_ai() {
                 positions: Vec::new(),
                 reading: String::new(),
                 spelling_symbols: String::new(),
+                microsoft_shuangpin: false,
                 first_page_rows: 0,
             },
             9,
@@ -2067,6 +2258,7 @@ fn a_chosen_phrase_piece_waits_for_the_rest_of_the_phrase() {
                 positions: Vec::new(),
                 reading: String::new(),
                 spelling_symbols: String::new(),
+                microsoft_shuangpin: false,
                 first_page_rows: 0,
             },
             5,
@@ -2170,6 +2362,7 @@ fn a_phrase_piece_survives_the_reading_being_deleted() {
             positions: Vec::new(),
             reading: String::new(),
             spelling_symbols: String::new(),
+            microsoft_shuangpin: false,
             first_page_rows: 0,
         },
         5,
@@ -3043,6 +3236,7 @@ fn candidate_codes_follow_candidates_in_page_and_complete_snapshots() {
             positions: Vec::new(),
             reading: String::new(),
             spelling_symbols: String::new(),
+            microsoft_shuangpin: false,
             first_page_rows: 0,
         },
         2,
@@ -6729,6 +6923,7 @@ fn withholding_runtime(offered: usize, withheld: usize, page_size: u8) -> Runtim
             positions: Vec::new(),
             reading: String::new(),
             spelling_symbols: String::new(),
+            microsoft_shuangpin: false,
             first_page_rows: 0,
         },
         page_size,

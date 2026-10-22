@@ -2149,6 +2149,21 @@ impl SecondThirdCandidatePreferences {
     fn is_default(&self) -> bool {
         *self == Self::default()
     }
+
+    /// 这个键选当前页从零计数的第几个候选；关闭或不在键位表里时为 `None`。
+    /// 与 Windows `second_third_candidate_slot` 同一张表，键位枚举目前只有 `;`/`'` 一组。
+    pub fn slot(&self, value: u8) -> Option<usize> {
+        if !self.enabled {
+            return None;
+        }
+        match self.keys {
+            SecondThirdCandidateKeys::SemicolonQuote => match value {
+                b';' => Some(1),
+                b'\'' => Some(2),
+                _ => None,
+            },
+        }
+    }
 }
 
 /// 五笔二三候选只占用两个不同的 ASCII 标点，不改变字母组码和数字选词。
