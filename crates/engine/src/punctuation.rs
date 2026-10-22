@@ -85,7 +85,7 @@ impl Default for PunctuationPolicy {
 }
 
 impl PunctuationPolicy {
-    /// The Chinese mark for an ASCII key, advancing quote and nesting state; `None` for keys without one (`@`, `-`, ...).
+    /// 将 ASCII 按键转成中文标点并推进引号与嵌套状态；没有映射的键（如 `@`、`-`）返回 `None`。
     pub fn translate(&mut self, key: u8) -> Option<&'static str> {
         if self.marks.brackets == BracketMarks::Hollow {
             if let Some(&(_, output)) = HOLLOW_BRACKETS.iter().find(|(input, _)| *input == key) {
