@@ -281,6 +281,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         mixed_japanese: true,
         local_unicode: true,
         local_date_time: true,
+        local_date_time_inline: true,
         local_date_time_menu: true,
         local_quick_phrase: true,
         local_emoji: true,
@@ -1319,6 +1320,7 @@ fn mixed_input_changes_defer_until_composition_ends() {
     let mut initial = chinese_preferences();
     initial.mixed_input.emoji = false;
     initial.mixed_input.kaomoji = false;
+    initial.mixed_input.symbols = true;
     // 日文混输要有日文模型才交给 Engine，资源目录里先放一份。
     std::fs::create_dir_all(dir.path().join("resources")).unwrap();
     std::fs::write(dir.path().join("resources/msime-japanese.dat"), b"fixture").unwrap();
@@ -1348,7 +1350,7 @@ fn mixed_input_changes_defer_until_composition_ends() {
         assert!(!options.mixed_emoji);
         assert!(!options.mixed_kaomoji);
         assert!(!options.mixed_japanese);
-        // 符号混输默认开。
+        // 初始偏好把符号混输打开，延迟期间保留旧值。
         assert!(options.mixed_symbols);
     });
     read(msime_client_command(handle, 3));
@@ -1650,13 +1652,15 @@ fn backspace_selection_preference_reaches_real_sessions_and_live_updates() {
 }
 
 /// `navigation.left_right` 是共享偏好但由 runtime 解释：新建会话时读一次，之后每次偏好更新也跟着走，宿主的按键路由一行都不用改。
-/// 默认开启时右键在输入串末尾换成下一个候选，显式关闭后同一个键什么也不做。
+/// 开启时右键在输入串末尾换成下一个候选，显式关闭后同一个键什么也不做；缺键读作关（`candidate_horizontal_arrow_navigation` 出厂值）。
 #[test]
 fn left_right_navigation_preference_reaches_real_sessions_and_live_updates() {
     let root = tempfile::tempdir().unwrap();
     let mut preferences = chinese_preferences();
+    assert!(!preferences.navigation.left_right);
     // 左右键只在横排候选窗里选词；缺省是竖排。
     preferences.candidate_layout = msime_client_core::preferences::CandidateLayout::Horizontal;
+    preferences.navigation.left_right = true;
     let handle = test_host_with_pinyin_fixture(root.path(), preferences.clone());
     read(msime_client_focus(handle, true));
     type_letters(handle, b"nihao");
@@ -2888,12 +2892,13 @@ fn glide_request(word: &str) -> String {
     json!({"keys": keys, "key_width": 80.0, "key_height": 120.0, "points": points}).to_string()
 }
 
-/// 共享偏好 `mixed_input.symbols` 决定 Engine 的 `mixed_symbols`：默认开，打 `zhengfu` 时 ± 接在 正负 后面；关掉后（不在组字时立即生效）不再出现。
+/// 共享偏好 `mixed_input.symbols` 决定 Engine 的 `mixed_symbols`：缺键读作关（`symbol_mixed_input` 出厂值），打开后打 `zhengfu` 时 ± 接在 正负 后面；再关掉（不在组字时立即生效）不再出现。
 #[test]
 fn symbol_candidates_follow_the_mixed_input_preference() {
     let dir = tempfile::tempdir().unwrap();
     let mut preferences = chinese_preferences();
-    assert!(preferences.mixed_input.symbols);
+    assert!(!preferences.mixed_input.symbols);
+    preferences.mixed_input.symbols = true;
     let handle = test_host_with_pinyin_fixture(dir.path(), preferences.clone());
     read(msime_client_focus(handle, true));
     let typed = |handle: u64| {
@@ -3832,7 +3837,8 @@ fn helpcode_defaults_follow_windows_for_each_pinyin_scheme() {
     let handle = test_host(dir.path());
     SESSIONS.with(|sessions| {
         let session = &sessions.borrow()[&handle];
-        assert!(session.options.helpcode);
+        // v0.11.1 出厂关（pin 出厂开，对齐正式版）；方案名与注释开关各自保持出厂值。
+        assert!(!session.options.helpcode);
         assert_eq!(session.options.helpcode_schema, "ziranma");
         assert!(!session.options.show_helpcode);
     });
@@ -3844,7 +3850,7 @@ fn helpcode_defaults_follow_windows_for_each_pinyin_scheme() {
     assert_eq!(update(handle, 1, &shuangpin)["value"]["deferred"], false);
     SESSIONS.with(|sessions| {
         let session = &sessions.borrow()[&handle];
-        assert!(session.options.helpcode);
+        assert!(!session.options.helpcode);
         assert_eq!(session.options.helpcode_schema, "lantian");
         assert!(session.options.show_helpcode);
     });
@@ -3897,6 +3903,7 @@ fn host_helpcode_fallback_survives_preference_and_plugin_changes() {
     )
     .unwrap();
     let mut preferences = chinese_preferences();
+    preferences.quanpin_helpcode.enabled = true;
     preferences.quanpin_helpcode.schema = HelpcodeSchema::Xiaohe;
     preferences.quanpin_helpcode.show_in_candidate_window = true;
     let document = json!({"api_version":1, "resources":dir.path().join("resources"),
@@ -3942,7 +3949,10 @@ fn host_helpcode_fallback_survives_preference_and_plugin_changes() {
 fn helpcode_settings_switch_independently_after_composition() {
     use msime_client_core::preferences::{HelpcodePreferences, HelpcodeSchema};
     let dir = tempfile::tempdir().unwrap();
-    let handle = test_host(dir.path());
+    // 出厂默认已关，这里显式打开，延迟期间才能看到旧值。
+    let mut initial = chinese_preferences();
+    initial.quanpin_helpcode.enabled = true;
+    let handle = test_host_with_pinyin_fixture(dir.path(), initial);
     read(msime_client_focus(handle, true));
     read(msime_client_character(handle, b'U', true));
     let before = read(msime_client_view(handle))["value"].clone();
@@ -6007,21 +6017,16 @@ fn generated_mode_selections_stay_out_of_selection_statistics() {
     assert_eq!(selections.total(), 1);
     read(msime_client_destroy(handle));
 }
-/// 拆字反查的开关：偏好里没有这个键时按宿主形态决定（触屏开、桌面关），用户明确打开后 Shift+C 进入；繁体输出开着时，转成同一个繁体字形的行只留一行。
+/// 拆字反查的开关：偏好里没有这个键时所有宿主读作开（对齐 Windows `radical_mode` 出厂值），Shift+C 进入；用户明确关掉后回到大写 C；繁体输出开着时，转成同一个繁体字形的行只留一行。
 #[test]
-fn chaizi_follows_the_host_form_until_the_user_flips_it() {
+fn chaizi_defaults_on_until_the_user_flips_it() {
     let dir = tempfile::tempdir().unwrap();
     let preferences = chinese_preferences();
     assert_eq!(preferences.local_modes.chaizi, None);
     let handle = test_host_with_pinyin_fixture(&dir.path().join("unset"), preferences);
     assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
     let entered = read(msime_client_character(handle, b'C', true));
-    let expected = if TOUCH_KEYBOARD_HOST {
-        "chaizi"
-    } else {
-        "none"
-    };
-    assert_eq!(entered["value"]["view"]["local_mode"], expected);
+    assert_eq!(entered["value"]["view"]["local_mode"], "chaizi");
     read(msime_client_destroy(handle));
 
     let mut preferences = chinese_preferences();
@@ -11697,7 +11702,7 @@ fn the_wubi_lock_accepts_resources_without_japanese_and_gates_temporary_japanese
         .is_err());
 
     let state = root.path().join("state");
-    let prepared: Value = serde_json::from_str(
+    let mut prepared: Value = serde_json::from_str(
         &prepare_shipped_host_configuration(
             &resources,
             &state,
@@ -11709,11 +11714,12 @@ fn the_wubi_lock_accepts_resources_without_japanese_and_gates_temporary_japanese
     )
     .unwrap();
     assert_eq!(prepared["edition"], "wubi");
-    // 偏好里临时日文是开的，关掉它的是资源门控，不是偏好。
+    // 偏好里临时日文是开的，关掉它的是资源门控，不是偏好。emoji 缺省按出厂读作关，这里显式打开来验证资源门控不动它。
     assert_eq!(
         prepared["preferences"]["local_modes"]["temporary_japanese"],
         true
     );
+    prepared["preferences"]["local_modes"]["emoji"] = Value::Bool(true);
     let mut options = HostOptions::from_document(prepared)
         .unwrap()
         .into_engine_options();
@@ -12285,8 +12291,13 @@ fn translation_queries_only_clear_chinese_candidates_for_the_network() {
                  INSERT INTO kaomoji VALUES('haixiu','hx','(*\u{3a6}\u{76bf}\u{3a6}*)',10);",
             )
             .unwrap();
+        // 颜文字模式出厂默认关，这里显式打开，`Mhx` 才进 M 模式拿到颜文字候选。
         let preferences = Preferences {
             candidate_translations: true,
+            local_modes: msime_client_core::preferences::LocalModePreferences {
+                kaomoji: true,
+                ..msime_client_core::preferences::LocalModePreferences::default()
+            },
             ..Preferences::default()
         };
         let handle = test_host_preferences(dir.path(), preferences);
@@ -14744,6 +14755,7 @@ fn the_selected_helpcode_pack_replaces_the_scheme_table() {
     install_helpcode_pack(dir.path(), "radicals", "你=ab\n");
     let mut preferences = chinese_preferences();
     preferences.scheme = msime_client_core::preferences::InputScheme::Quanpin;
+    preferences.quanpin_helpcode.enabled = true;
     preferences.plugins.helpcode_pack_quanpin = "radicals".into();
     let handle = plugin_host(dir.path(), preferences.clone());
     assert_eq!(session_helpcode(handle).as_deref(), Some("ab"));
@@ -14783,6 +14795,7 @@ fn a_broken_helpcode_pack_with_a_missing_fallback_never_fails_the_session() {
     install_helpcode_pack(dir.path(), "radicals", "你=ab\n");
     let mut preferences = chinese_preferences();
     preferences.scheme = msime_client_core::preferences::InputScheme::Quanpin;
+    preferences.quanpin_helpcode.enabled = true;
     preferences.quanpin_helpcode.schema =
         msime_client_core::preferences::HelpcodeSchema::Custom("custom/mine".into());
     preferences.plugins.helpcode_pack_quanpin = "radicals".into();
@@ -14844,6 +14857,7 @@ fn plugin_failures_reach_the_registered_diagnostic_sink() {
     let dir = tempfile::tempdir().unwrap();
     let mut preferences = chinese_preferences();
     preferences.scheme = msime_client_core::preferences::InputScheme::Quanpin;
+    preferences.quanpin_helpcode.enabled = true;
     preferences.plugins.helpcode_pack_quanpin = "diagnostic-sink-probe".into();
     let handle = plugin_host(dir.path(), preferences);
     let reported = captured("diagnostic-sink-probe");
@@ -15332,6 +15346,7 @@ fn plugins_boundary_imports_a_helpcode_table_the_session_then_reads() {
 
     let mut preferences = chinese_preferences();
     preferences.scheme = msime_client_core::preferences::InputScheme::Shuangpin;
+    preferences.shuangpin_helpcode.enabled = true;
     preferences.plugins.helpcode_pack_shuangpin = id.clone();
     let handle = plugin_host(dir.path(), preferences);
     assert_eq!(session_helpcode(handle).as_deref(), Some("zz"));

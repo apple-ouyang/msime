@@ -52,8 +52,8 @@ export function navigationShortcutItems(navigation: NavigationPreferences, harmo
     ([value, label]) => ({
       value,
       label,
-      // `mouse_wheel` 是可选的；未设置即关闭。左右键是新增开关，旧文档缺少时按默认开启。
-      checked: navigation[value] ?? value === "left_right",
+      // `mouse_wheel` 是可选的；未设置即关闭。左右键对齐 Windows `candidate_horizontal_arrow_navigation` 出厂值，缺键读作关。
+      checked: navigation[value] ?? false,
     }),
   );
 }

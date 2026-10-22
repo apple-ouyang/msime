@@ -1341,7 +1341,8 @@ fn local_mode_defaults_and_each_switch_roundtrip() {
     .enumerate()
     {
         let mut value = serde_json::to_value(Preferences::default()).unwrap();
-        value["local_modes"][*key] = false.into();
+        // emoji/颜文字出厂已关，写成开的才是用户动了开关；其余模式出厂开，写成关的。
+        value["local_modes"][*key] = matches!(*key, "emoji" | "kaomoji").into();
         let saved = store
             .save(revision as u64, serde_json::from_value(value).unwrap())
             .unwrap();
@@ -1352,18 +1353,20 @@ fn local_mode_defaults_and_each_switch_roundtrip() {
 #[test]
 fn generated_local_modes_are_off_by_default_and_when_absent() {
     let defaults = LocalModePreferences::default();
+    // V 模式对齐 Windows `utility.v_mode` 出厂开；/、@ 和 @ 地名仍默认关。
     assert!(
-        !defaults.expression && !defaults.command && !defaults.mention && !defaults.mention_places
+        defaults.expression && !defaults.command && !defaults.mention && !defaults.mention_places
     );
 
-    // A document without the switches loads with them off and the rest as written.
+    // A document without the switches loads with the factory values and the rest as written.
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
     let mut sparse = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
     let local_modes = sparse["preferences"]["local_modes"]
         .as_object_mut()
         .unwrap();
-    for key in ["expression", "command", "mention", "mention_places"] {
+    assert_eq!(local_modes.remove("expression"), Some(true.into()));
+    for key in ["command", "mention", "mention_places"] {
         assert_eq!(local_modes.remove(key), Some(false.into()), "{key}");
     }
     local_modes.insert("unicode".into(), false.into());
@@ -1384,7 +1387,8 @@ fn generated_local_modes_are_off_by_default_and_when_absent() {
         .enumerate()
     {
         let mut value = serde_json::to_value(Preferences::default()).unwrap();
-        value["local_modes"][*key] = true.into();
+        // expression 默认开，测试用户把它关掉而不是打开。
+        value["local_modes"][*key] = (*key != "expression").into();
         let saved = store
             .save(revision as u64, serde_json::from_value(value).unwrap())
             .unwrap();
@@ -1399,7 +1403,7 @@ fn generated_local_modes_are_off_by_default_and_when_absent() {
                 modes.mention_places
             ],
             [
-                *key == "expression",
+                *key != "expression",
                 *key == "command",
                 *key == "mention",
                 *key == "mention_places"
@@ -1407,7 +1411,10 @@ fn generated_local_modes_are_off_by_default_and_when_absent() {
         );
         let written: serde_json::Value =
             serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
-        assert_eq!(written["preferences"]["local_modes"][*key], true);
+        assert_eq!(
+            written["preferences"]["local_modes"][*key],
+            *key != "expression"
+        );
     }
 
     // 别的键是更新版本的模式：读得进来，记为未知键，保存时原样写回。
@@ -1486,7 +1493,7 @@ fn symbol_mode_defaults_on_and_is_written_only_when_off() {
 
 #[test]
 fn chaizi_is_unset_until_the_user_flips_it() {
-    // 缺省是 `None`：由宿主形态决定开关，文档里也不写这个键，旧版本照常读得懂。
+    // 缺省是 `None`：host-api 把缺键读作开（Windows `radical_mode` 出厂值），文档里也不写这个键，旧版本照常读得懂。
     assert_eq!(LocalModePreferences::default().chaizi, None);
     let written = serde_json::to_value(Preferences::default()).unwrap();
     assert!(written["local_modes"].get("chaizi").is_none());
@@ -1511,6 +1518,121 @@ fn chaizi_is_unset_until_the_user_flips_it() {
             serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
         assert_eq!(on_disk["preferences"]["local_modes"]["chaizi"], flag);
     }
+}
+
+/// 序列化默认值后删掉一个键，等价于「早于这个键的文档」。
+fn modes_without(key: &str) -> LocalModePreferences {
+    let mut value = serde_json::to_value(LocalModePreferences::default()).unwrap();
+    value.as_object_mut().unwrap().remove(key);
+    serde_json::from_value(value).unwrap()
+}
+
+/// Windows v0.11.1 出厂：emoji / 颜文字快捷模式关（pin 出厂开，对齐正式版）。缺键读作关，文档里写明的值原样生效。
+#[test]
+fn emoji_and_kaomoji_modes_default_off() {
+    let defaults = LocalModePreferences::default();
+    assert!(!defaults.emoji && !defaults.kaomoji);
+    let missing = modes_without("emoji");
+    assert!(!missing.emoji && missing.unicode);
+    let missing = modes_without("kaomoji");
+    assert!(!missing.kaomoji && missing.unicode);
+    for flag in [true, false] {
+        let modes: LocalModePreferences = serde_json::from_value(serde_json::json!({
+            "unicode": true, "date_time": true, "quick_phrase": true,
+            "emoji": flag, "kaomoji": flag, "super_jianpin": true,
+            "temporary_english": true, "temporary_japanese": true
+        }))
+        .unwrap();
+        assert_eq!([modes.emoji, modes.kaomoji], [flag, flag], "{flag}");
+    }
+}
+
+/// Windows `utility.v_mode` 出厂开（post-pin 键）：缺键读作开；用户写进文档的关不被覆盖。
+#[test]
+fn expression_mode_defaults_on() {
+    assert!(LocalModePreferences::default().expression);
+    assert!(modes_without("expression").expression);
+    let mut value = serde_json::to_value(LocalModePreferences::default()).unwrap();
+    value["expression"] = false.into();
+    let modes: LocalModePreferences = serde_json::from_value(value).unwrap();
+    assert!(!modes.expression);
+}
+
+/// Windows `utility.date_time_candidates` 出厂关（post-pin 键）：T 模式（date_time）与行内混入是两个开关；缺键读作关，开着时才写进文档。
+#[test]
+fn date_time_inline_defaults_off_and_is_written_only_when_on() {
+    assert!(!LocalModePreferences::default().date_time_inline);
+    let written = serde_json::to_value(LocalModePreferences::default()).unwrap();
+    assert!(written.get("date_time_inline").is_none());
+    assert!(!modes_without("date_time_inline").date_time_inline);
+    assert!(modes_without("date_time_inline").date_time_menu);
+    let mut value = serde_json::to_value(LocalModePreferences::default()).unwrap();
+    value["date_time_inline"] = true.into();
+    let modes: LocalModePreferences = serde_json::from_value(value).unwrap();
+    assert!(modes.date_time_inline);
+}
+
+/// Windows `general.candidate_horizontal_arrow_navigation` 出厂关（post-pin 键）：缺键读作关；文档里写明的开不被覆盖。
+#[test]
+fn left_right_navigation_defaults_off() {
+    assert!(!NavigationPreferences::default().left_right);
+    let mut value = serde_json::to_value(NavigationPreferences::default()).unwrap();
+    value.as_object_mut().unwrap().remove("left_right");
+    let navigation: NavigationPreferences = serde_json::from_value(value).unwrap();
+    assert!(!navigation.left_right && navigation.arrows);
+    let mut value = serde_json::to_value(NavigationPreferences::default()).unwrap();
+    value["left_right"] = true.into();
+    let navigation: NavigationPreferences = serde_json::from_value(value).unwrap();
+    assert!(navigation.left_right);
+}
+
+/// Windows `general.symbol_mixed_input` 出厂关（post-pin 键）：缺键读作关，包括此前默认开时被略写键位的文档；文档里写明的开不被覆盖。
+#[test]
+fn mixed_symbols_defaults_off() {
+    assert!(!MixedInputPreferences::default().symbols);
+    let mut value = serde_json::to_value(MixedInputPreferences::default()).unwrap();
+    value.as_object_mut().unwrap().remove("symbols");
+    let mixed: MixedInputPreferences = serde_json::from_value(value).unwrap();
+    assert!(!mixed.symbols);
+    let mut value = serde_json::to_value(MixedInputPreferences::default()).unwrap();
+    value["symbols"] = true.into();
+    let mixed: MixedInputPreferences = serde_json::from_value(value).unwrap();
+    assert!(mixed.symbols);
+}
+
+/// Windows v0.11.1 的 shuangpin_helpcode / quanpin_helpcode 出厂关（pin 出厂开）：缺键读作关；文档里写明的开不被覆盖。
+#[test]
+fn helpcode_enabled_defaults_off() {
+    assert!(!HelpcodePreferences::default().enabled);
+    assert!(!default_quanpin_helpcode().enabled && !default_shuangpin_helpcode().enabled);
+    let mut value = serde_json::to_value(default_shuangpin_helpcode()).unwrap();
+    value.as_object_mut().unwrap().remove("enabled");
+    let helpcode: HelpcodePreferences = serde_json::from_value(value).unwrap();
+    assert!(!helpcode.enabled);
+    let mut value = serde_json::to_value(default_quanpin_helpcode()).unwrap();
+    value.as_object_mut().unwrap().remove("enabled");
+    let helpcode: HelpcodePreferences = serde_json::from_value(value).unwrap();
+    assert!(!helpcode.enabled);
+    for flag in [true, false] {
+        let helpcode: HelpcodePreferences = serde_json::from_value(serde_json::json!({
+            "enabled": flag, "schema": "lantian"
+        }))
+        .unwrap();
+        assert_eq!(helpcode.enabled, flag, "{flag}");
+    }
+}
+
+/// Windows `appearance.candidate_window_fit_content` 出厂关（post-pin 键）：缺键读作关，开着时才写进文档；文档里写明的开不被覆盖。
+#[test]
+fn candidate_window_fit_content_defaults_off() {
+    let preferences = Preferences::default();
+    assert!(!preferences.candidate_window_fit_content);
+    let written = serde_json::to_value(&preferences).unwrap();
+    assert!(written.get("candidate_window_fit_content").is_none());
+    let mut value = written.clone();
+    value["candidate_window_fit_content"] = true.into();
+    let loaded: Preferences = serde_json::from_value(value).unwrap();
+    assert!(loaded.candidate_window_fit_content);
 }
 
 #[test]
@@ -2469,7 +2591,7 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
         cfg!(any(windows, target_os = "macos"))
     );
     assert_eq!(fs::read(store.path()).unwrap(), bytes);
-    // 只写前四项的旧对象（`japanese` 之前的文档、各宿主自己拼的对象）照样能读，日文混输按关、符号混输按开处理。
+    // 只写前四项的旧对象（`japanese` 之前的文档、各宿主自己拼的对象）照样能读，日文混输与符号混输按关处理（对齐 `symbol_mixed_input` 出厂值）。
     let mut four_fields = legacy.clone();
     four_fields["preferences"]["mixed_input"] = serde_json::json!({
         "english": false,
@@ -2486,7 +2608,7 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
             emoji: true,
             kaomoji: true,
             japanese: false,
-            symbols: true,
+            symbols: false,
             quick_phrase: true,
             quick_phrase_frequency: true,
         }
@@ -2515,10 +2637,10 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
             written["preferences"]["mixed_input"].get("japanese"),
             (mask & 8 != 0).then_some(&serde_json::Value::Bool(true))
         );
-        // 符号混输反过来：开着（默认）时不写，关掉才写 `false`。
+        // 符号混输总是写出：旧版本把缺键读作开，写明的值新旧两版读法一致。
         assert_eq!(
-            written["preferences"]["mixed_input"].get("symbols"),
-            (mask & 16 != 0).then_some(&serde_json::Value::Bool(false))
+            written["preferences"]["mixed_input"]["symbols"],
+            serde_json::Value::Bool(mask & 16 == 0)
         );
     }
     let saved = store.load().unwrap();
@@ -2533,15 +2655,15 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
     }
 }
 
-/// 符号混输是后加的可选成员，默认开：缺键读作开且不写回，关掉才写出 `false`，写成 `true` 的文档再保存时去掉这个键；四个必填成员缺一个照旧整份读不进来。
+/// 符号混输对齐 `symbol_mixed_input` 出厂关：缺键读作关，写明的 `true`/`false` 原样生效并原样写回（不略写键位，旧版本读写出的值与新版一致）；四个必填成员缺一个照旧整份读不进来。
 #[test]
-fn mixed_input_symbols_default_on_and_are_written_only_when_off() {
-    assert!(MixedInputPreferences::default().symbols);
+fn mixed_input_symbols_default_off_and_keep_written_values() {
+    assert!(!MixedInputPreferences::default().symbols);
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
     let mut document = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
-    assert_eq!(document["preferences"]["mixed_input"].get("symbols"), None);
     let mixed = |document: &serde_json::Value| document["preferences"]["mixed_input"].clone();
+    assert_eq!(mixed(&document)["symbols"], serde_json::Value::Bool(false));
 
     document["preferences"]["mixed_input"] = serde_json::json!({
         "english": true,
@@ -2551,29 +2673,25 @@ fn mixed_input_symbols_default_on_and_are_written_only_when_off() {
     });
     fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
     let loaded = store.load().unwrap();
-    assert!(loaded.preferences.mixed_input.symbols);
+    assert!(!loaded.preferences.mixed_input.symbols);
     let saved = store.save(loaded.revision, loaded.preferences).unwrap();
     let written: serde_json::Value =
         serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
-    assert_eq!(mixed(&written).get("symbols"), None);
+    assert_eq!(mixed(&written)["symbols"], serde_json::Value::Bool(false));
 
-    let mut off = saved.preferences.clone();
-    off.mixed_input.symbols = false;
-    let saved = store.save(saved.revision, off).unwrap();
+    let mut on = saved.preferences.clone();
+    on.mixed_input.symbols = true;
+    let saved = store.save(saved.revision, on).unwrap();
     let written: serde_json::Value =
         serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
-    assert_eq!(mixed(&written)["symbols"], serde_json::Value::Bool(false));
-    assert!(!store.load().unwrap().preferences.mixed_input.symbols);
+    assert_eq!(mixed(&written)["symbols"], serde_json::Value::Bool(true));
+    assert!(store.load().unwrap().preferences.mixed_input.symbols);
     assert_eq!(store.load().unwrap(), saved);
 
     document["preferences"]["mixed_input"]["symbols"] = serde_json::Value::Bool(true);
     fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
     let loaded = store.load().unwrap();
     assert!(loaded.preferences.mixed_input.symbols);
-    store.save(loaded.revision, loaded.preferences).unwrap();
-    let written: serde_json::Value =
-        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
-    assert_eq!(mixed(&written).get("symbols"), None);
 
     let mut missing = document.clone();
     missing["preferences"]["mixed_input"]
@@ -2782,8 +2900,8 @@ fn navigation_accepts_windows_candidate_arrow_alias() {
     let parsed: NavigationPreferences = serde_json::from_value(value).unwrap();
     assert!(!parsed.arrows);
     assert!(parsed.mouse_wheel);
-    // 旧文档没有这个键时按新的默认行为开启左右候选导航。
-    assert!(parsed.left_right);
+    // 旧文档没有这个键时按 `candidate_horizontal_arrow_navigation` 出厂值读作关。
+    assert!(!parsed.left_right);
 }
 
 #[test]

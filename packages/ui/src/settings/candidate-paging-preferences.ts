@@ -24,7 +24,7 @@ export const defaultNavigation: NavigationPreferences = {
   tab: true,
   page_up_down: true,
   arrows: true,
-  left_right: true,
+  left_right: false,
 };
 
 /** 读取旧文档时补齐新增的导航偏好；可选的鼠标滚轮字段仍保持缺省不写入。 */
