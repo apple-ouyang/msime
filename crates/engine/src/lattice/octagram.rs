@@ -95,8 +95,8 @@ static SHARED: OnceLock<Mutex<LruCache<PathBuf, Option<Arc<GramDb>>>>> = OnceLoc
 const SHARED_CACHE_CAPACITY: usize = 4;
 
 impl GramDb {
-    /// `None` for a missing, short, wrong-magic or out-of-bounds file; the caller
-    /// then runs without the model, exactly as it runs without `msime-bigram.bin`.
+    /// 文件缺失、过短、魔数错误或数组越界时返回 `None`；调用方按无模型运行，
+    /// 与缺少 `msime-bigram.bin` 时的处理一致。
     #[allow(unsafe_code)]
     pub fn load(path: &Path) -> Option<GramDb> {
         if !std::fs::symlink_metadata(path).ok()?.file_type().is_file() {
@@ -162,8 +162,7 @@ impl GramDb {
 
     /// 摘掉指定路径的缓存引用（设置侧删除模型包后调用）；仍被会话持有的实例
     /// 由 `Arc` 兜底，最后一个引用松开才真正 unmap，被删的 `.gram` 随之可物理删除。
-    /// 目前只有测试调用；模型包删除路径在资源包切片接入。
-    #[allow(dead_code)]
+    /// 资源包卸载通过 Host API 调用；活跃会话的引用仍保留到会话重建。
     pub fn evict_shared(path: &Path) {
         if let Some(cache) = SHARED.get() {
             cache
