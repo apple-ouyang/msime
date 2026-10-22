@@ -855,10 +855,10 @@ mod tests {
         symlink(&published, root(dir.path()).join(pack.id())).unwrap();
         assert!(!remove(dir.path(), pack).unwrap());
         assert!(published.exists());
-        fs::remove_file(root(dir.path()).join(pack.id())).unwrap();
-        fs::remove_dir(root(dir.path())).unwrap();
-        symlink(root(outside.path()), root(dir.path())).unwrap();
-        assert!(!remove(dir.path(), pack).unwrap());
+        // 删除流程会保留安装锁；根目录链接用独立目录验证，不能把锁当作泄漏清除。
+        let linked_root = tempfile::tempdir().unwrap();
+        symlink(root(outside.path()), root(linked_root.path())).unwrap();
+        assert!(!remove(linked_root.path(), pack).unwrap());
         assert!(published.exists());
     }
 
