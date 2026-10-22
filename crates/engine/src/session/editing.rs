@@ -160,9 +160,12 @@ impl InputSession {
                         && scheme == SchemeType::Shuangpin
                         && self.profile.uses_semicolon_key()
                     {
-                        // `;`（微软的 ing，或自定义方案放在 `;` 上的韵母、零声母编码的第二个键）只能补完一个奇数长度的片段。
-                        let start = text[..caret].rfind('\'').map_or(0, |at| at + 1);
-                        accepted = (caret - start) % 2 == 1;
+                        // `;`（微软的 ing，或自定义方案放在 `;` 上的韵母、零声母编码的第二个键）只能补完一个奇数长度的片段；辅助码段不算这一节的键。
+                        accepted = crate::shuangpin::mid_sentence::accepts_semicolon_final_at(
+                            text.as_bytes(),
+                            caret,
+                            self.shuangpin_helpcode_uppercase_triggers(),
+                        );
                     }
                     if value == b'\'' && scheme.accepts_apostrophe() {
                         accepted = caret > 0;
@@ -290,19 +293,35 @@ impl InputSession {
         match self.engine.current_scheme_type() {
             SchemeType::Shuangpin => {
                 let profile = self.shuangpin_profile();
-                let raw = &self.engine.request().raw_input;
-                let helpcode_length =
-                    detect_active_double_helpcode_length(raw, raw_with_cases, profile);
-                let base = if helpcode_length > 0 {
-                    trim_trailing_letters_preserve_delimiters(raw_with_cases, helpcode_length)
+                let request = self.engine.request();
+                // 带辅助码段时音节边界在去段串上算，再按 source_index 映回原串（编辑文本含段标记）。
+                let (clean, index_map) = if request.raw_input_with_helpcode_marks.is_empty() {
+                    (raw_with_cases, None)
                 } else {
-                    raw_with_cases.to_owned()
+                    (
+                        request.raw_input_with_cases.as_str(),
+                        Some(&request.helpcode_source_index),
+                    )
+                };
+                let helpcode_length =
+                    detect_active_double_helpcode_length(&request.raw_input, clean, profile);
+                let base = if helpcode_length > 0 {
+                    trim_trailing_letters_preserve_delimiters(clean, helpcode_length)
+                } else {
+                    clean.to_owned()
                 };
                 let mut boundaries = segment_raw_boundaries(&base, profile);
                 if helpcode_length > 0 && !boundaries.is_empty() {
                     // The active double helpcode is one editable unit of its own, the same boundary raw_segmentation draws before it.
                     boundaries.push(base.len());
-                    boundaries.push(raw_with_cases.len());
+                    boundaries.push(clean.len());
+                    boundaries.sort_unstable();
+                    boundaries.dedup();
+                }
+                if let Some(index_map) = index_map {
+                    for boundary in &mut boundaries {
+                        *boundary = index_map[*boundary];
+                    }
                     boundaries.sort_unstable();
                     boundaries.dedup();
                 }
@@ -407,10 +426,13 @@ impl InputSession {
         self.prefix_active = true;
     }
 
-    /// The typed raw input with its case, as the scheme holds it.
+    /// The typed raw input with its case, as the scheme holds it. 带辅助码段时是用户敲的原串
+    /// （含段标记），与 `get_pinyin_sequence_with_cases` 一致。
     pub(super) fn raw_with_cases(&self) -> &str {
         let request = self.engine.request();
-        if request.raw_input_with_cases.is_empty() {
+        if !request.raw_input_with_helpcode_marks.is_empty() {
+            &request.raw_input_with_helpcode_marks
+        } else if request.raw_input_with_cases.is_empty() {
             &request.raw_input
         } else {
             &request.raw_input_with_cases

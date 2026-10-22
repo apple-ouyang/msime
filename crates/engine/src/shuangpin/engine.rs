@@ -344,6 +344,27 @@ impl ShuangpinEngine {
         let empty_keymap = HelpcodeKeymap::default();
         let keymap = keymap.unwrap_or(&empty_keymap);
 
+        // 引导键触发的末尾辅助码：辅码由方案层从末尾段里取出，输入串里已经没有它们，不用再猜哪几个
+        // 键是辅码，也不会和「再打一个声母」混在一起，所以单码不补原拼音的候选（engine.cpp:163-172）。
+        if !request.end_helpcodes.is_empty() {
+            let segmentation = segment_input(raw, self.profile);
+            let exact =
+                self.dictionary
+                    .generate_series(&remove_manual_delimiters(raw), &segmentation, raw);
+            let filtered = if request.end_helpcodes.len() == 2 {
+                filter_candidates_with_double_helpcodes(exact, &request.end_helpcodes, keymap)
+            } else {
+                reorder_candidates_with_single_helpcode(exact, &request.end_helpcodes, keymap)
+            };
+            return self.append_fuzzy(
+                filtered,
+                &segmentation,
+                request.fuzzy_pinyin,
+                &request.end_helpcodes,
+                keymap,
+            );
+        }
+
         // 移动端在直接辅助码后会继续输入：`uibjm` 是 `ui` 加首码 `b` 再加 `jm`，
         // `tartantab` 则在三个音节上各带一位辅助码。普通的末尾辅助码路径只会看到最后一个奇数字母，
         // 所以把这类编码解析成逐音节约束；与完整小写双拼有歧义时仍保留普通读法。

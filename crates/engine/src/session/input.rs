@@ -372,8 +372,13 @@ impl InputSession {
 
         let scheme = self.scheme();
         let lowercase_letter = value.is_ascii_lowercase();
-        let microsoft_final =
-            value == b';' && scheme == SchemeType::Shuangpin && self.profile.uses_semicolon_key();
+        // 双拼辅助码的间接触发键（`event_listener_keys.cpp` 的对应物）：`;` 先让给 `ing` 韵母，
+        // 再看它当前归句中还是末尾；反引号同理。返回写进输入串的标记字符。
+        let helpcode_marker = self.shuangpin_helpcode_marker(value);
+        let microsoft_final = value == b';'
+            && scheme == SchemeType::Shuangpin
+            && self.profile.uses_semicolon_key()
+            && helpcode_marker.is_none();
         let japanese_long_vowel = value == b'-' && scheme == SchemeType::JapaneseRomaji;
         // 已启用的快捷入口在上面处理；被关闭或资源不可用的入口按普通大写字母继续。
         let starts_pinyin_with_shift =
@@ -386,6 +391,7 @@ impl InputSession {
             && value != b'\''
             && !microsoft_final
             && !japanese_long_vowel
+            && helpcode_marker.is_none()
         {
             // With nothing composed the host inserts the key itself (a digit, a space, a capital), so the next word no longer follows the last one.
             if !self.has_composition() {
@@ -407,6 +413,9 @@ impl InputSession {
 
         let key = if value == b'\'' {
             SchemeKey::Apostrophe
+        } else if let Some(marker) = helpcode_marker {
+            // 触发键在输入串里一律记成标记字符（反引号或 '|'），与用户敲的键无关。
+            SchemeKey::Symbol(marker)
         } else if microsoft_final {
             SchemeKey::Semicolon
         } else if japanese_long_vowel {
@@ -1722,6 +1731,69 @@ impl InputSession {
             .has_openable_candidate_list()
             && ((self.korean_rules_apply() && self.engine.korean_hanja_open())
                 || (self.zhuyin_rules_apply() && self.engine.zhuyin_list_open()))
+    }
+
+    /// `IsMidSentenceHelpcodeMarkerKey` 与 `IsEndHelpcodeMarkerKey` 的对应物：这个键是不是
+    /// 辅助码触发键、记进串里的标记字符是什么。`None` 表示不是触发键，走普通路径。
+    /// `;` 先让给 `ing` 韵母（`accepts_semicolon_final_at`），两侧判断顺序一致。
+    fn shuangpin_helpcode_marker(&self, value: u8) -> Option<u8> {
+        use crate::shuangpin::mid_sentence;
+        if !matches!(value, b'`' | b';')
+            || self.scheme() != SchemeType::Shuangpin
+            || !self.has_composition()
+        {
+            return None;
+        }
+        let request = self.engine.request();
+        let modes = request.shuangpin_helpcode_modes;
+        let typed = self.raw_with_cases().as_bytes();
+        let caret = typed.len();
+        let triggers = self.shuangpin_helpcode_uppercase_triggers();
+        if value == b';'
+            && self.profile.uses_semicolon_key()
+            && mid_sentence::accepts_semicolon_final_at(typed, caret, triggers)
+        {
+            return None;
+        }
+        // 句中与末尾触发键在写入端已互斥；同键都给时按句中，与 Windows 的判断顺序一致。
+        let mid = match value {
+            b'`' => modes.mid_sentence_backtick,
+            b';' => modes.mid_sentence_semicolon,
+            _ => false,
+        };
+        if modes.mid_sentence
+            && !modes.direct_helpcode
+            && mid
+            && mid_sentence::accepts_marker_at(typed, caret, triggers)
+        {
+            return Some(mid_sentence::MID_SENTENCE_MARKER);
+        }
+        let end = match value {
+            b'`' => modes.trigger_backtick,
+            b';' => modes.trigger_semicolon,
+            _ => false,
+        };
+        if request.enable_shuangpin_helpcode
+            && !modes.direct
+            && !modes.direct_helpcode
+            && end
+            && mid_sentence::accepts_end_marker_at(typed, caret, triggers)
+        {
+            return Some(mid_sentence::END_HELPCODE_MARKER);
+        }
+        None
+    }
+
+    /// 大写字母开哪种辅助码段，与 `ImeSession::helpcode_uppercase_triggers` 同一条规则；编辑与
+    /// 键入路径用同一份，判断才不会分叉。
+    pub(super) fn shuangpin_helpcode_uppercase_triggers(
+        &self,
+    ) -> crate::shuangpin::mid_sentence::UppercaseTriggers {
+        let request = self.engine.request();
+        crate::shuangpin::mid_sentence::uppercase_triggers(
+            &request.shuangpin_helpcode_modes,
+            request.enable_shuangpin_helpcode,
+        )
     }
 
     /// The helpcode switch of the session's scheme; other schemes have none.

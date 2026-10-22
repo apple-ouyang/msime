@@ -2046,6 +2046,168 @@ fn shuangpin_lists_a_word_once() {
     assert_eq!(words(&session), ["你", "拟"]);
 }
 
+fn end_trigger_modes(
+    semicolon: bool,
+    backtick: bool,
+    uppercase: bool,
+) -> crate::types::ShuangpinHelpcodeModes {
+    crate::types::ShuangpinHelpcodeModes {
+        direct: false,
+        trigger_semicolon: semicolon,
+        trigger_backtick: backtick,
+        trigger_uppercase: uppercase,
+        ..crate::types::ShuangpinHelpcodeModes::default()
+    }
+}
+
+/// 末尾间接触发（`trigger_semicolon`）：开关开着时 `;` 在输入串里记成末尾段 `|`，一码重排、
+/// 两码筛选；关着时 `;` 走原路径（小鹤双拼不用这个键，直接还给宿主）。
+#[test]
+fn shuangpin_end_trigger_semicolon() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',100),('ni''hao','nh','泥嚎',90),('ni''hao','nh','鸟蛤',80);",
+    );
+    let codes = Arc::new(crate::helpcode::HelpcodeKeymap::from_codes(
+        [
+            ("你", "na"),
+            ("好", "ha"),
+            ("泥", "xq"),
+            ("嚎", "yg"),
+            ("鸟", "na"),
+            ("蛤", "ga"),
+        ]
+        .map(|(word, code)| (word.to_owned(), code.to_owned()))
+        .into_iter()
+        .collect(),
+    ));
+    let session_with_modes = |trigger| {
+        let codes = codes.clone();
+        fixture.session_with(move |options| {
+            options.scheme = SchemeType::Shuangpin;
+            options.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
+            options.helpcode_table = Some(codes);
+            options.shuangpin_helpcode_modes = end_trigger_modes(trigger, false, false);
+        })
+    };
+    // 关着：`;` 不是双拼的键，不进组字。
+    let mut off = session_with_modes(false);
+    type_text(&mut off, "nihc");
+    assert!(!off.character(b';', false).handled);
+    assert_eq!(off.snapshot().editing_text, "nihc");
+    // 开着：`;` 记成末尾段。
+    let mut on = session_with_modes(true);
+    type_text(&mut on, "nihc");
+    assert_eq!(words(&on)[0], "你好");
+    assert!(on.character(b';', false).handled);
+    assert_eq!(on.snapshot().editing_text, "nihc|");
+    type_text(&mut on, "x");
+    assert_eq!(on.snapshot().editing_text, "nihc|x");
+    assert_eq!(on.input.engine.request().end_helpcodes, "x");
+    // 一码只重排不筛：`泥` 的首码 x 提到最前，其它行还在。
+    assert_eq!(words(&on)[0], "泥嚎");
+    assert!(words(&on).contains(&"你好".to_owned()));
+    type_text(&mut on, "y");
+    // 两码筛选：只剩「泥」x +「嚎」y。
+    assert_eq!(on.input.engine.request().end_helpcodes, "xy");
+    assert_eq!(words(&on), ["泥嚎"]);
+    // 段不再位于末尾时只当分隔符，不再筛选。
+    type_text(&mut on, "'");
+    assert!(on.input.engine.request().end_helpcodes.is_empty());
+    assert!(words(&on).contains(&"你好".to_owned()));
+}
+
+/// 末尾间接触发的另外两枚触发键：反引号（`trigger_backtick`）记成 `|`；大写触发
+/// （`trigger_uppercase`）时大写字母自己开一段，第二码大小写都算。
+#[test]
+fn shuangpin_end_trigger_backtick_and_uppercase() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',100),('ni''hao','nh','泥嚎',90),('ni''hao','nh','鸟蛤',80);",
+    );
+    let codes = || {
+        Some(Arc::new(crate::helpcode::HelpcodeKeymap::from_codes(
+            [
+                ("你", "na"),
+                ("好", "ha"),
+                ("泥", "xq"),
+                ("嚎", "yg"),
+                ("鸟", "na"),
+                ("蛤", "ga"),
+            ]
+            .map(|(word, code)| (word.to_owned(), code.to_owned()))
+            .into_iter()
+            .collect(),
+        )))
+    };
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
+        options.helpcode_table = codes();
+        options.shuangpin_helpcode_modes = end_trigger_modes(false, true, true);
+    });
+    // 反引号记成末尾段 `|`。
+    type_text(&mut session, "nihc");
+    assert!(session.character(b'`', false).handled);
+    assert_eq!(session.snapshot().editing_text, "nihc|");
+    type_text(&mut session, "xy");
+    assert_eq!(session.input.engine.request().end_helpcodes, "xy");
+    assert_eq!(words(&session), ["泥嚎"]);
+    assert_eq!(
+        session.select(0).commit.as_deref(),
+        Some("泥嚎"),
+        "选中即上屏，末尾段随整个词一起消耗"
+    );
+    assert!(session.snapshot().preedit.is_empty());
+    // 大写触发：大写字母开段，第二码小写也算。
+    type_text(&mut session, "nihcXy");
+    assert_eq!(session.snapshot().editing_text, "nihcXy");
+    assert_eq!(session.input.engine.request().end_helpcodes, "xy");
+    assert_eq!(words(&session), ["泥嚎"]);
+    // 大写触发关着时，大写字母走原路径，不产生末尾段。
+    let mut off = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
+        options.helpcode_table = codes();
+        options.shuangpin_helpcode_modes = end_trigger_modes(false, false, false);
+    });
+    type_text(&mut off, "nihcXy");
+    assert!(off.input.engine.request().end_helpcodes.is_empty());
+}
+
+/// 微软双拼的 `;` 是 `ing` 韵母：片段是奇数键时它仍是韵母，完整音节后才是触发键
+/// （`accepts_semicolon_final_at`）。
+#[test]
+fn shuangpin_end_trigger_semicolon_stays_ing_final() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_b(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_b VALUES('bing''jing','bj','冰晶',100),('bing''jing','bj','病晶',90);",
+    );
+    let codes = Arc::new(crate::helpcode::HelpcodeKeymap::from_codes(
+        [("冰", "bp"), ("晶", "jb"), ("病", "xp")]
+            .map(|(word, code)| (word.to_owned(), code.to_owned()))
+            .into_iter()
+            .collect(),
+    ));
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.shuangpin_profile = ShuangpinProfileKind::Microsoft;
+        options.helpcode_table = Some(codes);
+        options.shuangpin_helpcode_modes = end_trigger_modes(true, false, false);
+    });
+    type_text(&mut session, "b;j");
+    // 片段 `b;j` 是三个键：`;` 补成 `jing`，仍是韵母不是触发键。
+    assert!(session.character(b';', false).handled);
+    assert_eq!(session.snapshot().editing_text, "b;j;");
+    assert_eq!(words(&session)[0], "冰晶");
+    // 完整音节后才是触发键。
+    assert!(session.character(b';', false).handled);
+    assert_eq!(session.snapshot().editing_text, "b;j;|");
+    type_text(&mut session, "x");
+    assert_eq!(session.input.engine.request().end_helpcodes, "x");
+    assert_eq!(words(&session)[0], "病晶");
+}
+
 /// #6034：双拼会话读同一个「拼音纠错」开关。合成词库里只有关系是词，小鹤把 guan（gr）的 r 按成邻键 f 就是 gen；自然码把 xi 的 x 按成邻键 c 就是 ci。
 const SHUANGPIN_TYPO_FIXTURE: &str =
     "CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
@@ -4868,7 +5030,13 @@ fn date_time_keywords_add_rows_after_their_word() {
     let fixture = Fixture::new(INLINE_DATE_TIME_FIXTURE);
     let mut session = fixture.session();
     TestClock::install(&mut session);
-    let date = ["日期", "2026年8月9日", "📅日期", "2026-08-09", "2026年8月9日 星期日"];
+    let date = [
+        "日期",
+        "2026年8月9日",
+        "📅日期",
+        "2026-08-09",
+        "2026年8月9日 星期日",
+    ];
     for keyword in ["riqi", "ri'qi"] {
         type_text(&mut session, keyword);
         assert_eq!(words(&session)[..5], date, "{keyword}");
@@ -4894,7 +5062,10 @@ fn date_time_keywords_add_rows_after_their_word() {
     session.command(Command::Cancel);
 
     type_text(&mut session, "nongli");
-    assert_eq!(words(&session)[..3], ["农历", "丙午年六月二十七日", "📅日期"]);
+    assert_eq!(
+        words(&session)[..3],
+        ["农历", "丙午年六月二十七日", "📅日期"]
+    );
     session.command(Command::Cancel);
 
     // 不是关键词的组字、关键词的一部分都不加。
