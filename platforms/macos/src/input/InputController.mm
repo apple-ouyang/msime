@@ -810,9 +810,13 @@ static char MSIMEShortcutLetter(NSEvent *event) {
     NSString *characters = event.charactersIgnoringModifiers;
     return msime::mac::ShortcutLetter(event.keyCode, characters.length == 1 ? [characters characterAtIndex:0] : 0);
 }
-static BOOL MSIMEPunctuationToggle(NSEvent *event) {
-    const NSEventModifierFlags modifiers = NSEventModifierFlagControl | NSEventModifierFlagShift | NSEventModifierFlagOption | NSEventModifierFlagCommand;
-    return event.keyCode == 47 && (event.modifierFlags & modifiers) == NSEventModifierFlagControl;
+// 事件是否命中一个可重绑切换热键：主键按 chord 的认法（keyCode 或布局字母），
+// 修饰键四旗精确相等，与原来各分支的掩码语义一致。
+static BOOL MSIMEToggleChordMatches(msime::mac::ToggleChord chord, NSEvent *event) {
+    const NSEventModifierFlags flags = event.modifierFlags;
+    return msime::mac::ToggleChordMatches(chord, event.keyCode, MSIMEShortcutLetter(event),
+        (flags & NSEventModifierFlagControl) != 0, (flags & NSEventModifierFlagOption) != 0,
+        (flags & NSEventModifierFlagShift) != 0, (flags & NSEventModifierFlagCommand) != 0);
 }
 // The marks this host closes for the user, opening first. The reference keeps the same list in its
 // TIP (`GetPairedPunctuationClosing`).
@@ -6624,7 +6628,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         if (!event.isARepeat) [self toggleChineseEnglishMode];
         return YES;
     }
-    if (MSIMEPunctuationToggle(event)) {
+    if (MSIMEToggleChordMatches(_appearance.punctuationToggleChord, event)) {
         if (!event.isARepeat) [self floatingToolbarDidRequestTogglePunctuation:nil];
         return YES;
     }
@@ -6635,15 +6639,17 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         if (!event.isARepeat && !_appearance.englishMode) [self floatingToolbarDidRequestToggleTraditionalOutput:nil];
         return YES;
     }
-    if (shortcutLetter == 'e' && (event.modifierFlags & (competing | NSEventModifierFlagShift)) == (NSEventModifierFlagControl | NSEventModifierFlagShift)) {
+    if (MSIMEToggleChordMatches(_appearance.englishCandidatesToggleChord, event)) {
         if (!event.isARepeat) [self toggleDedicatedEnglishMode:nil];
         return YES;
     }
-    // Only the Option+Shift+H arm is a preference; Ctrl+Shift+Space is the chord the Windows host
-    // reserves too, and the settings page says nothing about it.
-    if (msime::mac::IsFullWidthInputToggle(event.keyCode, shortcutLetter, event.modifierFlags) &&
-        (event.keyCode == 49 || _appearance.fullWidthShortcut) &&
-        (!_appearance.englishMode || event.keyCode == 49)) {
+    // 全半角：绑定的 chord 在中英文模式下都生效；Option+Shift+H 是 macOS 既有快捷键，
+    // 由 `toggle_fullwidth_option_shift_h` 开关门控，只在中文模式。
+    const auto widthArm = msime::mac::FullWidthInputToggleArm(
+        event.keyCode, shortcutLetter, event.modifierFlags, _appearance.fullWidthToggleChord);
+    if (widthArm != msime::mac::ToggleFullWidthArm::none &&
+        (widthArm == msime::mac::ToggleFullWidthArm::chord || _appearance.fullWidthShortcut) &&
+        (!_appearance.englishMode || widthArm == msime::mac::ToggleFullWidthArm::chord)) {
         if (!event.isARepeat) [self toggleRuntimeFullWidthInput];
         return YES;
     }
