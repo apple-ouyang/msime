@@ -18548,7 +18548,11 @@ fn grammar_pack_install_and_remove_mark_the_session_for_rebuild() {
         let pack = ResourcePack::GrammarBaguwenCompact;
         let root = resource_packs::root(dir.path()).join(pack.id());
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("msime-model.json"), b"{}").unwrap();
+        std::fs::write(
+            root.join("msime-model.json"),
+            serde_json::to_vec(&pack.manifest()).unwrap(),
+        )
+        .unwrap();
         let model = root.join(&pack.set().artifacts[0].name);
         std::fs::write(&model, b"synthetic").unwrap();
         session.refresh_resource_packs();

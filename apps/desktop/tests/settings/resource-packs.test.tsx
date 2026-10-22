@@ -730,3 +730,21 @@ test("a handwriting download failure offers the download mirror and retries afte
   await waitFor(() => expect(modelMirror.save).toHaveBeenCalledWith("https://mirror.example.com"));
   await waitFor(() => expect(packs.client.install).toHaveBeenCalledTimes(2));
 });
+
+
+test("语法模型卸载失败保留已安装状态并显示错误，允许重试", async () => {
+  const id = "grammar-model-baguwen-compact";
+  const packs = fakePacks({ [id]: "installed" }, [id]);
+  packs.client.remove.mockRejectedValueOnce({ code: "resource_pack_remove_denied" });
+  renderSettings("windows", packs.client, {
+    ...initial,
+    preferences: { ...initial.preferences, sentence_association: { grammar_model: "baguwen_compact" } },
+  });
+  await settingsFormReady();
+  selectSettingsTab("候选与联想");
+  fireEvent.click(await screen.findByRole("button", { name: "删除语法模型·八股文（紧凑）" }));
+  expect(await screen.findByText("操作失败，请重试。")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "删除语法模型·八股文（紧凑）" }));
+  await waitFor(() => expect(packs.client.remove).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.queryByText("操作失败，请重试。")).toBeNull());
+});

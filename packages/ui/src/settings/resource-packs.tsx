@@ -273,7 +273,10 @@ export function useResourcePacks(
   const remove = (id: ResourcePackId) => {
     const expected = client;
     const generation = clientGeneration.current;
-    if (!expected || !current(expected, generation)) return;
+    const key = runningKey(generation, id);
+    if (!expected || !current(expected, generation) || running.current.has(key)) return;
+    running.current.add(key);
+    setErrors((existing) => ({ ...existing, [id]: undefined }));
     void (async () => {
       try {
         await expected.remove(id);
@@ -284,6 +287,7 @@ export function useResourcePacks(
             [id]: localModelErrorMessage(error) ?? undefined,
           }));
       } finally {
+        running.current.delete(key);
         if (current(expected, generation)) await refresh(expected, generation);
       }
     })();

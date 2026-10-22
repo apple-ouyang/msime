@@ -139,7 +139,7 @@ function GrammarModelRow({
       {pack && status?.state === "installed" && resourcePacks && (
         <ActionRow
           title={resourcePackTitles[pack]}
-          description="已安装；删除后输入法退回无语法模型的候选行为。"
+          description={resourcePacks.errors[pack] ?? "已安装；删除后切换输入框即可退回无语法模型的候选行为。"}
           action={() => resourcePacks.remove(pack)}
           label="删除"
           ariaLabel={`删除${resourcePackTitles[pack]}`}
