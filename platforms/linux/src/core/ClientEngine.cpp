@@ -2181,7 +2181,8 @@ Json prefer_online_translations(const Json &glosses, const Json &online) {
 }
 bool apply(IBusEngine *engine, char *raw,
            PunctuationPairMode pair_mode = PunctuationPairMode::Unpaired,
-           std::optional<std::string> space_convert_preceding = std::nullopt);
+           std::optional<std::string> space_convert_preceding = std::nullopt,
+           char space_convert_key = 0);
 void render(IBusEngine *engine, const Json &view);
 void exit_translation_candidates(IBusEngine *engine);
 void render_translation_candidates(IBusEngine *engine);
@@ -4419,7 +4420,7 @@ bool commit_translation_candidate(IBusEngine *engine, size_t index) {
 }
 bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode,
            std::optional<std::string> space_convert_preceding,
-           char space_convert_key = 0) {
+           char space_convert_key) {
   auto result = response(raw);
   const auto &commit = result.at("commit");
   if (commit.is_string()) {
