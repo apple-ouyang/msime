@@ -18789,14 +18789,16 @@ fn sentence_collocation_tuning_reaches_engine_options() {
         msime_engine::octagram::GramConfig::default()
     );
 
-    let mut preferences = msime_client_core::preferences::SentenceAssociationPreferences::default();
-    preferences.sentence_collocation_weight = 0.0;
-    preferences.sentence_collocation_max_length = 4;
-    preferences.sentence_collocation_min_length = 3;
-    preferences.sentence_collocation_penalty = -30.0;
-    preferences.sentence_collocation_non_penalty = -9.0;
-    preferences.sentence_collocation_weak_penalty = -120.0;
-    preferences.sentence_collocation_rear_penalty = -25.0;
+    let preferences = msime_client_core::preferences::SentenceAssociationPreferences {
+        sentence_collocation_weight: 0.0,
+        sentence_collocation_max_length: 4,
+        sentence_collocation_min_length: 3,
+        sentence_collocation_penalty: -30.0,
+        sentence_collocation_non_penalty: -9.0,
+        sentence_collocation_weak_penalty: -120.0,
+        sentence_collocation_rear_penalty: -25.0,
+        ..Default::default()
+    };
     let options = engine_sentence_association(&preferences, None);
     assert_eq!(options.collocation_weight, 0.0);
     assert_eq!(

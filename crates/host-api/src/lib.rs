@@ -420,7 +420,6 @@ fn engine_sentence_association(
             weak_collocation_penalty: preferences.sentence_collocation_weak_penalty,
             rear_penalty: preferences.sentence_collocation_rear_penalty,
         },
-        ..Default::default()
     }
 }
 
