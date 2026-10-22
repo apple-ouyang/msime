@@ -43,6 +43,7 @@ export type HelpcodePreferences = {
   enabled: boolean;
   schema: HelpcodeSchema;
   show_in_candidate_window?: boolean;
+  trigger_key?: "" | ";" | "/" | "\\" | "`" | "=";
   /** 双拼专属的触发方式；缺省时按 `defaultShuangpinHelpcodeModes`。 */
   modes?: ShuangpinHelpcodeModes;
 };
