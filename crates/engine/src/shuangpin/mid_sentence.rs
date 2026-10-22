@@ -339,6 +339,46 @@ pub fn parse_mid_sentence_helpcodes(
     parsed
 }
 
+/// `syllable_helpcode_matches`：字的辅助码第一码与约束相同，且约束给了第二码时第二码也相同。
+pub fn syllable_helpcode_matches(helpcode: &SyllableHelpcode, code: &[u8]) -> bool {
+    !code.is_empty()
+        && code[0] == helpcode.first
+        && (helpcode.second == 0 || code.get(1) == Some(&helpcode.second))
+}
+
+/// 缓存键用的签名：同一串拼音带不同约束，候选不同，不能共用缓存
+/// （`syllable_helpcodes_signature`）。
+pub fn syllable_helpcodes_signature(helpcodes: &[SyllableHelpcode]) -> String {
+    let mut signature = String::new();
+    for helpcode in helpcodes {
+        signature.push('`');
+        signature.push_str(&helpcode.syllable.to_string());
+        signature.push(helpcode.first as char);
+        if helpcode.second != 0 {
+            signature.push(helpcode.second as char);
+        }
+    }
+    signature
+}
+
+/// 词（从第一个音节起）的每个字都满足落在它位置上的约束；超出词长的约束不管
+/// （`satisfies_syllable_helpcodes`）。
+pub fn satisfies_syllable_helpcodes(
+    helpcodes: &[SyllableHelpcode],
+    word: &str,
+    keymap: &crate::helpcode::HelpcodeKeymap,
+) -> bool {
+    let chars: Vec<char> = word.chars().collect();
+    helpcodes.iter().all(|helpcode| {
+        chars.get(helpcode.syllable).is_none_or(|ch| {
+            let mut buf = [0u8; 4];
+            keymap
+                .code(ch.encode_utf8(&mut buf))
+                .is_some_and(|code| syllable_helpcode_matches(helpcode, code.as_bytes()))
+        })
+    })
+}
+
 /// 把每段辅助码按原样接回切分串里对应音节的后面：`ul'pb'ih'fa` → `ul'pb`x'ih'fa`
 /// （`decorate_segmentation`）。切分串必须是由去段串切出来的，音节序号才对得上。
 pub fn decorate_segmentation(segmentation: &str, decorations: &[(usize, String)]) -> String {

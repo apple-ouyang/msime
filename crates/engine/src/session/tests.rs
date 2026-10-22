@@ -2208,6 +2208,140 @@ fn shuangpin_end_trigger_semicolon_stays_ing_final() {
     assert_eq!(words(&session)[0], "病晶");
 }
 
+fn mid_modes(on: bool) -> crate::types::ShuangpinHelpcodeModes {
+    crate::types::ShuangpinHelpcodeModes {
+        mid_sentence: on,
+        ..crate::types::ShuangpinHelpcodeModes::default()
+    }
+}
+
+/// 句中间接（`mid_sentence` + 反引号键）：`` ` `` 把触发键记成 `` ` ``，段绑定它前面的音节，
+/// 该位置的字按首码过滤，约束后面还能接着打。开关关着时 `` ` `` 不进组字。
+#[test]
+fn shuangpin_mid_sentence_backtick_constrains_its_syllable() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_3_l(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_3_l VALUES('lao''po''ma','lpm','老婆妈',100),('lao''po''ma','lpm','老破妈',90),('lao''po''ma','lpm','老排妈',80);\
+         CREATE TABLE tbl_1_l(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_l VALUES('lao','l','老',100);\
+         CREATE TABLE tbl_2_p(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_p VALUES('po''ma','pm','破妈',100),('po''ma','pm','婆妈',90);",
+    );
+    let codes = || {
+        Some(Arc::new(crate::helpcode::HelpcodeKeymap::from_codes(
+            [
+                ("老", "la"),
+                ("婆", "pa"),
+                ("破", "xq"),
+                ("排", "pa"),
+                ("妈", "ma"),
+            ]
+            .map(|(word, code)| (word.to_owned(), code.to_owned()))
+            .into_iter()
+            .collect(),
+        )))
+    };
+    // 关着：`` ` `` 不进组字。
+    let mut off = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.shuangpin_profile = ShuangpinProfileKind::Microsoft;
+        options.helpcode_table = codes();
+        options.shuangpin_helpcode_modes = mid_modes(false);
+    });
+    type_text(&mut off, "lkpo");
+    assert!(!off.character(b'`', false).handled);
+    // 开着：`` ` `` 记段，`x` 约束 `po` 那个音节。
+    let mut on = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.shuangpin_profile = ShuangpinProfileKind::Microsoft;
+        options.helpcode_table = codes();
+        options.shuangpin_helpcode_modes = mid_modes(true);
+    });
+    type_text(&mut on, "lkpo");
+    assert!(on.character(b'`', false).handled);
+    assert_eq!(on.snapshot().editing_text, "lkpo`");
+    type_text(&mut on, "x");
+    assert_eq!(
+        on.input.engine.request().syllable_helpcodes,
+        [crate::types::SyllableHelpcode {
+            syllable: 1,
+            first: b'x',
+            second: 0,
+        }]
+    );
+    type_text(&mut on, "ma");
+    assert_eq!(on.snapshot().editing_text, "lkpo`xma");
+    // `po` 位置的字按 x 过滤：`老破妈` 留下，`老婆妈`、`老排妈` 出列；
+    // `老` 是单字前缀行，约束音节越出它的词长就不拦它。
+    assert_eq!(words(&on), ["老破妈", "老"]);
+    // 只选第一个音节，剩余的串连同段一起留下，约束重挂到新的第 0 音节上。
+    let index = index_of(&on, "老");
+    assert_eq!(on.select(index).commit.as_deref(), Some("老"));
+    assert_eq!(on.snapshot().editing_text, "po`xma");
+    assert_eq!(words(&on), ["破妈"]);
+}
+
+/// 句中间接的另外两枚触发键：`mid_sentence_semicolon` 把 `;` 记成 `` ` ``（仍然先让 ing），
+/// `mid_sentence_uppercase` 让大写字母在完整音节后开段；第二码大写收窄到两码都要对。
+#[test]
+fn shuangpin_mid_sentence_semicolon_and_uppercase() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_b(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_b VALUES('bing''jing','bj','冰晶',100),('bing''jing','bj','病经',90),('bing''jing','bj','丙京',80);",
+    );
+    let codes = || {
+        Some(Arc::new(crate::helpcode::HelpcodeKeymap::from_codes(
+            [
+                ("冰", "bp"),
+                ("晶", "jb"),
+                ("经", "xj"),
+                ("京", "xy"),
+                ("病", "bp"),
+                ("丙", "bp"),
+            ]
+            .map(|(word, code)| (word.to_owned(), code.to_owned()))
+            .into_iter()
+            .collect(),
+        )))
+    };
+    let modes = |semicolon, uppercase| crate::types::ShuangpinHelpcodeModes {
+        mid_sentence: true,
+        mid_sentence_backtick: false,
+        mid_sentence_semicolon: semicolon,
+        mid_sentence_uppercase: uppercase,
+        ..crate::types::ShuangpinHelpcodeModes::default()
+    };
+    // `;` 记段。
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.shuangpin_profile = ShuangpinProfileKind::Microsoft;
+        options.helpcode_table = codes();
+        options.shuangpin_helpcode_modes = modes(true, false);
+    });
+    type_text(&mut session, "b;j;");
+    assert!(session.character(b';', false).handled);
+    assert_eq!(session.snapshot().editing_text, "b;j;`");
+    type_text(&mut session, "x");
+    assert_eq!(words(&session), ["病经", "丙京"]);
+    // 大写开段 + 第二码大写：`XY` 约束 `j;` 位置的字要 x、y 两码都对（经 xj 出列，京 xy 留下）。
+    let mut upper = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.shuangpin_profile = ShuangpinProfileKind::Microsoft;
+        options.helpcode_table = codes();
+        options.shuangpin_helpcode_modes = modes(false, true);
+    });
+    type_text(&mut upper, "b;j;X");
+    assert_eq!(upper.snapshot().editing_text, "b;j;X");
+    assert_eq!(words(&upper), ["病经", "丙京"]);
+    type_text(&mut upper, "Y");
+    assert_eq!(words(&upper), ["丙京"]);
+    // 退格删码删段，候选回到未筛。
+    upper.command(Command::Backspace);
+    upper.command(Command::Backspace);
+    assert_eq!(upper.snapshot().editing_text, "b;j;");
+    assert_eq!(words(&upper)[0], "冰晶");
+}
+
 /// #6034：双拼会话读同一个「拼音纠错」开关。合成词库里只有关系是词，小鹤把 guan（gr）的 r 按成邻键 f 就是 gen；自然码把 xi 的 x 按成邻键 c 就是 ci。
 const SHUANGPIN_TYPO_FIXTURE: &str =
     "CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\

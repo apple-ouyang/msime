@@ -254,15 +254,46 @@ impl ShuangpinEngine {
         request: &QueryRequest,
         keymap: Option<&HelpcodeKeymap>,
     ) -> Vec<WordItem> {
+        // 句中间接（`mid_sentence`）：逐音节约束跟着请求进词典，签名进缓存键；没有辅助码表
+        // 时约束没有可对照的码，直接作废而不是把候选全筛没。
+        let mid_active = request.scheme == SchemeType::Shuangpin
+            && request.shuangpin_helpcode_modes.mid_sentence
+            && !request.syllable_helpcodes.is_empty()
+            && keymap.is_some_and(|keymap| !keymap.is_empty());
+        self.dictionary.set_syllable_helpcodes(if mid_active {
+            &request.syllable_helpcodes
+        } else {
+            &[]
+        });
         let mut candidates = self.query_standard(request, keymap);
-        if !request.valid {
-            return candidates;
+        if request.valid {
+            let alternatives =
+                fuzzy_initial_spellings(&request.raw_input, self.profile, request.fuzzy_pinyin, 32);
+            if !alternatives.is_empty() {
+                candidates =
+                    self.query_fuzzy_alternatives(request, keymap, candidates, alternatives);
+            }
         }
-        let alternatives =
-            fuzzy_initial_spellings(&request.raw_input, self.profile, request.fuzzy_pinyin, 32);
-        if alternatives.is_empty() {
-            return candidates;
+        if mid_active {
+            let segmentation = segment_input(&request.raw_input, self.profile);
+            self.apply_syllable_constraints(
+                &mut candidates,
+                &segmentation,
+                &request.raw_input,
+                keymap,
+            );
         }
+        candidates
+    }
+
+    /// 纠错替代读法并回主列表（原 `query` 的循环体；句中过滤要在它的结果之后做）。
+    fn query_fuzzy_alternatives(
+        &mut self,
+        request: &QueryRequest,
+        keymap: Option<&HelpcodeKeymap>,
+        mut candidates: Vec<WordItem>,
+        alternatives: Vec<String>,
+    ) -> Vec<WordItem> {
         let mut single_helpcode = None;
         for spelling in alternatives {
             let mut alternate = request.clone();
@@ -317,6 +348,34 @@ impl ShuangpinEngine {
         }
         keep_typo_sentence_off_first_seat(&mut candidates);
         candidates
+    }
+
+    /// 句中间接约束收尾（`query` → `filter_by_syllable_helpcodes`）：约束整句插到候选前面，
+    /// 再筛掉不满足逐音节约束的拼音行。`query_standard` 各分支（末尾段、普通、直接）共用。
+    fn apply_syllable_constraints(
+        &mut self,
+        candidates: &mut Vec<WordItem>,
+        segmentation: &str,
+        raw: &str,
+        keymap: Option<&HelpcodeKeymap>,
+    ) {
+        let Some(keymap) = keymap else {
+            return;
+        };
+        if self.dictionary.syllable_helpcodes.is_empty() {
+            return;
+        }
+        let mut sentences =
+            self.dictionary
+                .generate_constrained_sentences(segmentation, raw, |start, word| {
+                    self.dictionary
+                        .span_satisfies_syllable_helpcodes(start, word, keymap)
+                });
+        // 整句行与词库行同词时只留词库那一份（`merge_lattice_candidates` 的座位规则）。
+        sentences.retain(|sentence| !candidates.iter().any(|item| item.word == sentence.word));
+        candidates.splice(0..0, sentences);
+        self.dictionary
+            .filter_by_syllable_helpcodes(candidates, keymap);
     }
 
     fn query_standard(

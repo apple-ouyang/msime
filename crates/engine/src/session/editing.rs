@@ -130,6 +130,8 @@ impl InputSession {
         let lower = value.is_ascii_lowercase();
         let upper = value.is_ascii_uppercase();
         let mut accepted = lower || upper;
+        // 真正落进输入串的字符：句中标记键在串里一律记成 `` ` ``，其余键就是自己。
+        let mut inserted = value;
         if !self.dedicated_english {
             match self.local_mode {
                 LocalInputMode::Unicode => {
@@ -166,6 +168,27 @@ impl InputSession {
                             caret,
                             self.shuangpin_helpcode_uppercase_triggers(),
                         );
+                    }
+                    // 句中标记：`;`/反引号在光标处能开一段时一律记成 `` ` ``；分号先让给 ing
+                    // （`IsMidSentenceHelpcodeMarkerKey`/`AcceptsMarkerAt`，光标可以不在末尾）。
+                    if !accepted && scheme == SchemeType::Shuangpin {
+                        let modes = self.engine.request().shuangpin_helpcode_modes;
+                        let mid_trigger = match value {
+                            b'`' => modes.mid_sentence_backtick,
+                            b';' => modes.mid_sentence_semicolon,
+                            _ => false,
+                        };
+                        if modes.mid_sentence
+                            && mid_trigger
+                            && crate::shuangpin::mid_sentence::accepts_marker_at(
+                                text.as_bytes(),
+                                caret,
+                                self.shuangpin_helpcode_uppercase_triggers(),
+                            )
+                        {
+                            accepted = true;
+                            inserted = crate::shuangpin::mid_sentence::MID_SENTENCE_MARKER;
+                        }
                     }
                     if value == b'\'' && scheme.accepts_apostrophe() {
                         accepted = caret > 0;
@@ -241,7 +264,7 @@ impl InputSession {
         {
             return KeyResult::handled();
         }
-        text.insert(caret, value as char);
+        text.insert(caret, inserted as char);
         self.replace_editing_text(&text, caret + 1)
     }
 
