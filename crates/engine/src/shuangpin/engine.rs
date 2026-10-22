@@ -211,7 +211,7 @@ fn active_helpcode_query(
     request: &QueryRequest,
     profile: &ShuangpinProfile,
 ) -> Option<HelpcodeQuery> {
-    if !request.enable_shuangpin_helpcode {
+    if !request.enable_shuangpin_helpcode || !request.shuangpin_helpcode_modes.direct {
         return None;
     }
     let raw = &request.raw_input;

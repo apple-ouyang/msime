@@ -3040,6 +3040,9 @@ pub struct HelpcodePreferences {
     pub schema: HelpcodeSchema,
     #[serde(default = "enabled_by_default")]
     pub show_in_candidate_window: bool,
+    /// 双拼专属的辅助码触发方式，对应 Windows v0.11.1 `[helpcode]` 组里 `shuangpin_helpcode_direct` 起的十一枚键；`quanpin_helpcode` 不读这一段。等于默认值时不写进文档，旧文档缺这一段时按 [`ShuangpinHelpcodeModes::default`] 处理。
+    #[serde(default, skip_serializing_if = "ShuangpinHelpcodeModes::is_default")]
+    pub modes: ShuangpinHelpcodeModes,
 }
 
 impl Default for HelpcodePreferences {
@@ -3049,7 +3052,74 @@ impl Default for HelpcodePreferences {
             schema: HelpcodeSchema::default(),
             trigger_key: String::new(),
             show_in_candidate_window: true,
+            modes: ShuangpinHelpcodeModes::default(),
         }
+    }
+}
+
+/// 双拼辅助码的触发方式（Windows v0.11.1 `installer/default_config/config.default.toml` 的 `[helpcode]` 组）：末尾直接、末尾间接的三枚触发键、句中间接及它的三枚触发键、万象式直接及它的两枚四码结束标记。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ShuangpinHelpcodeModes {
+    /// 末尾直接（`shuangpin_helpcode_direct`）：完整音节基座后直接接辅码，`ulpbx` 是单码、`ulpbxY` 是双码；关闭后末尾裸字母不再当辅助码，只有触发键开启的段才认。
+    pub direct: bool,
+    /// 末尾间接触发键：反引号段（`shuangpin_helpcode_trigger_backtick`）。
+    pub trigger_backtick: bool,
+    /// 末尾间接触发键：分号段（`shuangpin_helpcode_trigger_semicolon`）。
+    pub trigger_semicolon: bool,
+    /// 末尾间接触发键：段首大写（`shuangpin_helpcode_trigger_uppercase`）。
+    pub trigger_uppercase: bool,
+    /// 句中（间接）辅助码总开关（`shuangpin_mid_sentence_helpcode`）：完整音节后敲触发键，后面的字母筛这个音节上的字。
+    pub mid_sentence: bool,
+    /// 句中触发键：反引号（`shuangpin_mid_sentence_helpcode_backtick`）。
+    pub mid_sentence_backtick: bool,
+    /// 句中触发键：分号（`shuangpin_mid_sentence_helpcode_semicolon`）。
+    pub mid_sentence_semicolon: bool,
+    /// 句中触发键：完整音节后的大写字母（`shuangpin_mid_sentence_helpcode_uppercase`）。
+    pub mid_sentence_uppercase: bool,
+    /// 句中（直接）「万象式」总开关（`shuangpin_direct_helpcode`）：逐音节解析，四码单独敲时直接定字。
+    pub direct_helpcode: bool,
+    /// 万象式四码句中用 `/` 结束（`shuangpin_direct_helpcode_slash`）。
+    pub direct_helpcode_slash: bool,
+    /// 万象式四码句中用第二位辅码大写结束（`shuangpin_direct_helpcode_uppercase`）。
+    pub direct_helpcode_uppercase: bool,
+}
+
+/// 默认值与 Windows v0.11.1 的出厂配置一致：末尾直接开、末尾间接的分号开，句中间接与万象式直接关。
+impl Default for ShuangpinHelpcodeModes {
+    fn default() -> Self {
+        Self {
+            direct: true,
+            trigger_backtick: false,
+            trigger_semicolon: true,
+            trigger_uppercase: false,
+            mid_sentence: false,
+            mid_sentence_backtick: true,
+            mid_sentence_semicolon: false,
+            mid_sentence_uppercase: false,
+            direct_helpcode: false,
+            direct_helpcode_slash: true,
+            direct_helpcode_uppercase: false,
+        }
+    }
+}
+
+impl ShuangpinHelpcodeModes {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// 写入端归一：句中间接开着时，同一枚触发键只能归句中、不再算末尾间接；`mid_sentence` 与 `direct_helpcode` 不能同时为真，都真时按万象式直接（句中让位）。
+    pub fn normalized(mut self) -> Self {
+        if self.direct_helpcode {
+            self.mid_sentence = false;
+        }
+        if self.mid_sentence {
+            self.trigger_backtick &= !self.mid_sentence_backtick;
+            self.trigger_semicolon &= !self.mid_sentence_semicolon;
+            self.trigger_uppercase &= !self.mid_sentence_uppercase;
+        }
+        self
     }
 }
 
@@ -3059,6 +3129,7 @@ fn default_quanpin_helpcode() -> HelpcodePreferences {
         schema: HelpcodeSchema::Ziranma,
         trigger_key: String::new(),
         show_in_candidate_window: false,
+        modes: ShuangpinHelpcodeModes::default(),
     }
 }
 
@@ -3111,6 +3182,7 @@ fn default_shuangpin_helpcode() -> HelpcodePreferences {
         schema: HelpcodeSchema::Lantian,
         trigger_key: String::new(),
         show_in_candidate_window: true,
+        modes: ShuangpinHelpcodeModes::default(),
     }
 }
 
@@ -3173,6 +3245,7 @@ impl Preferences {
             InputScheme::Quanpin => self.quanpin_helpcode.clone(),
             _ => HelpcodePreferences {
                 enabled: false,
+                modes: ShuangpinHelpcodeModes::default(),
                 ..HelpcodePreferences::default()
             },
         }
@@ -4002,6 +4075,8 @@ impl PreferencesStore {
         if current.preferences.smart_punctuation_migrated {
             preferences.smart_punctuation_migrated = true;
         }
+        // 双拼辅助码触发方式的互斥规则在写入端归一：末尾间接与句中间接的同一枚触发键只能归一边（句中开着时归句中），`mid_sentence` 与 `direct_helpcode` 同真时按万象式直接。
+        preferences.shuangpin_helpcode.modes = preferences.shuangpin_helpcode.modes.normalized();
         preferences.validate()?;
         // Hosts save whenever a setting might have changed, several processes and controllers at a time, and every reader reloads and reapplies the whole document when the revision moves. Writing the same settings again would cost an fsync under the exclusive lock and a reload everywhere for nothing, so an unchanged document keeps its revision. An existing file only: the first save still creates it.
         if current.revision > 0 && preferences == current.preferences {

@@ -9,7 +9,7 @@ use crate::types::{
     CandidateSource, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentOptions,
     FuzzyPinyinOptions, LocalInputMode, LocalModeOptions, MentionEntry, MixedExpressiveOptions,
     PluginCommand, QuickPhraseEntry, SchemeSet, SchemeType, SentenceAssociationOptions,
-    ShuangpinCustomTable, ShuangpinProfileKind, WordItem, WubiInputOptions,
+    ShuangpinCustomTable, ShuangpinHelpcodeModes, ShuangpinProfileKind, WordItem, WubiInputOptions,
     DEFAULT_FIRST_PAGE_ROWS,
 };
 use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle};
@@ -48,6 +48,8 @@ pub struct SessionOptions {
     /// `autocorrect_type` bits; 0 keeps the user's spelling. Either of transposition and neighbor also enables missing and extra letters, and on inputs of three or more complete syllables offers a sentence that reads one syllable as a typo. Committing the raw letters while a correction is offered turns correction off for that exact input.
     pub autocorrect_types: u32,
     pub helpcode: bool,
+    /// 双拼辅助码的触发方式（Windows `[helpcode]` 组的双拼专属键）；只在双拼方案下生效。
+    pub shuangpin_helpcode_modes: ShuangpinHelpcodeModes,
     pub chinese_punctuation: bool,
     pub paired_punctuation: bool,
     /// 0 follows the mode, 1 forces Chinese, 2 forces ASCII.
@@ -114,6 +116,7 @@ impl SessionOptions {
             helpcode_fallback_resources: None,
             autocorrect_types: 0,
             helpcode: true,
+            shuangpin_helpcode_modes: ShuangpinHelpcodeModes::default(),
             chinese_punctuation: true,
             paired_punctuation: true,
             punctuation_lock: 0,

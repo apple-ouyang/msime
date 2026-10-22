@@ -33,8 +33,8 @@ use crate::time::Instant;
 use crate::types::{
     CandidateSource, Command, CommandTableEntry, EnglishInputOptions, FirstPageRows,
     FrequencyAdjustmentOptions, KeyResult, LocalInputMode, LocalModeOptions, MentionEntry,
-    MixedExpressiveOptions, PluginCommand, QuickPhraseEntry, SchemeKey, SchemeType, WordItem,
-    WubiInputOptions,
+    MixedExpressiveOptions, PluginCommand, QuickPhraseEntry, SchemeKey, SchemeType,
+    ShuangpinHelpcodeModes, WordItem, WubiInputOptions,
 };
 use crate::user_dictionary::ngram_store::PersonalNgramStore;
 use crate::user_dictionary::removal::learn_entered_english_word;
@@ -232,6 +232,7 @@ impl InputSession {
             .set_fuzzy_pinyin_options(options.fuzzy_pinyin);
         session.set_quanpin_helpcode_enabled(options.helpcode);
         session.set_shuangpin_helpcode_enabled(options.helpcode);
+        session.set_shuangpin_helpcode_modes(options.shuangpin_helpcode_modes);
         if !is_supported_helpcode_schema(&options.helpcode_schema)
             || !frequency_options_valid(options.frequency)
             || !english_options_valid(options.english)
@@ -1802,6 +1803,13 @@ impl InputSession {
         self.engine.set_shuangpin_helpcode_enabled(enabled);
         self.recompute_candidates();
         self.invalidate_online_requests();
+    }
+
+    /// 双拼辅助码的触发方式（`SessionOptions::shuangpin_helpcode_modes`）。
+    fn set_shuangpin_helpcode_modes(&mut self, modes: ShuangpinHelpcodeModes) {
+        self.engine.set_shuangpin_helpcode_modes(modes);
+        self.recompute_candidates();
+        self.online_requests.invalidate();
     }
 
     fn set_local_mode_options(&mut self, options: LocalModeOptions) {

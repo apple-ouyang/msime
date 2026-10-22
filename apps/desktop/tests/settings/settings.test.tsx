@@ -45,6 +45,7 @@ import {
 } from "@msime/ui";
 import { describeInstallerTrust } from "../../../../packages/ui/src/settings/update-manifest";
 import { defaultFloatingToolbar } from "../../../../packages/ui/src/settings/floating-toolbar-defaults";
+import { defaultShuangpinHelpcodeModes } from "../../../../packages/ui/src/settings/helpcode-preferences";
 import { answerConfirm } from "../support/confirm";
 
 afterEach(cleanup);
@@ -2030,7 +2031,12 @@ test("helpcode schemes save independently and retain disabled selections", async
   expect(client.save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
     quanpin_helpcode: { enabled: false, schema: "xiaohe", show_in_candidate_window: false },
-    shuangpin_helpcode: { enabled: true, schema: "wubi86", show_in_candidate_window: true },
+    shuangpin_helpcode: {
+      enabled: true,
+      schema: "wubi86",
+      show_in_candidate_window: true,
+      modes: defaultShuangpinHelpcodeModes,
+    },
   });
 });
 

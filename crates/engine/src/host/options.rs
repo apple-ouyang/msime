@@ -15,8 +15,8 @@ use crate::types::{
     autocorrect_type, fuzzy_rule, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentMode,
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, LocalModeOptions, MentionEntry,
     MixedExpressiveOptions, PluginCommand, QuickPhraseEntry, SchemeSet, SchemeType,
-    SentenceAssociationOptions, ShuangpinCustomTable, ShuangpinProfileKind, WubiInputOptions,
-    WubiProfileKind, DEFAULT_FIRST_PAGE_ROWS,
+    SentenceAssociationOptions, ShuangpinCustomTable, ShuangpinHelpcodeModes, ShuangpinProfileKind,
+    WubiInputOptions, WubiProfileKind, DEFAULT_FIRST_PAGE_ROWS,
 };
 use crate::user_dictionary::generation::{merge_downloaded_wubi, prepare_runtime_paths_for};
 use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle};
@@ -81,6 +81,8 @@ pub struct EngineOptions {
     pub helpcode: bool,
     /// Display only: filtering stays on while annotations are hidden.
     pub show_helpcode: bool,
+    /// 双拼辅助码的触发方式（`SessionOptions::shuangpin_helpcode_modes`）；宿主按偏好 `shuangpin_helpcode.modes` 填，其它方案给默认值也不会被读。
+    pub shuangpin_helpcode_modes: ShuangpinHelpcodeModes,
     pub helpcode_schema: String,
     /// 辅助码前导标点；None 保留现有 Shift 加字母。
     pub helpcode_trigger_key: Option<u8>,
@@ -218,6 +220,7 @@ pub fn prepare_options_for(
         wubi_profile: WubiProfileKind::Wubi86 as u8,
         helpcode: true,
         show_helpcode: true,
+        shuangpin_helpcode_modes: ShuangpinHelpcodeModes::default(),
         helpcode_schema: "ziranma".to_owned(),
         helpcode_trigger_key: None,
         helpcode_table: None,
@@ -350,6 +353,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     };
     session.helpcode = options.helpcode;
     session.helpcode_trigger_key = options.helpcode_trigger_key;
+    session.shuangpin_helpcode_modes = options.shuangpin_helpcode_modes;
     session.helpcode_schema = options.helpcode_schema.clone();
     session.helpcode_table = options.helpcode_table.clone();
     session.helpcode_fallback_resources = options

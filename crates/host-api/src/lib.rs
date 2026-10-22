@@ -1730,6 +1730,26 @@ pub(crate) fn effective_scheme(
     )
 }
 
+/// 偏好里的双拼辅助码触发方式 → 引擎侧同名字段；写入端已归一，这里对消费端再归一一次兜底。
+fn shuangpin_helpcode_modes(
+    modes: msime_client_core::preferences::ShuangpinHelpcodeModes,
+) -> msime_engine::ShuangpinHelpcodeModes {
+    let modes = modes.normalized();
+    msime_engine::ShuangpinHelpcodeModes {
+        direct: modes.direct,
+        trigger_backtick: modes.trigger_backtick,
+        trigger_semicolon: modes.trigger_semicolon,
+        trigger_uppercase: modes.trigger_uppercase,
+        mid_sentence: modes.mid_sentence,
+        mid_sentence_backtick: modes.mid_sentence_backtick,
+        mid_sentence_semicolon: modes.mid_sentence_semicolon,
+        mid_sentence_uppercase: modes.mid_sentence_uppercase,
+        direct_helpcode: modes.direct_helpcode,
+        direct_helpcode_slash: modes.direct_helpcode_slash,
+        direct_helpcode_uppercase: modes.direct_helpcode_uppercase,
+    }
+}
+
 /// The helpcode settings for the scheme actually run, which differs from `Preferences::active_helpcode` only when `effective_scheme` fell back.
 fn helpcode_for_scheme(
     preferences: &Preferences,
@@ -1960,6 +1980,8 @@ impl HostOptions {
             wubi_dictionary: wubi,
             helpcode: helpcode.enabled,
             show_helpcode: helpcode.show_in_candidate_window,
+            // 双拼专属的触发方式；其它方案给默认值，引擎只在双拼下读它。手改出互斥组合的文档在消费端再归一一次，与 `PreferencesStore::save` 的写入端归一一致。
+            shuangpin_helpcode_modes: shuangpin_helpcode_modes(helpcode.modes),
             helpcode_schema: helpcode.schema.as_str().into(),
             helpcode_trigger_key: helpcode.trigger_key.bytes().next(),
             chinese_punctuation: engine_chinese_punctuation(
