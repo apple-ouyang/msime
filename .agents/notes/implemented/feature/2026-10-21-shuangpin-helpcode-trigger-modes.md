@@ -37,7 +37,7 @@ Windows 侧这些键的详细语义见 `msime-windows` v0.11.1 的 `engine/contr
 
 **引擎层（落地「末尾直接」开关）。** `QueryRequest.shuangpin_helpcode_modes` 携带整组开关；`ImeSession` / `SessionOptions` / `EngineOptions` 三层透传，`Session::new` 与 `InputSession::set_shuangpin_helpcode_modes` 应用。`ShuangpinEngine::active_helpcode_query`、`resolve_shuangpin_composition_base` / `active_shuangpin_helpcode_length`、`apply_shuangpin_helpcode_segmentation` 三处都先检查 `modes.direct`：关闭后「完整基座 + 末尾裸字母」不再被当辅助码（单码 `nihcc`、双码 `nihcAB` 都按纯拼音读），与辅助码整体关闭结果一致；开启时维持既有重排 / 筛选。
 
-**设置页（落地末尾辅助码区）。** `helpcode-preferences.ts` 新增 `ShuangpinHelpcodeModes` 类型与 `defaultShuangpinHelpcodeModes`；`helpcode-page.tsx` 的 `modesRows` 只在双拼一族渲染「末尾直接辅助码」开关和「反引号 / 分号 / 大写」三枚间接触发键多选，写入 `modes` 段。三种布局（当前族、MoreOptions、移动端单列）都接了。
+**设置页（落地末尾直接辅助码区）。** `helpcode-preferences.ts` 新增 `ShuangpinHelpcodeModes` 类型与 `defaultShuangpinHelpcodeModes`；`helpcode-page.tsx` 的 `modesRows` 只在双拼一族渲染已实现的「末尾直接辅助码」开关，写入 `modes` 段。尚未实现的间接触发键字段保留在契约中但不显示，避免用户打开无效开关。三种布局（当前族、MoreOptions、移动端单列）都接了。
 
 **未做（P1，如实记录）。**
 

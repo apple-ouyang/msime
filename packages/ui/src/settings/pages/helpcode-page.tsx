@@ -241,7 +241,7 @@ export function HelpcodeSettingsGroup({
     );
   };
 
-  /** 双拼专属的「末尾辅助码」触发方式行：直接开关与间接触发键多选；只出现在双拼一族。 */
+  /** 双拼专属的「末尾直接辅助码」开关；尚未实现的间接触发键继续保存在偏好结构中，但不在设置页伪装成可用功能。 */
   const modesRows = (key: HelpcodeKey, label: string) => {
     if (key !== "shuangpin_helpcode") {
       return null;
@@ -258,25 +258,6 @@ export function HelpcodeSettingsGroup({
           disabled={!current.enabled}
           checked={modes.direct}
           onChange={(direct) => setModes({ direct })}
-        />
-        <SwitchRow
-          title={`${label}末尾辅助码反引号触发`}
-          disabled={!current.enabled}
-          checked={modes.trigger_backtick}
-          onChange={(trigger_backtick) => setModes({ trigger_backtick })}
-        />
-        <SwitchRow
-          title={`${label}末尾辅助码分号触发`}
-          disabled={!current.enabled}
-          checked={modes.trigger_semicolon}
-          onChange={(trigger_semicolon) => setModes({ trigger_semicolon })}
-        />
-        <SwitchRow
-          title={`${label}末尾辅助码大写触发`}
-          description="完整音节后以大写字母起一段辅助码"
-          disabled={!current.enabled}
-          checked={modes.trigger_uppercase}
-          onChange={(trigger_uppercase) => setModes({ trigger_uppercase })}
         />
       </Fragment>
     );
