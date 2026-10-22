@@ -416,7 +416,7 @@ impl InputSession {
     /// 0 clears.
     pub(super) fn set_candidate_position(&mut self, index: usize, position: i32) -> KeyResult {
         // 改字的候选是光标处一段的替换，不是这串拼音的候选，不能固定、置顶或删除。
-        if self.conversion.is_some() {
+        if self.conversion.is_some() || self.date_time_menu_page.is_some() {
             return KeyResult::unhandled();
         }
         if !(0..=5).contains(&position) {
@@ -454,7 +454,8 @@ impl InputSession {
     }
 
     pub(super) fn pin_candidate(&mut self, index: usize) -> KeyResult {
-        if self.conversion.is_some() {
+        // 「📅日期」页里的行按日期格式索引，pin 会落到真实列表里同下标的另一行。
+        if self.conversion.is_some() || self.date_time_menu_page.is_some() {
             return KeyResult::unhandled();
         }
         let Some(index) = self.ranking_index(index) else {
@@ -496,7 +497,7 @@ impl InputSession {
     }
 
     pub(super) fn remove_candidate(&mut self, index: usize) -> KeyResult {
-        if self.conversion.is_some() {
+        if self.conversion.is_some() || self.date_time_menu_page.is_some() {
             return KeyResult::unhandled();
         }
         let Some(selected) = self.candidates().get(index) else {
