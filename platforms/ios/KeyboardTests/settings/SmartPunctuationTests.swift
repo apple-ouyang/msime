@@ -14,6 +14,9 @@ final class SmartPunctuationTests: XCTestCase {
     XCTAssertEqual(KeyboardPunctuationContext.engineInput(for: "，", japanese: false), ",")
     XCTAssertEqual(KeyboardPunctuationContext.engineInput(for: "。", japanese: false), ".")
     XCTAssertEqual(KeyboardPunctuationContext.engineInput(for: "：", japanese: false), ":")
+    XCTAssertEqual(
+      KeyboardViewController.lockedEnglishPunctuationInput(
+        for: "、", enumerationCommaBackslash: false, enumerationCommaSlash: true), "/")
     XCTAssertEqual(KeyboardPunctuationContext.engineInput(for: "「", japanese: true), "[")
     XCTAssertEqual(KeyboardPunctuationContext.engineInput(for: "・", japanese: true), "/")
     XCTAssertEqual(KeyboardPunctuationContext.engineInput(for: "@", japanese: false), "@")

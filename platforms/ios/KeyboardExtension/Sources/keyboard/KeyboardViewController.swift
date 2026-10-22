@@ -630,6 +630,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
+  /// 英文模式下标点锁定为中文时，按当前 View 的顿号开关选择发给 Engine 的键。
+  static func lockedEnglishPunctuationInput(
+    for symbol: String, enumerationCommaBackslash: Bool, enumerationCommaSlash: Bool) -> String? {
+    KeyboardPunctuationContext.engineInput(
+      for: symbol, japanese: false,
+      enumerationCommaBackslash: enumerationCommaBackslash,
+      enumerationCommaSlash: enumerationCommaSlash)
+  }
+
   /// Whether Chinese punctuation is on for marks the keyboard writes itself rather than through the Engine (the Zhuyin symbol panel): a 中文 lock, or the 中文标点 switch under 跟随中英文; an 英文 lock turns it off. Not private: the scheme tests pin it.
   static func writesChinesePunctuation(switchOn: Bool, punctuationLock: String?) -> Bool {
     switch punctuationLock ?? "follow" {
@@ -3601,7 +3610,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
          commitEnglishBoundary(symbol) { return }
       // 标点锁定为中文 keeps Chinese marks in English mode too; the shared route decides, as it does in Chinese mode.
       if session.sharedPreferences?["punctuation_lock"] as? String == "chinese",
-         let punctuation = KeyboardPunctuationContext.engineInput(for: symbol, japanese: false) {
+         let punctuation = Self.lockedEnglishPunctuationInput(
+           for: symbol, enumerationCommaBackslash: currentEnumerationCommaBackslash,
+           enumerationCommaSlash: currentEnumerationCommaSlash) {
         let preceding = KeyboardPunctuationContext.precedingScalar(textDocumentProxy.documentContextBeforeInput)
         let snapshot = session.handlePunctuationWithContext(punctuation, preceding: preceding)
         if snapshot.isHandled {
