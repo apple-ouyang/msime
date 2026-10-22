@@ -121,7 +121,19 @@ impl InputSession {
                     .helpcode_keymap
                     .as_ref()
                     .is_some_and(|keymap| !keymap.is_empty())
-                && crate::shuangpin::engine::direct_helpcodes_own_capitals(probe, self.profile))
+                && self
+                    .engine
+                    .request()
+                    .shuangpin_helpcode_modes
+                    .direct_helpcode
+                && crate::shuangpin::engine::direct_helpcodes_own_capitals(
+                    probe,
+                    self.profile,
+                    self.engine
+                        .request()
+                        .shuangpin_helpcode_modes
+                        .direct_helpcode_uppercase,
+                ))
     }
 
     /// 含特殊符号时只提供原文；否则只转换第一个小写片段，大写及后续片段保留原文边界。

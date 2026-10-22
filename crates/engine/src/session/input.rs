@@ -1738,7 +1738,7 @@ impl InputSession {
     /// `;` 先让给 `ing` 韵母（`accepts_semicolon_final_at`），两侧判断顺序一致。
     fn shuangpin_helpcode_marker(&self, value: u8) -> Option<u8> {
         use crate::shuangpin::mid_sentence;
-        if !matches!(value, b'`' | b';')
+        if !matches!(value, b'`' | b';' | b'/')
             || self.scheme() != SchemeType::Shuangpin
             || !self.has_composition()
         {
@@ -1748,6 +1748,12 @@ impl InputSession {
         let modes = request.shuangpin_helpcode_modes;
         let typed = self.raw_with_cases().as_bytes();
         let caret = typed.len();
+        // `/` 是万象式直接的结束键（`direct_helpcode_slash`）：原样落进输入串，
+        // 路径解析拿它当一位/两位辅码后的段终止符。
+        if value == b'/' {
+            return (modes.direct_helpcode && modes.direct_helpcode_slash)
+                .then_some(mid_sentence::DIRECT_HELPCODE_SLASH);
+        }
         let triggers = self.shuangpin_helpcode_uppercase_triggers();
         if value == b';'
             && self.profile.uses_semicolon_key()

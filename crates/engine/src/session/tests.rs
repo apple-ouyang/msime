@@ -1897,6 +1897,7 @@ fn complete_shuangpin_and_ambiguous_direct_helpcodes_both_commit_the_whole_input
             options.scheme = SchemeType::Shuangpin;
             options.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
             options.fuzzy_pinyin.rules = fuzzy;
+            options.shuangpin_helpcode_modes.direct_helpcode = true;
             options.helpcode_table = Some(Arc::new(crate::helpcode::HelpcodeKeymap::from_codes(
                 [("叔", "ra"), ("苏", "ra"), ("商", "ea")]
                     .map(|(word, code)| (word.to_owned(), code.to_owned()))
@@ -1946,6 +1947,7 @@ fn ziranma_shouyou_complete_phrases_keep_the_plain_reading_and_commit_once() {
             options.shuangpin_profile = ShuangpinProfileKind::Ziranma;
             options.helpcode = enabled;
             options.helpcode_table = Some(codes.clone());
+            options.shuangpin_helpcode_modes.direct_helpcode = true;
             options.fuzzy_pinyin.rules = 0;
         });
         for _ in 0..2 {
@@ -2005,6 +2007,8 @@ fn direct_shuangpin_helpcodes_commit_without_leaving_auxiliary_letters() {
         let mut session = fixture.session_with(|options| {
             options.scheme = SchemeType::Shuangpin;
             options.shuangpin_profile = ShuangpinProfileKind::Ziranma;
+            options.shuangpin_helpcode_modes.direct_helpcode = true;
+            options.shuangpin_helpcode_modes.direct_helpcode_uppercase = true;
             options.helpcode_table = Some(Arc::new(crate::helpcode::HelpcodeKeymap::from_codes(
                 [("实", "bt"), ("他", "ra"), ("她", "na"), ("它", "ba")]
                     .map(|(word, code)| (word.to_owned(), code.to_owned()))
@@ -2340,6 +2344,105 @@ fn shuangpin_mid_sentence_semicolon_and_uppercase() {
     upper.command(Command::Backspace);
     assert_eq!(upper.snapshot().editing_text, "b;j;");
     assert_eq!(words(&upper)[0], "冰晶");
+}
+
+fn direct_modes(slash: bool, uppercase: bool) -> crate::types::ShuangpinHelpcodeModes {
+    crate::types::ShuangpinHelpcodeModes {
+        direct: false,
+        direct_helpcode: true,
+        direct_helpcode_slash: slash,
+        direct_helpcode_uppercase: uppercase,
+        ..crate::types::ShuangpinHelpcodeModes::default()
+    }
+}
+
+/// 万象式直接的主开关（`direct_helpcode`）：出厂关。关着时 `uibj/` 的 `/` 与逐音节切分都
+/// 不生效；开着 `/` 落进输入串结束一位或两位辅码，`uiaB` 要 `direct_helpcode_uppercase`。
+#[test]
+fn shuangpin_direct_helpcode_slash_and_uppercase_endings() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_s VALUES('shi','s','实',100),('shi','s','事',90),('shi','s','时',80);",
+    );
+    let codes = || {
+        Some(Arc::new(crate::helpcode::HelpcodeKeymap::from_codes(
+            [("实", "bj"), ("事", "bp"), ("时", "sg")]
+                .map(|(word, code)| (word.to_owned(), code.to_owned()))
+                .into_iter()
+                .collect(),
+        )))
+    };
+    let session_with_modes = |modes| {
+        let codes = codes();
+        fixture.session_with(move |options| {
+            options.scheme = SchemeType::Shuangpin;
+            options.shuangpin_profile = ShuangpinProfileKind::Ziranma;
+            options.helpcode_table = codes.clone();
+            options.shuangpin_helpcode_modes = modes;
+        })
+    };
+    // slash 关着：`/` 还是标点键。
+    let mut off = session_with_modes(direct_modes(false, true));
+    type_text(&mut off, "uibj");
+    assert!(!off.character(b'/', false).handled);
+    // slash 开着：`ui` + `bj` 两码 + `/` 定字。
+    let mut on = session_with_modes(direct_modes(true, false));
+    type_text(&mut on, "uibj");
+    assert!(on.character(b'/', false).handled);
+    assert_eq!(on.snapshot().editing_text, "uibj/");
+    assert_eq!(words(&on), ["实"]);
+    // 一位辅码 + `/` 结束：留下首码 b 的全部 shi 字。
+    let mut one = session_with_modes(direct_modes(true, false));
+    type_text(&mut one, "uib/");
+    assert_eq!(words(&one), ["实", "事"]);
+    // `uiaB`：第二码大写结束，要 `direct_helpcode_uppercase` 开。
+    let mut upper = session_with_modes(direct_modes(false, true));
+    type_text(&mut upper, "uibJ");
+    assert_eq!(words(&upper), ["实"]);
+    let mut upper_off = session_with_modes(direct_modes(false, false));
+    type_text(&mut upper_off, "uibJ");
+    // `J` 不再当第二码：`uibJ` 落到字面输入，不会只剩「实」一个。
+    assert_ne!(words(&upper_off), ["实"]);
+}
+
+/// `direct_helpcode` 出厂关：万象式逐音节切分不生效，`tartantab` 不再解出三个
+/// 各带一码的音节；开着时才回到万象式行为。
+#[test]
+fn shuangpin_direct_helpcode_master_switch_gates_path_parsing() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_t(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_t VALUES('ta','t','他',100),('ta','t','她',90),('ta','t','它',80);\
+         CREATE TABLE tbl_3_t(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_3_t VALUES('ta''ta''ta','ttt','他她它',100);",
+    );
+    let codes = || {
+        Some(Arc::new(crate::helpcode::HelpcodeKeymap::from_codes(
+            [("他", "ra"), ("她", "na"), ("它", "ba")]
+                .map(|(word, code)| (word.to_owned(), code.to_owned()))
+                .into_iter()
+                .collect(),
+        )))
+    };
+    let session_with_modes = |modes| {
+        let codes = codes();
+        fixture.session_with(move |options| {
+            options.scheme = SchemeType::Shuangpin;
+            options.shuangpin_profile = ShuangpinProfileKind::Ziranma;
+            options.helpcode_table = codes.clone();
+            options.shuangpin_helpcode_modes = modes;
+        })
+    };
+    let mut off = session_with_modes(crate::types::ShuangpinHelpcodeModes {
+        direct: false,
+        ..crate::types::ShuangpinHelpcodeModes::default()
+    });
+    type_text(&mut off, "tartantab");
+    assert!(!words(&off).iter().any(|word| word == "他她它"));
+    let mut on = session_with_modes(direct_modes(false, false));
+    type_text(&mut on, "tartantab");
+    let index = index_of(&on, "他她它");
+    assert_eq!(on.select(index).commit.as_deref(), Some("他她它"));
+    assert!(on.snapshot().preedit.is_empty());
 }
 
 /// #6034：双拼会话读同一个「拼音纠错」开关。合成词库里只有关系是词，小鹤把 guan（gr）的 r 按成邻键 f 就是 gen；自然码把 xi 的 x 按成邻键 c 就是 ci。

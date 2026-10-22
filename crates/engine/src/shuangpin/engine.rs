@@ -39,11 +39,21 @@ struct DirectSpelling {
     end: usize,
 }
 
-fn direct_helpcode_paths(typed: &str, profile: &ShuangpinProfile) -> Vec<Vec<DirectSpelling>> {
+/// 万象式直接的逐音节切分（`direct_helpcode`）：`slash` 开着时 `uiab/`、`uia/` 用 `/`
+/// 结束一段辅码，`uppercase` 开着时 `uiaB` 第二位辅码大写结束一段（`spelling_graph.h`
+/// 的 `Aux2Slash`/`Aux2Upper`）。
+fn direct_helpcode_paths(
+    typed: &str,
+    profile: &ShuangpinProfile,
+    slash: bool,
+    uppercase: bool,
+) -> Vec<Vec<DirectSpelling>> {
     fn visit(
         typed: &str,
         position: usize,
         profile: &ShuangpinProfile,
+        slash: bool,
+        uppercase: bool,
         path: &mut Vec<DirectSpelling>,
         paths: &mut Vec<Vec<DirectSpelling>>,
         remaining: &mut usize,
@@ -69,40 +79,94 @@ fn direct_helpcode_paths(typed: &str, profile: &ShuangpinProfile) -> Vec<Vec<Dir
         if cvt_single_sp_to_pinyin(code_text, profile).is_empty() {
             return;
         }
-        path.push(DirectSpelling {
-            code,
-            first: None,
-            second: None,
-            end: position + 2,
-        });
-        visit(typed, position + 2, profile, path, paths, remaining);
-        path.pop();
+        let mut visit_at = |spelling: DirectSpelling,
+                            path: &mut Vec<DirectSpelling>,
+                            paths: &mut Vec<Vec<DirectSpelling>>,
+                            remaining: &mut usize| {
+            let end = spelling.end;
+            path.push(spelling);
+            visit(
+                typed, end, profile, slash, uppercase, path, paths, remaining,
+            );
+            path.pop();
+        };
+        visit_at(
+            DirectSpelling {
+                code,
+                first: None,
+                second: None,
+                end: position + 2,
+            },
+            path,
+            paths,
+            remaining,
+        );
 
         if position + 3 <= typed.len() {
             let first = typed.as_bytes()[position + 2] as char;
             if first.is_ascii_lowercase() {
-                path.push(DirectSpelling {
-                    code,
-                    first: Some(first.to_ascii_lowercase()),
-                    second: None,
-                    end: position + 3,
-                });
-                visit(typed, position + 3, profile, path, paths, remaining);
-                path.pop();
+                visit_at(
+                    DirectSpelling {
+                        code,
+                        first: Some(first.to_ascii_lowercase()),
+                        second: None,
+                        end: position + 3,
+                    },
+                    path,
+                    paths,
+                    remaining,
+                );
+                // `uia/`：一位辅码加 `/` 结束这一段（`slash_marker`）。
+                if slash && typed.as_bytes().get(position + 3) == Some(&b'/') {
+                    visit_at(
+                        DirectSpelling {
+                            code,
+                            first: Some(first.to_ascii_lowercase()),
+                            second: None,
+                            end: position + 4,
+                        },
+                        path,
+                        paths,
+                        remaining,
+                    );
+                }
             }
         }
         if position + 4 <= typed.len() {
             let first = typed.as_bytes()[position + 2] as char;
             let second = typed.as_bytes()[position + 3] as char;
-            if first.is_ascii_lowercase() && second.is_ascii_uppercase() {
-                path.push(DirectSpelling {
-                    code,
-                    first: Some(first.to_ascii_lowercase()),
-                    second: Some(second.to_ascii_lowercase()),
-                    end: position + 4,
-                });
-                visit(typed, position + 4, profile, path, paths, remaining);
-                path.pop();
+            if first.is_ascii_lowercase() {
+                // `uiaB`：第二位辅码大写结束这一段（`uppercase_marker`）。
+                if uppercase && second.is_ascii_uppercase() {
+                    visit_at(
+                        DirectSpelling {
+                            code,
+                            first: Some(first.to_ascii_lowercase()),
+                            second: Some(second.to_ascii_lowercase()),
+                            end: position + 4,
+                        },
+                        path,
+                        paths,
+                        remaining,
+                    );
+                }
+                // `uiab/`：两位辅码加 `/` 结束这一段（`slash_marker`）。
+                if slash
+                    && second.is_ascii_lowercase()
+                    && typed.as_bytes().get(position + 4) == Some(&b'/')
+                {
+                    visit_at(
+                        DirectSpelling {
+                            code,
+                            first: Some(first.to_ascii_lowercase()),
+                            second: Some(second.to_ascii_lowercase()),
+                            end: position + 5,
+                        },
+                        path,
+                        paths,
+                        remaining,
+                    );
+                }
             }
         }
     }
@@ -110,23 +174,38 @@ fn direct_helpcode_paths(typed: &str, profile: &ShuangpinProfile) -> Vec<Vec<Dir
     let mut paths = Vec::new();
     if typed.is_ascii() {
         // 同时限制搜索节点，避免大量无解分支绕过结果数量上限。
-        visit(typed, 0, profile, &mut Vec::new(), &mut paths, &mut 512);
+        visit(
+            typed,
+            0,
+            profile,
+            slash,
+            uppercase,
+            &mut Vec::new(),
+            &mut paths,
+            &mut 512,
+        );
     }
     paths
 }
 
 /// 音节内双辅助码的第二码可以大写，但音节本身的大写仍属于字面英文。
-pub(crate) fn direct_helpcodes_own_capitals(typed: &str, profile: &ShuangpinProfile) -> bool {
-    direct_helpcode_paths(typed, profile).iter().any(|path| {
-        let mut start = 0;
-        path.iter().all(|spelling| {
-            let lowercase_code = typed.as_bytes()[start..start + 2]
-                .iter()
-                .all(u8::is_ascii_lowercase);
-            start = spelling.end;
-            lowercase_code
+pub(crate) fn direct_helpcodes_own_capitals(
+    typed: &str,
+    profile: &ShuangpinProfile,
+    uppercase: bool,
+) -> bool {
+    direct_helpcode_paths(typed, profile, false, uppercase)
+        .iter()
+        .any(|path| {
+            let mut start = 0;
+            path.iter().all(|spelling| {
+                let lowercase_code = typed.as_bytes()[start..start + 2]
+                    .iter()
+                    .all(u8::is_ascii_lowercase);
+                start = spelling.end;
+                lowercase_code
+            })
         })
-    })
 }
 
 fn direct_helpcode_matches(word: &str, path: &[DirectSpelling], keymap: &HelpcodeKeymap) -> bool {
@@ -433,9 +512,17 @@ impl ShuangpinEngine {
             request.raw_input_with_cases.as_str()
         };
         let mut ambiguous_direct = None;
-        if request.enable_shuangpin_helpcode && !keymap.is_empty() {
+        // `direct_helpcode` 是万象式直接的主开关（出厂关）：开着才做逐音节切分；
+        // `/` 与第二码大写各自的开关决定结束方式。
+        let direct_modes = request.shuangpin_helpcode_modes;
+        if request.enable_shuangpin_helpcode && !keymap.is_empty() && direct_modes.direct_helpcode {
             let mut direct_best: Option<(usize, Vec<WordItem>)> = None;
-            for path in direct_helpcode_paths(typed, self.profile) {
+            for path in direct_helpcode_paths(
+                typed,
+                self.profile,
+                direct_modes.direct_helpcode_slash,
+                direct_modes.direct_helpcode_uppercase,
+            ) {
                 if typed.len() < 4 && path.len() == 1 {
                     continue;
                 }
@@ -815,10 +902,10 @@ mod tests {
         let profile =
             crate::shuangpin::profile::profile(crate::types::ShuangpinProfileKind::Ziranma)
                 .unwrap();
-        assert!(super::direct_helpcode_paths("uib字", profile).is_empty());
-        assert!(super::direct_helpcode_paths("ui'bjm", profile).is_empty());
+        assert!(super::direct_helpcode_paths("uib字", profile, true, true).is_empty());
+        assert!(super::direct_helpcode_paths("ui'bjm", profile, true, true).is_empty());
         let ambiguous = "ta".repeat(80);
-        assert!(super::direct_helpcode_paths(&ambiguous, profile).len() <= 64);
+        assert!(super::direct_helpcode_paths(&ambiguous, profile, true, true).len() <= 64);
     }
 
     #[test]
@@ -851,7 +938,7 @@ mod tests {
                 .unwrap();
 
         let (paths, allocations) = crate::ime::personal_rerank::allocations::count(|| {
-            super::direct_helpcode_paths("tartantab", profile)
+            super::direct_helpcode_paths("tartantab", profile, true, true)
         });
 
         assert!(!paths.is_empty());
