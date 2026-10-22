@@ -84,6 +84,7 @@ export type Preferences = PunctuationPreferences &
     translation_secondary_language?: TranslationLanguage | null;
     /** 用户明确选择水杉账号（api.msime.app）进行候选翻译；缺省表示未选择。 */
     translation_account?: boolean;
+    translation_ai?: boolean;
     /** 各宿主共用的匿名用量上报（每日活跃、会话结束与崩溃摘要）；缺省为开启。 */
     usage_reporting?: boolean;
     floating_toolbar?: FloatingToolbarPreferences;

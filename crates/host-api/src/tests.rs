@@ -7383,6 +7383,68 @@ fn translation_query_names_the_selected_service_through_the_provider_socket() {
     read(msime_client_destroy(handle));
 }
 
+/// 「AI 辅助」翻译是用户显式选择的服务（`translation_ai`）：凭据来自「AI 与云联想」页的
+/// ai_assistant 配置，联想开关不替它授权；配置不可用时 provider 仍是 ai、凭据一栏留空，
+/// 让宿主和设置页能照实提示，而不是静默回退成离线或别的服务。
+#[test]
+fn translation_query_carries_the_selected_ai_assistant_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences {
+        candidate_translations: true,
+        ..Preferences::default()
+    };
+    preferences.tencent_tmt.enabled = false;
+    preferences.ai_assistant.provider = "openai".into();
+    preferences.ai_assistant.endpoint = "https://ai.example.invalid/v1/chat/completions".into();
+    preferences.ai_assistant.model = "fixture-model".into();
+    preferences.ai_assistant.tokens.insert(
+        "https://ai.example.invalid:443".into(),
+        "synthetic-token".into(),
+    );
+    let handle = test_host_preferences(dir.path(), preferences.clone());
+    read(msime_client_focus(handle, true));
+    for byte in b"U4e2d" {
+        read(msime_client_character(
+            handle,
+            *byte,
+            byte.is_ascii_uppercase(),
+        ));
+    }
+
+    // AI 辅助开着但没被选为翻译服务：查询仍然是不联网的 none，不带上 AI 凭据。
+    preferences.ai_assistant.enabled = true;
+    update(handle, 1, &preferences);
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["provider"], "none");
+    assert!(query["ai_assistant"].is_null());
+
+    // 选中 AI 辅助：联想开关关着也能翻译，查询带上 AI 凭据并置 enabled 供宿主发送。
+    preferences.translation_ai = true;
+    preferences.ai_assistant.enabled = false;
+    update(handle, 2, &preferences);
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["provider"], "ai");
+    assert_eq!(
+        query["ai_assistant"]["endpoint"],
+        "https://ai.example.invalid/v1/chat/completions"
+    );
+    assert_eq!(query["ai_assistant"]["model"], "fixture-model");
+    assert_eq!(query["ai_assistant"]["enabled"], true);
+    assert_eq!(
+        query["ai_assistant"]["tokens"]["https://ai.example.invalid:443"],
+        "synthetic-token"
+    );
+
+    // 选了 AI 但配置不可用：provider 仍是 ai、凭据一栏留空，而不是静默不翻译。
+    preferences.ai_assistant.tokens.clear();
+    preferences.ai_assistant.model.clear();
+    update(handle, 3, &preferences);
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["provider"], "ai");
+    assert!(query["ai_assistant"].is_null());
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn translation_preference_changes_remove_gloss_and_reject_inflight_answers() {
     let dir = tempfile::tempdir().unwrap();
