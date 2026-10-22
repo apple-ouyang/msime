@@ -67,16 +67,19 @@ pub struct EngineOptions {
     pub shuangpin_custom_profile: Option<ShuangpinCustomTable>,
     pub shuangpin_preedit_uses_raw: bool,
     pub learning: bool,
+    pub learn_english_on_enter: bool,
     pub autocorrect_transposition: bool,
     pub autocorrect_neighbor: bool,
     /// Masked with `fuzzy_rule::ALL`.
     pub fuzzy_pinyin_rules: u32,
     pub wubi_mixed_pinyin: bool,
+    pub wubi_z_wildcard: bool,
     /// 0 是 86 五笔，1 是 98 五笔（`WubiProfileKind`）。
     pub wubi_profile: u8,
     pub helpcode: bool,
     /// Display only: filtering stays on while annotations are hidden.
     pub show_helpcode: bool,
+    pub helpcode_trigger_key: Option<u8>,
     /// 双拼辅助码的触发方式（`SessionOptions::shuangpin_helpcode_modes`）；宿主按偏好 `shuangpin_helpcode.modes` 填，其它方案给默认值也不会被读。
     pub shuangpin_helpcode_modes: ShuangpinHelpcodeModes,
     pub helpcode_schema: String,
@@ -118,6 +121,7 @@ pub struct EngineOptions {
     pub local_mention: bool,
     /// `C`：拆字反查。默认关；host-api 按宿主形态决定偏好缺省时的值。
     pub local_chaizi: bool,
+    pub local_symbol: bool,
     /// Shift+字母进入快捷模式的总开关（`LocalModeOptions::shift_letter_entry`）。
     pub local_shift_letter_entry: bool,
     /// 宿主会把候选转成繁体输出（`SessionOptions::chaizi_traditional_output`）。
@@ -195,15 +199,17 @@ pub fn prepare_options_for(
         shuangpin_preedit_uses_raw: true,
         single_character_only: false,
         learning: false,
+        learn_english_on_enter: true,
         autocorrect_transposition: false,
         autocorrect_neighbor: false,
         fuzzy_pinyin_rules: 0,
         wubi_mixed_pinyin: false,
+        wubi_z_wildcard: false,
         wubi_profile: WubiProfileKind::Wubi86 as u8,
         helpcode: true,
         show_helpcode: true,
-        shuangpin_helpcode_modes: ShuangpinHelpcodeModes::default(),
         helpcode_schema: "ziranma".to_owned(),
+        helpcode_trigger_key: None,
         helpcode_table: None,
         helpcode_fallback_resources: None,
         chinese_punctuation: true,
@@ -232,6 +238,7 @@ pub fn prepare_options_for(
         local_command: false,
         local_mention: false,
         local_chaizi: false,
+        local_symbol: true,
         local_shift_letter_entry: true,
         chaizi_traditional_output: false,
         command_table: Vec::new(),
@@ -300,12 +307,14 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     session.stroke_dictionary = PathBuf::from(&options.stroke_dictionary);
     session.japanese_dictionary = PathBuf::from(&options.japanese_dictionary);
     session.learning = options.learning;
+    session.learn_english_on_enter = options.learn_english_on_enter;
     session.autocorrect_types = autocorrect_types;
     session.fuzzy_pinyin = FuzzyPinyinOptions {
         rules: options.fuzzy_pinyin_rules & fuzzy_rule::ALL,
     };
     session.wubi = WubiInputOptions {
         mixed_pinyin: options.wubi_mixed_pinyin,
+        z_wildcard: options.wubi_z_wildcard,
         profile: wubi_profile,
     };
     session.chinese_punctuation = options.chinese_punctuation;
@@ -324,6 +333,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         },
     };
     session.helpcode = options.helpcode;
+    session.helpcode_trigger_key = options.helpcode_trigger_key;
     session.shuangpin_helpcode_modes = options.shuangpin_helpcode_modes;
     session.helpcode_schema = options.helpcode_schema.clone();
     session.helpcode_table = options.helpcode_table.clone();
