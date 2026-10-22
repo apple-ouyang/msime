@@ -108,10 +108,19 @@ impl InputSession {
             clone_candidate_rows(self.engine.candidates(), &mut decoded);
             // 快捷短语的独立开关同时约束普通候选入口，联系人在最终混排后单独加入。
             if self.quick_phrase_candidates && self.local_mode_options.quick_phrase {
-                self.queries.append_quick_phrase_candidates(
-                    self.engine.request().raw_input.as_str(),
-                    &mut decoded,
-                );
+                let code = self.engine.request().raw_input.clone();
+                // 调频开着时整组按学下来的槽位放；没有记录（或调频关掉）时照旧追加在末尾。
+                let slot = (self.quick_phrase_frequency
+                    && self.frequency.mode != FrequencyAdjustmentMode::Disabled)
+                    .then(|| {
+                        crate::user_dictionary::ranking::quick_phrase_slot(
+                            self.journal_path(),
+                            &code,
+                        )
+                    })
+                    .flatten();
+                self.queries
+                    .insert_quick_phrase_candidates(&code, &mut decoded, slot);
             }
         }
         self.personal_reranked = false;

@@ -297,6 +297,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         mention_entries: Vec::new(),
         quick_phrase_table: Vec::new(),
         quick_phrase_candidates: false,
+        quick_phrase_frequency: true,
         helpcode_table: None,
         helpcode_fallback_resources: None,
         sentence_association: msime_engine::host::SentenceAssociationOptions {
@@ -1330,6 +1331,8 @@ fn mixed_input_changes_defer_until_composition_ends() {
             kaomoji: true,
             japanese: true,
             symbols: false,
+            quick_phrase: false,
+            quick_phrase_frequency: true,
         },
         ..Preferences::default()
     };
@@ -3786,6 +3789,8 @@ fn nine_key_digits_offer_ranked_english_across_the_host_boundary() {
                 kaomoji: false,
                 japanese: false,
                 symbols: false,
+                quick_phrase: false,
+                quick_phrase_frequency: true,
             },
             ..chinese_preferences()
         },
@@ -14434,6 +14439,8 @@ fn requested_quick_phrase_candidates_join_regular_composition() {
     install_phrase_table(dir.path(), "office", &[("dh", "办公室电话")]);
     let mut preferences = chinese_preferences();
     preferences.plugins.phrase_tables = vec!["office".into()];
+    // 「快捷短语混输」开着（缺键的旧文档读作开）：宿主请求的能力才能把短语放进普通候选。
+    preferences.mixed_input.quick_phrase = true;
     let path = |name: &str| {
         let path = dir.path().join(name);
         std::fs::create_dir_all(&path).unwrap();
@@ -14489,6 +14496,45 @@ fn requested_quick_phrase_candidates_join_regular_composition() {
         );
         assert_eq!(read(msime_client_destroy(handle))["ok"], true);
     }
+}
+
+/// 「快捷短语混输」是用户开关：关掉后声明了能力的宿主也不再把短语放进普通候选，打开时恢复；关掉时偏好更新照常走到会话。
+#[test]
+fn the_quick_phrase_candidates_preference_gates_the_host_capability() {
+    let dir = tempfile::tempdir().unwrap();
+    for name in ["resources", "dictionaries"] {
+        let directory = dir.path().join(name);
+        std::fs::create_dir_all(&directory).unwrap();
+        rusqlite::Connection::open(directory.join("msime-pinyin.db"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
+                 INSERT INTO quick_parases VALUES('dh','电话',10);",
+            )
+            .unwrap();
+    }
+    let mut preferences = chinese_preferences();
+    // 新装默认关：宿主请求了能力也不混入。
+    preferences.mixed_input.quick_phrase = false;
+    let path = |name: &str| {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences": preferences, "preferences_directory": path("state"), "quick_phrase_candidates": true });
+    let options = options.to_string();
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    let rows = local_mode_candidates(handle, b"dh");
+    assert!(!rows.contains(&"电话".to_owned()), "{rows:?}");
+
+    preferences.mixed_input.quick_phrase = true;
+    assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], false);
+    let rows = local_mode_candidates(handle, b"dh");
+    assert!(rows.contains(&"电话".to_owned()), "{rows:?}");
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
 /// 官方短语表（随桌面安装包分发的 latex-symbols）从内置目录读：宿主选项给了 `plugin_packs` 时读那里，没给时读内置音效包旁边的 `plugin-packs`（macOS 的 bundle、Linux 的安装就是这样放的）。不在 `phrase_tables` 里就不进 K 模式；插件目录里同 id 的旧副本不顶替它。

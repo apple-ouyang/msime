@@ -267,6 +267,8 @@ thread_local! {
 struct HostSession {
     runtime: Runtime,
     options: EngineOptions,
+    /// HostOptions 里宿主声明的「快捷短语混进普通候选」能力（macOS、Linux 请求）：偏好重建 `options` 时和 `mixed_input.quick_phrase` 相与；记在会话上是因为 `options` 里那个字段已经和能力与偏好相与过，认不出宿主原来要不要这项能力。
+    quick_phrase_candidates_requested: bool,
     /// HostOptions 记录的版本：偏好里的方案只在本版本提供的方案里取，回退到本版本的默认方案。
     edition: &'static Edition,
     applied: Preferences,
@@ -734,6 +736,9 @@ impl HostSession {
         options.mixed_kaomoji = preferences.mixed_input.kaomoji;
         options.mixed_symbols = preferences.mixed_input.symbols;
         options.mixed_japanese = preferences.mixed_input.japanese;
+        options.quick_phrase_candidates =
+            self.quick_phrase_candidates_requested && preferences.mixed_input.quick_phrase;
+        options.quick_phrase_frequency = preferences.mixed_input.quick_phrase_frequency;
         options.local_unicode = preferences.local_modes.unicode;
         options.local_date_time = preferences.local_modes.date_time;
         options.local_quick_phrase = preferences.local_modes.quick_phrase;
@@ -1926,7 +1931,10 @@ impl HostOptions {
             plugin_commands: Vec::new(),
             mention_entries: Vec::new(),
             quick_phrase_table: Vec::new(),
-            quick_phrase_candidates: self.quick_phrase_candidates.unwrap_or(false),
+            // 宿主声明能力、用户在设置里打开，两个条件都满足才把快捷短语混进普通候选；`mixed_input.quick_phrase` 缺键的旧文档读作开，保住 macOS/Linux 升级前的行为。
+            quick_phrase_candidates: self.quick_phrase_candidates.unwrap_or(false)
+                && self.preferences.mixed_input.quick_phrase,
+            quick_phrase_frequency: self.preferences.mixed_input.quick_phrase_frequency,
             helpcode_table: None,
             helpcode_fallback_resources: self.helpcode_fallback_resources,
             sentence_association: engine_sentence_association(

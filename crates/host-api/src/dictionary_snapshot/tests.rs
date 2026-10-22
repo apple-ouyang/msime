@@ -483,6 +483,7 @@ fn discard_does_not_require_maintenance_lock_for_live_paths() {
         mention_entries: Vec::new(),
         quick_phrase_table: Vec::new(),
         quick_phrase_candidates: false,
+        quick_phrase_frequency: true,
         helpcode_table: None,
         helpcode_fallback_resources: None,
         sentence_association: msime_engine::host::SentenceAssociationOptions {
@@ -608,6 +609,7 @@ fn activation_case(
         mention_entries: Vec::new(),
         quick_phrase_table: Vec::new(),
         quick_phrase_candidates: false,
+        quick_phrase_frequency: true,
         helpcode_table: None,
         helpcode_fallback_resources: None,
         sentence_alternatives: true,
@@ -908,6 +910,7 @@ fn activation_reopens_the_personal_context_store_on_the_restored_journal() {
         mention_entries: Vec::new(),
         quick_phrase_table: Vec::new(),
         quick_phrase_candidates: false,
+        quick_phrase_frequency: true,
         helpcode_table: None,
         helpcode_fallback_resources: None,
         sentence_alternatives: true,

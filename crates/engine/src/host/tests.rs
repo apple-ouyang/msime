@@ -72,6 +72,7 @@ fn options(root: &Path) -> EngineOptions {
         mention_entries: Vec::new(),
         quick_phrase_table: Vec::new(),
         quick_phrase_candidates: false,
+        quick_phrase_frequency: true,
         helpcode_table: None,
         helpcode_fallback_resources: None,
         sentence_association: SentenceAssociationOptions {

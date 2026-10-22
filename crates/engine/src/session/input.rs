@@ -61,6 +61,10 @@ pub(super) struct InputSession {
     pub engine: ImeSession,
     pub queries: CandidateQueries,
     pub quick_phrase_candidates: bool,
+    /// 快捷短语参与调频（`SessionOptions::quick_phrase_frequency`）：追加进普通候选的整组短语有槽位，越过它选普通候选让整组后退、选中组内短语让整组前移。
+    pub quick_phrase_frequency: bool,
+    /// 宿主的每页候选数（`SessionOptions::first_page_rows`），0 归一成 1；快捷短语组调频的后退封顶（首页末位）用它算。
+    pub first_page_rows: usize,
     pub clock: Clock,
     pub profile: &'static ShuangpinProfile,
     pub caret: Option<usize>,
@@ -159,6 +163,8 @@ impl InputSession {
         let mut session = Self {
             queries: CandidateQueries::new(&paths, profile),
             quick_phrase_candidates: options.quick_phrase_candidates,
+            quick_phrase_frequency: options.quick_phrase_frequency,
+            first_page_rows: FirstPageRows::new(options.first_page_rows).get(),
             engine,
             clock: Clock::default(),
             profile,
@@ -1498,6 +1504,7 @@ impl InputSession {
 
     /// 首页行数只决定词库要不要并入补全词；宿主改每页候选数时不必重建会话，跟着改一下即可。
     pub fn set_first_page_rows(&mut self, rows: FirstPageRows) {
+        self.first_page_rows = rows.get();
         self.engine.set_first_page_rows(rows);
     }
 

@@ -138,6 +138,8 @@ pub struct EngineOptions {
     pub quick_phrase_table: Vec<QuickPhraseEntry>,
     /// 普通候选是否追加编码匹配的快捷短语。仅 macOS 桌面宿主打开。
     pub quick_phrase_candidates: bool,
+    /// 快捷短语参与调频（`SessionOptions::quick_phrase_frequency`）。
+    pub quick_phrase_frequency: bool,
     pub sentence_association: SentenceAssociationOptions,
     pub rescoring_context: String,
     /// Ask for every whole-sentence reading; the runtime reorders and crops them.
@@ -248,6 +250,7 @@ pub fn prepare_options_for(
         mention_entries: Vec::new(),
         quick_phrase_table: Vec::new(),
         quick_phrase_candidates: false,
+        quick_phrase_frequency: true,
         sentence_association: SentenceAssociationOptions::default(),
         rescoring_context: String::new(),
         sentence_alternatives: false,
@@ -379,6 +382,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     session.mention_entries = options.mention_entries.clone();
     session.quick_phrase_table = options.quick_phrase_table.clone();
     session.quick_phrase_candidates = options.quick_phrase_candidates;
+    session.quick_phrase_frequency = options.quick_phrase_frequency;
     session.sentence_alternatives = options.sentence_alternatives;
     session.sentence_association = options.sentence_association.clone();
     session.first_page_rows = options.first_page_rows;

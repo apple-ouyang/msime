@@ -9174,6 +9174,106 @@ INSERT INTO quick_parases VALUES('dh','电话',20);",
     assert!(!words(&session).contains(&"电话".to_owned()));
 }
 
+/// `quick_phrase_frequency` 开着（`mixed_input.quick_phrase_frequency`，Windows `utility.quick_phrase_frequency`）：选中组内快捷短语让整组按调频规则前移，越过它选普通候选让整组后退一格。
+#[test]
+fn quick_phrase_frequency_moves_the_group_on_selection() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
+INSERT INTO tbl_2_n VALUES('ni''hao', 'nh', '你好', 200);\
+INSERT INTO tbl_2_n VALUES('ni''hao', 'nh', '拟好', 100);\
+INSERT INTO tbl_2_n VALUES('ni''hao', 'nh', '逆好', 90);\
+INSERT INTO tbl_2_n VALUES('ni''hao', 'nh', '泥号', 80);\
+INSERT INTO tbl_2_n VALUES('ni''hao', 'nh', '溺号', 70);\
+INSERT INTO tbl_2_n VALUES('ni''hao', 'nh', '腻号', 60);\
+CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO quick_parases VALUES('nihao','号码一',10);\
+INSERT INTO quick_parases VALUES('nihao','号码二',20);",
+    );
+    let mut session = fixture.session_with(|options| {
+        options.quick_phrase_candidates = true;
+        options.quick_phrase_frequency = true;
+        options.frequency = FrequencyAdjustmentOptions {
+            mode: FrequencyAdjustmentMode::Promote,
+            trigger_count: 1,
+            linear_step: 1,
+        };
+        options.first_page_rows = 10;
+        options.personal_context = false;
+    });
+    let group_at = |session: &Session| {
+        session
+            .snapshot()
+            .candidates
+            .iter()
+            .position(|item| item.word == "号码一")
+            .expect("quick phrase group")
+    };
+    type_text(&mut session, "nihao");
+    let before = group_at(&session);
+    assert_eq!(before, 7, "整组追加在普通候选之后（组内按权重排序）");
+
+    // 选中组内一条：整组按调频规则前移（Promote 把组的位置拉到第四格），选中的这条升到同码最高权重、排到组首。
+    assert_eq!(session.select(before).commit.as_deref(), Some("号码一"));
+    type_text(&mut session, "nihao");
+    let promoted = group_at(&session);
+    assert_eq!(promoted, 4, "整组前移后落在第五格");
+    assert_eq!(
+        words(&session)[promoted..promoted + 2],
+        ["号码一", "号码二"],
+        "整组一起挪"
+    );
+
+    // 越过整组选排在后面的普通候选：整组后退一格。
+    session.select(7);
+    type_text(&mut session, "nihao");
+    assert_eq!(group_at(&session), 5, "越过组选普通候选后整组后退一格");
+
+    // 再越过一次：组退到末尾，再往后没有普通候选可越。
+    session.select(7);
+    type_text(&mut session, "nihao");
+    assert_eq!(group_at(&session), 6, "整组退到末尾");
+    assert_eq!(words(&session)[6..], ["号码一", "号码二"]);
+}
+
+/// `quick_phrase_frequency` 关着时，整组固定在普通候选末尾：选中短语、越过它选普通候选，位置都不变。
+#[test]
+fn the_group_stays_at_the_end_when_quick_phrase_frequency_is_off() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
+INSERT INTO tbl_2_n VALUES('ni''hao', 'nh', '你好', 200);\
+INSERT INTO tbl_2_n VALUES('ni''hao', 'nh', '拟好', 100);\
+CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO quick_parases VALUES('nihao','号码一',10);",
+    );
+    let mut session = fixture.session_with(|options| {
+        options.quick_phrase_candidates = true;
+        options.quick_phrase_frequency = false;
+        options.frequency = FrequencyAdjustmentOptions {
+            mode: FrequencyAdjustmentMode::Promote,
+            trigger_count: 1,
+            linear_step: 1,
+        };
+        options.personal_context = false;
+    });
+    let group_at = |session: &Session| {
+        session
+            .snapshot()
+            .candidates
+            .iter()
+            .position(|item| item.word == "号码一")
+            .expect("quick phrase group")
+    };
+    type_text(&mut session, "nihao");
+    let position = group_at(&session);
+    assert_eq!(session.select(position).commit.as_deref(), Some("号码一"));
+    type_text(&mut session, "nihao");
+    assert_eq!(group_at(&session), position, "关掉调频后选中短语不挪组");
+    let last = session.snapshot().candidates.len() - 1;
+    session.select(last);
+    type_text(&mut session, "nihao");
+    assert_eq!(group_at(&session), position, "关掉调频后越过组不挪组");
+}
+
 /// 五笔四码唯一时，同编码的快捷短语追加在后面也不妨碍自动上屏，提交的仍是五笔那一行。
 #[test]
 fn a_quick_phrase_with_the_same_key_keeps_the_wubi_unique_four_code() {

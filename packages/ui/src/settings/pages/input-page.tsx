@@ -388,6 +388,7 @@ export function InputSettingsPage() {
         onMixedInputChange={(mixed_input) => onPreferencesChange({ mixed_input })}
         showMixedInputMinimumPrefix={showMixedInputMinimumPrefix}
         temporaryJapanese={temporaryJapanese}
+        quickPhraseCandidates={host?.quick_phrase_candidates ?? false}
         paging={
           !harmonyPhone && (
             <NavigationSection
