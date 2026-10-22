@@ -31,7 +31,7 @@ export function mixedInputDefaultsFor(platform?: string | null): MixedInputPrefe
 /** 仅投影控件状态，不补写偏好或改变英文触发字符数。 */
 export function mixedInputControlState(preferences: MixedInputPreferences) {
   return {
-    symbolsChecked: preferences.symbols ?? false,
+    symbolsChecked: preferences.symbols ?? true,
     japaneseChecked: preferences.japanese ?? false,
     quickPhraseChecked: preferences.quick_phrase ?? true,
     quickPhraseFrequencyChecked: preferences.quick_phrase_frequency ?? true,

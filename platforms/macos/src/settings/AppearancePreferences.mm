@@ -64,7 +64,7 @@ static NSString *const WubiProfileKey = @"MSIMEClientWubiProfile";
 static NSString *const LocalModesKey = @"MSIMEClientLocalModes";
 /// 「Shift+字母进入快捷模式」总开关和各模式开关存在同一张表里（共享文档的 `local_modes.shift_letter_entry`），缺省同样是开；设置窗口把它单独放在模式网格上方。
 static NSString *const ShiftLetterEntryMode = @"shift_letter_entry";
-/// 拆字反查（C 模式）默认开：共享文档的 `local_modes.chaizi` 只在用户动过开关后才出现，host-api 把缺键读作开（对齐 Windows `radical_mode` 出厂值），这里也读作开，否则勾选和实际不一致。
+/// 拆字反查（C 模式）在桌面默认关：共享文档的 `local_modes.chaizi` 只在用户动过开关后才出现，host-api 按宿主形态读缺键（桌面关、触屏开），这里读作关，否则勾选和实际不一致。
 static NSString *const ChaiziMode = @"chaizi";
 static NSArray<NSArray<NSString *> *> *LocalModeControls() {
     return @[@[ShiftLetterEntryMode, @"Shift+字母进入快捷模式"], @[@"quick_phrase", @"快捷短语（K 模式）"], @[@"date_time", @"日期与时间（T 模式）"],
@@ -1580,8 +1580,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (!KnownLocalMode(mode)) return NO;
     NSNumber *value = _sharedLocalModes[mode] ?: [_defaults dictionaryForKey:LocalModesKey][mode];
     if (LocalModeBoolean(value)) return value.boolValue;
-    // 缺省按 Windows 出厂值：emoji / 颜文字为关（避免截走大写 E/M 开头的英文），拆字与其余模式为开。
-    return ![mode isEqual:@"emoji"] && ![mode isEqual:@"kaomoji"];
+    // 缺省：拆字在桌面读作关（打开后大写 C 会进模式），其余模式为开。
+    return ![mode isEqual:@"unicode"] && ![mode isEqual:@"chaizi"];
 }
 - (void)setLocalMode:(NSString *)mode enabled:(BOOL)enabled {
     if (!KnownLocalMode(mode)) return;

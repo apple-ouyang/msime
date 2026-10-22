@@ -35,8 +35,8 @@ int main() {
         assert(buttons.count == 11 && buttons[@"shift_letter_entry"].state == NSControlStateValueOn);
         // 符号快捷输入（S 模式）缺键读作开，与来源出厂一致。
         assert([prefs localModeEnabled:@"symbol"] && buttons[@"symbol"].state == NSControlStateValueOn);
-        // 拆字反查缺键读作开（对齐来源 `radical_mode` 出厂值），合并进共享文档时仍不写这个键，让缺省语义由 host-api 统一给出。
-        assert([prefs localModeEnabled:@"chaizi"] && buttons[@"chaizi"].state == NSControlStateValueOn);
+        // 拆字反查在桌面默认关：缺键读作关，勾选框不勾，合并进共享文档时也不写这个键，让 host-api 按宿主形态决定。
+        assert(![prefs localModeEnabled:@"chaizi"] && buttons[@"chaizi"].state == NSControlStateValueOff);
         assert([prefs sharedPreferencesByMerging:base][@"local_modes"][@"chaizi"] == nil);
         NSButton *fuzzy = (id)MSIMEFindPreferenceControl(prefsRoot, @selector(fuzzyPinyinChanged:));
         NSView *fuzzyCard = MSIMEFindPreferenceView(prefsRoot, ^BOOL(NSView *view) {
@@ -73,7 +73,7 @@ int main() {
         assert(([assistance[@"frequency"] isEqual:@{@"mode": @"halve", @"trigger_count": @3, @"linear_step": @4}]));
         for (NSString *mode in @[@"unicode", @"date_time", @"quick_phrase", @"emoji", @"kaomoji", @"symbol", @"super_jianpin", @"temporary_english", @"temporary_japanese", @"chaizi"]) {
             NSButton *button = buttons[mode];
-            assert(button && [prefs localModeEnabled:mode] == !([mode isEqual:@"unicode"] || [mode isEqual:@"emoji"] || [mode isEqual:@"kaomoji"]));
+            assert(button && [prefs localModeEnabled:mode] == !([mode isEqual:@"unicode"] || [mode isEqual:@"chaizi"]));
             NSUInteger before = changes;
             button.state = NSControlStateValueOff;
             [NSApp sendAction:button.action to:button.target from:button];

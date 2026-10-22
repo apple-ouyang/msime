@@ -1839,24 +1839,20 @@ pub struct LocalModePreferences {
     pub unicode: bool,
     /// Shift+T 日期时间快捷输入模式（Windows `utility.date_time_mode`，出厂开）。行内日期时间混入普通候选由 `date_time_inline` 单独开关。
     pub date_time: bool,
-    /// 日期时间混进普通候选（Windows `utility.date_time_candidates`，出厂关）：全拼输入 `riqi`、`sj`、`xq`、`nongli` 时把当前日期、时间、星期或农历接在对应的词后面。后加的成员，关着时不写进文档，缺这个键的旧文档读作关。
-    #[serde(default, skip_serializing_if = "is_false")]
+    /// 日期时间混进普通候选（对应 Windows `utility.date_time_candidates`）：全拼输入 `riqi`、`sj`、`xq`、`nongli` 时把当前日期、时间、星期或农历接在对应的词后面。与 `date_time`（T 模式）是两个独立开关；缺这个键的旧文档读作开——此前行内混入由 `date_time` 一并控制且默认开，保持同样的有效行为，开着时不写进文档。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub date_time_inline: bool,
     /// 日期时间混进普通候选时，第三位放一个「📅日期」入口，选中后候选窗换成这一组的全部格式（Windows `utility.date_time_menu`，出厂开）。依附 `date_time_inline`；缺这个键的旧文档读作开。
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub date_time_menu: bool,
     pub quick_phrase: bool,
-    /// Shift+E Emoji 快捷模式（Windows `utility.emoji_mode`）。Windows v0.11.1 出厂关，避免截走大写 E 开头的英文；门禁 pin 出厂为开，这里对齐最新的正式版出厂值。缺这个键的旧文档读作关。
-    #[serde(default)]
     pub emoji: bool,
-    /// Shift+M 颜文字快捷模式（Windows `utility.kaomoji_mode`）。与 `emoji` 同：v0.11.1 出厂关、门禁 pin 出厂开，对齐 v0.11.1；缺这个键的旧文档读作关。
-    #[serde(default)]
     pub kaomoji: bool,
     pub super_jianpin: bool,
     pub temporary_english: bool,
     pub temporary_japanese: bool,
-    /// `V` on an empty composition: calculator, Chinese numerals and dates. Windows `utility.v_mode` 出厂为开（门禁 pin 还没有这个键），所以缺这个键的旧文档读作开；打开后 Shift+V 进模式而不再直接打出大写 V。
-    #[serde(default = "enabled_by_default")]
+    /// `V` on an empty composition: calculator, Chinese numerals and dates. Off by default, because Shift+V otherwise types a capital V.
+    #[serde(default)]
     pub expression: bool,
     /// `/` on an empty composition: built-in and installed commands. Off by default, because `/` otherwise types a mark.
     #[serde(default)]
@@ -1867,7 +1863,7 @@ pub struct LocalModePreferences {
     /// The `@` mode also offers China's provinces, cities and counties from the Engine's built-in table, after the user's own names. Off by default, and only meaningful while `mention` is on.
     #[serde(default)]
     pub mention_places: bool,
-    /// 拆字反查（`C`）：没有组字时 Shift+C，再输入字的各个部件的拼音找字。`None` 表示用户没动过开关，读作开——与 Windows v0.11.1 的 `utility.radical_mode` 出厂开一致（该键是门禁 pin 的 `unicode_mode` 改名，参考里拆字走 Shift+U，这里拆字在 Shift+C、Shift+U 留给 `unicode` 码位录入）。打开后句首和中英混打的大写 C（C盘、C语言）会进入模式，与参考出厂的行为一致；Android 和 HarmonyOS 接实体键盘（含鸿蒙电脑）时同样如此，且这两个宿主不提供「Shift+字母」总开关，用户只能整项关掉拆字。只有用户动过开关时文档里才有这个键，缺键的文档读作 `None`，旧版本也只在这种情况下因 `deny_unknown_fields` 读不懂文档。
+    /// 拆字反查（`C`）：没有组字时 Shift+C，再输入字的各个部件的拼音找字。`None` 表示用户没动过开关，由宿主形态决定：触屏宿主（iOS、Android、HarmonyOS）读作开，屏幕键盘从菜单进入；桌面宿主读作关，因为打开后句首和中英混打的大写 C（C盘、C语言）会进入模式。Android 和 HarmonyOS 接实体键盘（含鸿蒙电脑）时 Shift+C 同样会进入模式，桌面的这个问题在那里仍然存在，而且这两个宿主不提供「Shift+字母」总开关，用户只能整项关掉拆字。只有用户动过开关时文档里才有这个键，缺键的文档读作 `None`，旧版本也只在这种情况下因 `deny_unknown_fields` 读不懂文档。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chaizi: Option<bool>,
     /// 符号模式（`S`）：没有组字时 Shift+S，再输入分组码（`xl` 希腊字母、`sx` 数学、`szq` 带圈数字、`jt` 箭头）或符号名（`alpha`、`infinity`）。默认开，与 Windows 正式版的出厂配置一致；缺这个键的旧文档读作开。
@@ -1883,15 +1879,15 @@ impl Default for LocalModePreferences {
         Self {
             unicode: true,
             date_time: true,
-            date_time_inline: false,
+            date_time_inline: true,
             date_time_menu: true,
             quick_phrase: true,
-            emoji: false,
-            kaomoji: false,
+            emoji: true,
+            kaomoji: true,
             super_jianpin: true,
             temporary_english: true,
             temporary_japanese: true,
-            expression: true,
+            expression: false,
             command: false,
             mention: false,
             mention_places: false,
@@ -2113,8 +2109,8 @@ pub struct MixedInputPreferences {
     /// 实验选项：全拼、双拼里给整段罗马字补一个日文转换候选（ohayou → おはよう）。后加的成员，缺省为关；关着时不写进文档，旧版本和只写前四项的宿主都还能读。
     #[serde(default, skip_serializing_if = "is_false")]
     pub japanese: bool,
-    /// 打拼音出符号：全拼、双拼整段打出符号的名称时（`zhengfu`、`pingfangmi`），在候选里接着那个词给出符号（± ㎡）。Windows `general.symbol_mixed_input` 出厂关（post-pin 键，门禁不含它）；原默认开是对着文档猜的，现对齐出厂值。缺这个键的旧文档读作关——包括此前默认开时被 `skip_serializing_if` 略去键位的文档，那些用户没有显式开过，行为随出厂值改为关；写进文档的值（true 或 false）原样生效。
-    #[serde(default)]
+    /// 打拼音出符号：全拼、双拼整段打出符号的名称时（`zhengfu`、`pingfangmi`），在候选里接着那个词给出符号（± ㎡）。后加的成员，所有宿主默认开；缺这个键的旧文档读作开，只有用户关掉时才写进文档（`"symbols": false`），开着时文档逐字节不变，旧版本和只写前四项的宿主都还能读。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub symbols: bool,
     /// 快捷短语混进普通候选（Windows `utility.quick_phrase_candidates`，出厂关）：普通组字的编码精确等于某条快捷短语的编码时，短语追加在普通候选之后。只对声明 `HostCapabilities::quick_phrase_candidates` 的宿主（macOS、Linux）生效，它们此前无条件混入，所以缺这个键的旧文档读作开；新装默认关，与 Windows 出厂一致，开着时不写进文档。
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
@@ -2132,7 +2128,7 @@ impl Default for MixedInputPreferences {
             emoji: source_mixed_emoji_default(),
             kaomoji: false,
             japanese: false,
-            symbols: false,
+            symbols: true,
             quick_phrase: false,
             quick_phrase_frequency: true,
         }
@@ -2351,10 +2347,10 @@ pub struct NavigationPreferences {
     pub mouse_wheel: bool,
     #[serde(alias = "candidate_arrow_navigation")]
     pub arrows: bool,
-    /// 不带修饰键的左右方向键在横排候选窗里移动候选高亮（左是上一个、右是下一个）。高亮在首选时 ← 照旧编辑输入串，→ 在光标没到输入串末尾时照旧往末尾移，到了末尾才选下一个；高亮不在首选时左右键只移动候选。桌面候选窗竖排（`candidate_layout`）时左右键与候选方向垂直，只编辑输入串；触屏的候选栏总是横排。与 `arrows` 各自独立。Windows `general.candidate_horizontal_arrow_navigation` 出厂关（post-pin 键，门禁不含它），缺这个键的旧文档读作关。
+    /// 不带修饰键的左右方向键在横排候选窗里移动候选高亮（左是上一个、右是下一个）。高亮在首选时 ← 照旧编辑输入串，→ 在光标没到输入串末尾时照旧往末尾移，到了末尾才选下一个；高亮不在首选时左右键只移动候选。桌面候选窗竖排（`candidate_layout`）时左右键与候选方向垂直，只编辑输入串；触屏的候选栏总是横排。与 `arrows` 各自独立，默认开启（Windows `general.candidate_horizontal_arrow_navigation` 出厂为关，默认值差异已记录在案，是否对齐留待产品决策）。
     ///
     /// 判断放在 `input-runtime` 里而不是每个宿主各写一遍：宿主只把左右键当普通光标命令发下去，端点判断和高亮移动跟着 ↑/↓ 的那段代码一起走。
-    #[serde(default)]
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub left_right: bool,
 }
 
@@ -2368,7 +2364,7 @@ impl Default for NavigationPreferences {
             page_up_down: true,
             mouse_wheel: false,
             arrows: true,
-            left_right: false,
+            left_right: true,
         }
     }
 }
@@ -3048,8 +3044,8 @@ pub struct HelpcodePreferences {
     /// Linux 的辅助码前导键；空串保留 Shift 加字母。
     #[serde(default)]
     pub trigger_key: String,
-    /// Windows v0.11.1 的 `shuangpin_helpcode`/`quanpin_helpcode` 出厂关（门禁 pin 出厂开，这里对齐最新正式版出厂值）；缺这个键的旧文档读作关。
-    #[serde(default)]
+    /// Windows `shuangpin_helpcode`/`quanpin_helpcode` 出厂关、门禁 pin 出厂开，本仓沿用开；缺这个键的旧文档读作开，关掉才写进文档。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub enabled: bool,
     pub schema: HelpcodeSchema,
     #[serde(default = "enabled_by_default")]
@@ -3059,7 +3055,7 @@ pub struct HelpcodePreferences {
 impl Default for HelpcodePreferences {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             schema: HelpcodeSchema::default(),
             trigger_key: String::new(),
             show_in_candidate_window: true,
@@ -3069,7 +3065,7 @@ impl Default for HelpcodePreferences {
 
 fn default_quanpin_helpcode() -> HelpcodePreferences {
     HelpcodePreferences {
-        enabled: false,
+        enabled: true,
         schema: HelpcodeSchema::Ziranma,
         trigger_key: String::new(),
         show_in_candidate_window: false,
@@ -3121,7 +3117,7 @@ pub fn valid_model_mirror(mirror: &str) -> bool {
 
 fn default_shuangpin_helpcode() -> HelpcodePreferences {
     HelpcodePreferences {
-        enabled: false,
+        enabled: true,
         schema: HelpcodeSchema::Lantian,
         trigger_key: String::new(),
         show_in_candidate_window: true,

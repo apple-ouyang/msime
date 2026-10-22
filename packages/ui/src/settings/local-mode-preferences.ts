@@ -47,8 +47,8 @@ export const defaultLocalModes: LocalModePreferences = {
   unicode: true,
   date_time: true,
   quick_phrase: true,
-  emoji: false,
-  kaomoji: false,
+  emoji: true,
+  kaomoji: true,
   symbol: true,
   super_jianpin: true,
   temporary_english: true,
@@ -78,12 +78,9 @@ export function localModeControlState(
 ) {
   // 只有显示总开关的宿主才按它禁用各行；其他宿主的入口保持可用。
   const shiftLetterEntry = !shiftLetterEntrySwitch || (preferences.shift_letter_entry ?? true);
-  // 缺键时的缺省按 Windows 出厂值：符号模式、V 模式、拆字、日期格式入口读作开；其余后加成员（含日期时间混输）读作关。
+  // 缺键时的缺省沿用既有读法：符号模式、日期时间混输、日期格式入口读作开；其余后加成员读作关。拆字缺键的读法由宿主形态决定（桌面关、触屏开），不在这里兜底。
   const defaultsOn =
-    key === "symbol" ||
-    key === "date_time_menu" ||
-    key === "chaizi" ||
-    key === "expression";
+    key === "symbol" || key === "date_time_menu" || key === "date_time_inline";
   return {
     checked: preferences[key] ?? defaultsOn,
     disabled:

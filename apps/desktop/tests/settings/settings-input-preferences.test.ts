@@ -42,7 +42,7 @@ test("旧文档缺少左右候选导航时读作出厂默认值", () => {
     },
   });
 
-  expect(values.navigation.left_right).toBe(false);
+  expect(values.navigation.left_right).toBe(true);
   expect(values.navigation).not.toHaveProperty("mouse_wheel");
 });
 

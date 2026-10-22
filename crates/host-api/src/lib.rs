@@ -333,9 +333,15 @@ struct SessionAiCredential {
 /// 本地模式由偏好开关，但它们读的词典是不可变的运行时资源。可选资源不在时，触发键不能被吞掉：在资源齐全之前，Engine 看到的这个模式必须是关的。
 ///
 /// 版本不提供的功能同样当作资源不在：五笔版的资源锁不带日文词典和键盘神经模型，临时日文、日文混输和键盘神经联想无论偏好怎么写都是关的。资源目录按版本的锁校验，本来就放不进日文词典，这里再按版本表关一次，是为了状态目录里留有下载来的日文资源包时也不会打开它。
-/// 偏好里拆字开关的取值；用户没动过时所有宿主读作开（见 `LocalModePreferences::chaizi`，对齐 Windows v0.11.1 的 `radical_mode` 出厂值）。打开后句首和中英混打的大写 C 会进入模式，与参考出厂的行为一致。
+/// 偏好里拆字开关的取值：用户没动过时按宿主形态决定（见 `LocalModePreferences::chaizi`）——触屏宿主读作开（屏幕键盘从菜单进入），桌面宿主读作关（打开后句首和中英混打的大写 C 会进入模式）。Windows v0.11.1 的 `radical_mode` 出厂为开，与本仓桌面缺省不同，差异已记录，是否对齐留待产品决策。
+const TOUCH_KEYBOARD_HOST: bool = cfg!(any(
+    target_os = "android",
+    target_os = "ios",
+    target_env = "ohos"
+));
+
 fn chaizi_enabled(preferences: &msime_client_core::preferences::LocalModePreferences) -> bool {
-    preferences.chaizi.unwrap_or(true)
+    preferences.chaizi.unwrap_or(TOUCH_KEYBOARD_HOST)
 }
 
 fn apply_local_mode_resource_gates(options: &mut EngineOptions, edition: &Edition) {
