@@ -1132,6 +1132,9 @@ impl HostSession {
             .set_wubi_fifth_code_top_commit(requested_preferences.wubi_fifth_code_top_commit);
         self.runtime
             .set_wubi_candidate_selection(requested_preferences.wubi_candidate_selection.clone());
+        // 「二三候选」键也是宿主编排状态：跟着最新请求的偏好走，下一键生效。
+        self.runtime
+            .set_second_third_candidate(requested_preferences.second_third_candidate);
         self.sound.update(key_sound::SoundSettings::new(
             &requested_preferences.plugins,
             &self.plugin_roots,

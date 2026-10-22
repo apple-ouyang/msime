@@ -5540,12 +5540,14 @@ fn touch_toolbar_keeps_the_original_buttons_by_default_and_round_trips_partial_d
     );
     let defaults = loaded.preferences.touch_toolbar;
     assert!(defaults.layout && defaults.emoji && defaults.skin);
+    assert!(!defaults.undo && !defaults.redo);
     assert!(!defaults.clipboard && !defaults.ai && !defaults.character_set);
 
-    // A document written before a switch existed leaves that switch at its default.
+    // 缺少新开关的旧文档按共享默认值补全，不能让升级后的工具栏自动增加按钮。
     let partial: TouchToolbarPreferences =
         serde_json::from_value(serde_json::json!({"emoji": false, "clipboard": true})).unwrap();
     assert!(!partial.emoji && partial.clipboard && partial.layout && !partial.ai);
+    assert!(!partial.undo && !partial.redo);
 
     let saved = store
         .save(
@@ -5554,6 +5556,8 @@ fn touch_toolbar_keeps_the_original_buttons_by_default_and_round_trips_partial_d
                 touch_toolbar: TouchToolbarPreferences {
                     skin: false,
                     punctuation: true,
+                    undo: true,
+                    redo: true,
                     ..TouchToolbarPreferences::default()
                 },
                 ..Preferences::default()
@@ -5562,7 +5566,13 @@ fn touch_toolbar_keeps_the_original_buttons_by_default_and_round_trips_partial_d
         .unwrap();
     assert!(!saved.preferences.touch_toolbar.skin);
     assert!(saved.preferences.touch_toolbar.punctuation);
-    assert!(!store.load().unwrap().preferences.touch_toolbar.skin);
+    let reloaded = store.load().unwrap().preferences.touch_toolbar;
+    assert!(!reloaded.skin);
+    assert!(reloaded.undo && reloaded.redo);
+    assert!(serde_json::from_value::<TouchToolbarPreferences>(
+        serde_json::json!({"undo": "true", "redo": false})
+    )
+    .is_err());
 }
 
 #[test]

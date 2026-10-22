@@ -111,6 +111,10 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) wubi_fifth_code_top_commit: bool,
     pub(crate) wubi_candidate_selection:
         msime_client_core::preferences::WubiCandidateSelectionPreferences,
+    /// 通用「二三候选」键（`second_third_candidate`）：组字时 `;` 选当前页第二个、`'` 选第三个。
+    /// 宿主编排状态，与 `wubi_candidate_selection` 同在 `candidate_shortcut` 拦截。
+    pub(crate) second_third_candidate:
+        msime_client_core::preferences::SecondThirdCandidatePreferences,
     /// Whether the host draws a half-composed phrase itself instead of having it committed.
     ///
     /// Picking a candidate that consumes only part of the input leaves the Engine composing the
@@ -198,6 +202,35 @@ fn scheme_type(scheme: u8) -> Option<SchemeType> {
 pub(crate) fn script_conversion(scheme: u8, local_mode: &str) -> bool {
     scheme_type(scheme).is_some_and(SchemeType::script_conversion_applies)
         && !matches!(local_mode, "unicode" | "temporary_japanese")
+}
+
+/// 「二三候选」键在这个方案的组字里能不能选候选。日文把 `;`/`'` 用在罗马字输入里（`n'` 打出ん）；
+/// 韩文、注音、越南文、藏文由宿主自己组字或自己开候选列表。与 Windows
+/// `SecondThirdCandidatePolicy.h` 的 `second_third_candidate_scheme` 同一张表：
+/// 方案号未知时不接管的两边都不算，照样接管。
+fn second_third_candidate_scheme(scheme: u8) -> bool {
+    !matches!(
+        scheme_type(scheme),
+        Some(
+            SchemeType::JapaneseRomaji
+                | SchemeType::Korean
+                | SchemeType::Zhuyin
+                | SchemeType::Vietnamese
+                | SchemeType::Tibetan
+        )
+    )
+}
+
+/// 微软双拼（及零声母编码用 `;` 的方案）把 `;` 当韵母 ing：光标前、自上一个 `'` 起的片段
+/// 长度为奇数（刚打完声母）时它是输入。与 Windows `microsoft_shuangpin_final_position`
+/// 和引擎 `accepts_ing_key` 同一条判断；`editing` 是 ASCII 组字原文，`caret` 是它的字节偏移。
+fn microsoft_shuangpin_final_position(editing: &[u8], caret: usize) -> bool {
+    let caret = caret.min(editing.len());
+    let mut start = caret;
+    while start > 0 && editing[start - 1] != b'\'' {
+        start -= 1;
+    }
+    (caret - start) % 2 == 1
 }
 
 /// Move the flagged elements to the end, keeping both groups in their existing order.
@@ -758,12 +791,27 @@ impl<E: InputEngine> Runtime<E> {
         &self.wubi_candidate_selection
     }
 
-    /// 将已解码的五笔选词字符转成当前页的候选动作，供统计与生命周期共用。
+    /// 「二三候选」键同样是宿主编排状态，切换配置无需等待 Engine 重建。
+    pub fn set_second_third_candidate(
+        &mut self,
+        settings: msime_client_core::preferences::SecondThirdCandidatePreferences,
+    ) {
+        self.second_third_candidate = settings;
+    }
+
+    pub fn second_third_candidate(
+        &self,
+    ) -> &msime_client_core::preferences::SecondThirdCandidatePreferences {
+        &self.second_third_candidate
+    }
+
+    /// 将已解码的选词字符转成当前页的候选动作，供统计与生命周期共用：五笔的自定义键在前，通用「二三候选」键在后。
     pub fn candidate_shortcut(&self, action: Action) -> Action {
         if !self.focused {
             return action;
         }
         self.wubi_candidate_shortcut(&action)
+            .or_else(|| self.second_third_candidate_shortcut(&action))
             .map(Action::Select)
             .unwrap_or(action)
     }
@@ -784,6 +832,48 @@ impl<E: InputEngine> Runtime<E> {
             _ => return None,
         };
         let slot = self.wubi_candidate_selection.slot(value)?;
+        let start = (self.highlighted / self.page_size) * self.page_size;
+        let index = start + slot;
+        (slot < self.page_size && index < self.visible_len()).then_some(CandidateId {
+            session: self.session,
+            generation: self.generation,
+            index,
+        })
+    }
+
+    /// 通用「二三候选」键：`;` 选当前页第二个、`'` 选第三个。边界与 `wubi_candidate_shortcut`
+    /// 相同（快照有效、组字中、无本地模式、非英文模式），方案与输入排除照 Windows
+    /// `SecondThirdCandidatePolicy.h` 的 `second_third_candidate_scheme` 与
+    /// `second_third_candidate_engine_input`。
+    fn second_third_candidate_shortcut(&self, action: &Action) -> Option<CandidateId> {
+        if !self.second_third_candidate.enabled
+            || !self.snapshot_valid
+            || self.cached.dedicated_english
+            || self.cached.local_mode != "none"
+            || self.cached.editing_text.is_empty()
+            || !second_third_candidate_scheme(self.cached.scheme)
+        {
+            return None;
+        }
+        let value = match action {
+            Action::Character { value, .. }
+            | Action::Punctuation(value)
+            | Action::PunctuationAscii(value) => *value,
+            _ => return None,
+        };
+        let slot = self.second_third_candidate.slot(value)?;
+        // 引擎在当前状态下把这个键当输入时不接管：网址、V 模式的拼写符号，
+        // 以及微软双拼声母后的韵母 ing。
+        if self.cached.spelling_symbols.contains(char::from(value))
+            || (value == b';'
+                && self.cached.microsoft_shuangpin
+                && microsoft_shuangpin_final_position(
+                    self.cached.editing_text.as_bytes(),
+                    self.cached.caret_position,
+                ))
+        {
+            return None;
+        }
         let start = (self.highlighted / self.page_size) * self.page_size;
         let index = start + slot;
         (slot < self.page_size && index < self.visible_len()).then_some(CandidateId {
@@ -942,6 +1032,7 @@ impl<E: InputEngine> Runtime<E> {
             wubi_auto_commit_unique: true,
             wubi_fifth_code_top_commit: true,
             wubi_candidate_selection: Default::default(),
+            second_third_candidate: Default::default(),
             phrase_preedit: false,
             backspace_reverts_selection: true,
             escape_keeps_selected_word: false,
