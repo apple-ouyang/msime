@@ -16,13 +16,13 @@ Status: implemented
 
 合并端：`include_collocation_best` 开时首条词格行标 `Collocation`（它是解码最优路径，不是独立来源）；`include_lattice_best` 只在搭配开关同开时才让首行之后的备选继续上榜——无重排通道本来忽略它，基线语义不动。九键词典设置透传新字段，`neural_keyboard` 仍强制关。`series_slot_key` 的参数改为引用，避免 `SentenceAssociationOptions` 失去 `Copy` 后的无谓克隆；grammar 字段不入键——模型路径变化会触发 `set_sentence_association` 里的 `reset_cache`，同一路径下模型内容不可变。
 
-许可：万象 LTS = CC-BY-4.0（可用）；八股文 = LGPL（可用，后续资源包切片需在 NOTICE 注明）；白霜 = GPL-3.0 且构建链许可未声明，本轮排除，进资源包前须重新评估。本切片只读 `.gram` 格式（BSD-3 的 librime-octagram + darts-clone 布局），不分发模型。
+许可：万象 LTS = CC-BY-4.0（可用）；八股文 = LGPL（可用，后续资源包切片需在 NOTICE 注明）；白霜 = GPL-3.0 且构建链许可未声明，本轮排除，进资源包前须重新评估。读取端按 BSD-3 的 librime-octagram 与 darts-clone 布局实现；本 PR 同时接入偏好、锁定 SHA-256 的按需下载与桌面设置，模型不随安装包分发。
 
 ## Alternatives considered
 
 - `Hyp` 内联 33 字节尾窗（每个假设固定 40 字节增量）：会让冻结参考实现与现行实现的内存断言全部失真，改为激活时沿 `prev` 链回溯几跳取尾窗，未激活零成本。
 - 搭配分后置重排：只换顶层候选顺序，不进入束内路径选择，弱于逐边打分且多一次遍历，不采用。
-- 每次查询直接 `GramDb::load`：文件映射重复开销，采用 `shared` 共享；删除模型包后的解除由后续资源包切片调 `evict_shared`。
+- 每次查询直接 `GramDb::load`：文件映射重复开销，采用 `shared` 共享；卸载入口通过 host-api 调用 `evict_shared`；活跃会话的引用仍保留到下次空闲重建，Windows 拒绝删除时如实报告失败。
 
 ## Testing
 
@@ -36,7 +36,7 @@ Status: implemented
 
 ## Consequences
 
-模型缺失或损坏时行为与改动前逐字节一致；有模型时词格解码首选可被搭配分改写并标为 `Collocation`。`SentenceAssociationOptions` 不再 `Copy`，host-api 结构体镜像处已同步默认值。后续切片（偏好枚举、资源包 sha256 下载校验、设置页单选）依赖这里的 `collocation_model` 字段与 `evict_shared`。
+模型缺失或损坏时行为与改动前逐字节一致；有模型时词格解码首选可被搭配分改写并标为 `Collocation`。`SentenceAssociationOptions` 不再 `Copy`，host-api 结构体镜像处已同步默认值。偏好枚举、资源包 SHA-256 校验与桌面设置单选在本 PR 一同接入。
 
 ## 模型目录（与旧版 Windows 正式版一致）
 
@@ -55,3 +55,5 @@ SHA-256 一致。许可声明在 `resources/licenses/rime-baguwen-LGPL-3.0.txt` 
 ## 2026-10-22 审查补充
 
 资源包卸载通过 `msime-host-api` 的边界摘除共享映射，桌面宿主不再直接依赖 Engine；白霜模型因 GPL 及构建链许可未确认继续不在桌面设置提供。模型包安装或删除后，宿主在下一次聚焦时比较当前 `.gram` 路径并触发 Engine 重建。读取端拒绝数组偏移落在文件末尾之外的非法头部。
+
+资源包卸载复用语音安装器的跨进程锁、目录描述符与先整体改名的流程，只处理已发布的真实目录，安装期间拒绝卸载；符号链接和未发布目录保持原样。活跃会话持有的映射不会被强制释放，Windows 的占用错误仍通过原有错误入口报告。

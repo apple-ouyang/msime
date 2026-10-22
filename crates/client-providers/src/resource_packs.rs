@@ -186,6 +186,7 @@ impl ResourcePack {
     pub fn pinned(self) -> bool {
         match self {
             ResourcePack::MacosVoiceRuntime => macos_voice_runtime().is_some(),
+            ResourcePack::GrammarBaishuang => false,
             _ => true,
         }
     }
@@ -626,14 +627,8 @@ pub fn remove(state_root: &Path, pack: ResourcePack) -> std::io::Result<bool> {
     if !resource_root_is_safe(state_root) {
         return Ok(false);
     }
-    let directory = root(state_root).join(pack.id());
-    let Ok(metadata) = fs::symlink_metadata(&directory) else {
-        return Ok(false);
-    };
-    if !metadata.file_type().is_dir() {
-        return Ok(false);
-    }
-    fs::remove_dir_all(&directory).map(|_| true)
+    local_models::remove_installed(&root(state_root), pack.id(), true)
+        .map_err(std::io::Error::other)
 }
 
 /// 每个资源包在 `state_root` 下的安装状态。
@@ -832,6 +827,39 @@ mod tests {
         )
         .unwrap();
         directory
+    }
+
+    #[test]
+    fn remove_only_published_packs_and_keep_unpublished_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let pack = ResourcePack::GrammarBaguwenCompact;
+        assert!(!remove(dir.path(), pack).unwrap());
+        let published = publish_fake(dir.path(), pack);
+        assert!(remove(dir.path(), pack).unwrap());
+        assert!(!published.exists());
+        fs::create_dir_all(&published).unwrap();
+        fs::write(published.join("synthetic.txt"), b"keep").unwrap();
+        assert!(!remove(dir.path(), pack).unwrap());
+        assert!(published.join("synthetic.txt").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remove_does_not_follow_pack_or_root_symlinks() {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let pack = ResourcePack::GrammarBaguwenCompact;
+        let published = publish_fake(outside.path(), pack);
+        fs::create_dir_all(root(dir.path())).unwrap();
+        symlink(&published, root(dir.path()).join(pack.id())).unwrap();
+        assert!(!remove(dir.path(), pack).unwrap());
+        assert!(published.exists());
+        fs::remove_file(root(dir.path()).join(pack.id())).unwrap();
+        fs::remove_dir(root(dir.path())).unwrap();
+        symlink(root(outside.path()), root(dir.path())).unwrap();
+        assert!(!remove(dir.path(), pack).unwrap());
+        assert!(published.exists());
     }
 
     #[test]

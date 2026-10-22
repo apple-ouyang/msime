@@ -134,7 +134,6 @@ function GrammarModelRow({
         <option value="wanxiang">万象 LTS（约 380MB，CC-BY-4.0）</option>
         <option value="baguwen_word">八股文·词级（约 197MB，LGPL-3.0）</option>
         <option value="baguwen_compact">八股文·词级紧凑（约 39MB，LGPL-3.0）</option>
-        <option value="baishuang">白霜·墨奇（实验，约 7MB，GPL-3.0）</option>
       </SelectRow>
       {pack && resourcePacks && <ResourcePackRow packs={resourcePacks} id={pack} />}
       {pack && status?.state === "installed" && resourcePacks && (

@@ -18531,3 +18531,33 @@ fn language_cycle_abi_publishes_the_shared_state_machine() {
         assert_eq!(invalid["ok"], false, "{invalid}");
     }
 }
+
+#[test]
+fn grammar_pack_install_and_remove_mark_the_session_for_rebuild() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    SESSIONS.with(|sessions| {
+        let mut sessions = sessions.borrow_mut();
+        let session = sessions.get_mut(&handle).unwrap();
+        session.applied.sentence_association.grammar_model =
+            msime_client_core::preferences::GrammarModel::BaguwenCompact;
+        session.state_root = Some(dir.path().to_path_buf());
+        session.options.sentence_association =
+            engine_sentence_association(&session.applied.sentence_association, Some(dir.path()));
+        session.resources_pending = false;
+        let pack = ResourcePack::GrammarBaguwenCompact;
+        let root = resource_packs::root(dir.path()).join(pack.id());
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("msime-model.json"), b"{}").unwrap();
+        let model = root.join(&pack.set().artifacts[0].name);
+        std::fs::write(&model, b"synthetic").unwrap();
+        session.refresh_resource_packs();
+        assert!(session.resources_pending);
+        session.resources_pending = false;
+        session.options.sentence_association.collocation_model = model;
+        assert!(resource_packs::remove(dir.path(), pack).unwrap());
+        session.refresh_resource_packs();
+        assert!(session.resources_pending);
+    });
+    read(msime_client_destroy(handle));
+}

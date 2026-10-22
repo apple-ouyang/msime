@@ -771,6 +771,17 @@ mod tests {
     }
 
     #[test]
+    fn load_rejects_empty_array_outside_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut bytes = vec![0u8; HEADER_BYTES];
+        bytes[..FORMAT_MAGIC.len()].copy_from_slice(FORMAT_MAGIC);
+        bytes[OFFSET_PTR_OFFSET..HEADER_BYTES].copy_from_slice(&1000i32.to_le_bytes());
+        let path = dir.path().join("outside.gram");
+        std::fs::write(&path, bytes).unwrap();
+        assert!(GramDb::load(&path).is_none());
+    }
+
+    #[test]
     fn shared_caches_hits_and_misses() {
         let dir = tempfile::tempdir().unwrap();
         let missing = dir.path().join("missing.gram");
