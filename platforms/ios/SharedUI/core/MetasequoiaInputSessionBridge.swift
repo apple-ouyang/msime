@@ -419,6 +419,9 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   /// View 的 `punctuation_marks`：中文标点下 `'` 出「」、`"` 出『』（直角引号），`[` `]` 出〖〗（空心括号）。host-api 已按繁体输出开关解析好 `corner_when_traditional`，键盘画键面和补全成对标点时读它，不自己解析偏好。
   let cornerQuotes: Bool
   let hollowBrackets: Bool
+  /// View 的 `punctuation_marks`：顿号 `\` 键与 `/` 键各自开着与否（契约 `enumerationComma` 段，host-api 已归一「至少一个开」），符号面板选顿号时按它挑发给 Engine 的键。
+  let enumerationCommaBackslash: Bool
+  let enumerationCommaSlash: Bool
 
   var isInLocalMode: Bool { !localMode.isEmpty && localMode != "none" }
 
@@ -439,7 +442,8 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
        diagnosticText: String? = nil, localMode: String = "none",
        nineKeySpellings: [String] = [], nineKeyReading: String = "", nineKeySingleCharacter: Bool = false,
        nineKeyStrokes: String = "", editingText: String = "", caretPosition: Int = 0,
-       cornerQuotes: Bool = false, hollowBrackets: Bool = false) {
+       cornerQuotes: Bool = false, hollowBrackets: Bool = false,
+       enumerationCommaBackslash: Bool = true, enumerationCommaSlash: Bool = false) {
     self.isHandled = isHandled
     self.commitText = commitText
     self.preedit = preedit
@@ -466,6 +470,8 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     self.caretPosition = caretPosition
     self.cornerQuotes = cornerQuotes
     self.hollowBrackets = hollowBrackets
+    self.enumerationCommaBackslash = enumerationCommaBackslash
+    self.enumerationCommaSlash = enumerationCommaSlash
   }
 }
 
@@ -1969,7 +1975,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       editingText: editingText,
       caretPosition: caretPosition,
       cornerQuotes: marks["quotes"] as? String == "corner",
-      hollowBrackets: marks["brackets"] as? String == "hollow")
+      hollowBrackets: marks["brackets"] as? String == "hollow",
+      enumerationCommaBackslash: marks["enumeration_comma_backslash"] as? Bool ?? true,
+      enumerationCommaSlash: marks["enumeration_comma_slash"] as? Bool ?? false)
   }
 
   private static func strictInt(_ value: Any?, fallback: Int, range: ClosedRange<Int>) throws -> Int {

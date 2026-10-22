@@ -4868,7 +4868,13 @@ fn date_time_keywords_add_rows_after_their_word() {
     let fixture = Fixture::new(INLINE_DATE_TIME_FIXTURE);
     let mut session = fixture.session();
     TestClock::install(&mut session);
-    let date = ["日期", "2026年8月9日", "📅日期", "2026-08-09", "2026年8月9日 星期日"];
+    let date = [
+        "日期",
+        "2026年8月9日",
+        "📅日期",
+        "2026-08-09",
+        "2026年8月9日 星期日",
+    ];
     for keyword in ["riqi", "ri'qi"] {
         type_text(&mut session, keyword);
         assert_eq!(words(&session)[..5], date, "{keyword}");
@@ -4894,7 +4900,10 @@ fn date_time_keywords_add_rows_after_their_word() {
     session.command(Command::Cancel);
 
     type_text(&mut session, "nongli");
-    assert_eq!(words(&session)[..3], ["农历", "丙午年六月二十七日", "📅日期"]);
+    assert_eq!(
+        words(&session)[..3],
+        ["农历", "丙午年六月二十七日", "📅日期"]
+    );
     session.command(Command::Cancel);
 
     // 不是关键词的组字、关键词的一部分都不加。

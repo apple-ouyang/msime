@@ -814,9 +814,22 @@ final class NineKeyKeyboardTests: XCTestCase {
   func testSymbolKeysShowThePunctuationTheyInsert() throws {
     XCTAssertEqual(KeyboardViewController.chineseSymbolFaces, [
       ",": "，", ".": "。", "?": "？", "!": "！", ";": "；", ":": "：",
-      "(": "（", ")": "）", "[": "【", "]": "】", "\\": "、",
+      "(": "（", ")": "）", "[": "【", "]": "】", "\\": "、", "/": "、",
       "<": "《", ">": "》", "'": "‘", "\"": "“", "_": "——",
     ])
+    // 顿号键面随 View 的顿号开关：`\` 关着时画 `\`，`/` 开着时画 `、`。
+    let enumFace = { (backslash: Bool, slash: Bool) in
+      (
+        KeyboardViewController.chineseSymbolFace("\\", cornerQuotes: false, hollowBrackets: false,
+                                                 enumerationCommaBackslash: backslash, enumerationCommaSlash: slash),
+        KeyboardViewController.chineseSymbolFace("/", cornerQuotes: false, hollowBrackets: false,
+                                                 enumerationCommaBackslash: backslash, enumerationCommaSlash: slash))
+    }
+    XCTAssertEqual(enumFace(true, false).0, "、")
+    XCTAssertEqual(enumFace(true, false).1, "/")
+    XCTAssertEqual(enumFace(false, true).0, "\\")
+    XCTAssertEqual(enumFace(false, true).1, "、")
+    XCTAssertEqual(enumFace(true, true).1, "、")
     let previousScheme = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previousScheme }
     InputSchemePreference.scheme = .quanpin

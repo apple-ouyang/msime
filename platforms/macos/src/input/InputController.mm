@@ -1020,7 +1020,8 @@ static NSString *MSIMEChinesePunctuationForSmart(unichar character) {
     default: return nil;
     }
 }
-static unichar MSIMEASCIIForSmartChinesePunctuation(unichar character) {
+static unichar MSIMEASCIIForSmartChinesePunctuation(unichar character,
+                                                    const msime::input::PunctuationMarks &marks) {
     switch (character) {
     case 0x3002: return '.'; // 。
     case 0xFF0C: return ','; // ，
@@ -1028,7 +1029,8 @@ static unichar MSIMEASCIIForSmartChinesePunctuation(unichar character) {
     case 0xFF1F: return '?'; // ？
     case 0xFF1B: return ';'; // ；
     case 0xFF1A: return ':'; // ：
-    case 0x3001: return '/'; // 、
+    // 顿号按 View 的顿号开关（enumerationComma 段）取开着的那个键：`\` 优先、`/` 其次；两个都关按归一的 `\`。
+    case 0x3001: return marks.enumeration_comma_backslash ? '\\' : (marks.enumeration_comma_slash ? '/' : '\\');
     case 0x201C: case 0x201D: return '"'; // “ ”
     case 0x2018: case 0x2019: return '\''; // ‘ ’
     case 0x300E: case 0x300F: return '"'; // 『 』
@@ -1067,13 +1069,28 @@ static msime::input::PunctuationMarks MSIMEViewPunctuationMarks(NSDictionary *vi
         ![marks[@"enumeration_comma_backslash"] isEqual:@NO],
         [marks[@"enumeration_comma_slash"] isEqual:@YES]);
 }
+// `、` 的 ASCII 孪生按出的键算：`/` 出的顿号转回 `/`，`\` 出的转回 `\`——哪个键开着才算数，与直角引号 `MSIMEKeyProducesCornerQuote` 同一条「按出的键算」规则。
+static BOOL MSIMEKeyProducesEnumerationComma(unichar key, unichar mark,
+                                             const msime::input::PunctuationMarks &marks) {
+    if (mark != 0x3001) return NO;
+    return (key == '\\' && marks.enumeration_comma_backslash) ||
+           (key == '/' && marks.enumeration_comma_slash);
+}
+// 文档里读回的中文标点与武装的 ASCII 键是否一对：顿号的合法 ASCII 是开着的顿号键集合，别的标点按单值反查比。
+static BOOL MSIMESmartPunctuationAsciiMatches(unichar chinese, unichar ascii,
+                                              const msime::input::PunctuationMarks &marks) {
+    if (chinese == 0x3001)
+        return MSIMEKeyProducesEnumerationComma(ascii, chinese, marks);
+    return MSIMEASCIIForSmartChinesePunctuation(chinese, marks) == ascii;
+}
+
 static BOOL MSIMEASCIIPunctuation(unichar character) {
     return character > 0x20 && character < 0x7F && !MSIMEASCIIAlphanumeric(character);
 }
 
 static BOOL MSIMESmartPunctuationSpaceKey(unichar character) {
     switch (character) {
-    case '.': case ',': case '!': case '?': case ';': case ':': case '/':
+    case '.': case ',': case '!': case '?': case ';': case ':': case '/': case '\\':
     case '"': case '\'': case '[': case ']': case '<': case '>': case '(': case ')':
         return YES;
     default:
@@ -1627,9 +1644,12 @@ static NSImage *MSIMECandidateLogoImage() {
     unichar ascii = 0;
     if ([commit isKindOfClass:NSString.class] && commit.length) {
         const unichar mark = [commit characterAtIndex:commit.length - 1];
-        ascii = MSIMEASCIIForSmartChinesePunctuation(mark);
+        const auto marks = MSIMEViewPunctuationMarks(_view);
+        ascii = MSIMEASCIIForSmartChinesePunctuation(mark, marks);
         // 直角引号的 ASCII 孪生按出的键算：`{` 出的「转回 `{`，不是样式键 `'`。
         if (ascii && MSIMEKeyProducesCornerQuote(key, mark, MSIMEViewScheme(_view))) ascii = key;
+        // 顿号同理：`/` 出的、`、` 出的各转回自己那个键，关着的键不算顿号来源。
+        if (ascii && MSIMEKeyProducesEnumerationComma(key, mark, marks)) ascii = key;
     }
     if (!_appearance.smartPunctuation || !_appearance.smartPunctuationSpaceConvert || !ascii ||
         _pendingPairedClosing || ![self schemeAllowsSmartPunctuationGestures]) {
@@ -1663,12 +1683,14 @@ static NSImage *MSIMECandidateLogoImage() {
     if (!preceding) {
         // Terminals and proxy stores expose no document text; the shadow is the only evidence of what is on screen, and the rewrite has to be posted.
         const unichar shadow = _smartPunctuationShadowValid ? _smartPunctuationShadow : 0;
-        if (!shadow || MSIMEASCIIForSmartChinesePunctuation(shadow) != mark ||
+        const auto marks = MSIMEViewPunctuationMarks(_view);
+        if (!shadow || !MSIMESmartPunctuationAsciiMatches(shadow, mark, marks) ||
             ![self rewriteUnreadablePreceding:shadow with:mark client:client])
             return NO;
         preceding = shadow;
     } else {
-        if (MSIMEASCIIForSmartChinesePunctuation((unichar)preceding) != mark) return NO;
+        const auto marks = MSIMEViewPunctuationMarks(_view);
+        if (!MSIMESmartPunctuationAsciiMatches((unichar)preceding, mark, marks)) return NO;
         const NSRange selected =
             [client respondsToSelector:@selector(selectedRange)] ? [client selectedRange] : NSMakeRange(NSNotFound, 0);
         if (selected.location == NSNotFound || selected.location < 1) return NO;
