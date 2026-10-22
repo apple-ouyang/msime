@@ -64,6 +64,7 @@ MAPPING: dict[str, str] = {
     "appearance.candidate_window_layout": "candidate_layout",
     "appearance.candidate_window_preedit_font_size": "candidate_preedit_font_size",
     "appearance.candidate_window_preedit_style": "candidate_preedit_style",
+    "appearance.candidate_window_single_line": "!replaced: the reference's fixed cap choice between full and half screen; here the horizontal page picks per page — the card grows to the screen's width whenever the page's candidate lines fit on one line, and stays at the half-screen cap wrapping onto more lines only when they do not (shared `SingleLineMinimumWidth`/`LayoutCandidatePage` with `kCandidateWidthCapRatio`/`kCandidateScreenMargin` on macOS, Linux and Windows)",
     "appearance.default_font": "candidate_fallback_fonts",
     "appearance.english_font": "candidate_english_font",
     "appearance.fallback_fonts": "candidate_fallback_fonts",
