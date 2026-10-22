@@ -10,6 +10,7 @@ final class SmartPunctuationTests: XCTestCase {
     XCTAssertEqual(KeyboardPunctuationContext.precedingScalar("fixture🌲"), 0x1f332)
   }
 
+  @MainActor
   func testDisplayedPunctuationMapsToEngineAsciiInputs() {
     XCTAssertEqual(KeyboardPunctuationContext.engineInput(for: "，", japanese: false), ",")
     XCTAssertEqual(KeyboardPunctuationContext.engineInput(for: "。", japanese: false), ".")
