@@ -10,7 +10,10 @@ use super::journal::{
 };
 use super::positions::is_fixed;
 use crate::error::{EngineError, Result};
-use crate::types::{CandidateSource, FrequencyAdjustmentMode, PersonalDictionaryKind, WordItem};
+use crate::types::{
+    CandidateSource, FrequencyAdjustmentMode, FrequencyAdjustmentOptions, PersonalDictionaryKind,
+    WordItem,
+};
 
 pub const MANAGED_WEIGHT_CEILING: i64 = 100_000_000;
 pub const MANAGED_WEIGHT_FLOOR: i64 = 1;
@@ -178,20 +181,18 @@ pub fn learn_quick_phrase_selection(
     value: &str,
     first_in_group: bool,
     slot: usize,
-    mode: FrequencyAdjustmentMode,
-    linear_step: i32,
-    trigger_count: i32,
+    frequency: &FrequencyAdjustmentOptions,
 ) -> Result<()> {
     if code.is_empty() || value.is_empty() {
         return Err(EngineError::invalid(UNSTORABLE_ENTRY));
     }
-    if mode == FrequencyAdjustmentMode::Disabled {
+    if frequency.mode == FrequencyAdjustmentMode::Disabled {
         return Ok(());
     }
     let journal = open_journal(journal_path)?;
     let transaction = Transaction::new_unchecked(&journal, TransactionBehavior::Immediate)?;
-    if count_slot_selection(&transaction, code, "promote", trigger_count)? {
-        let new_slot = ranking_target(slot, mode, linear_step, false);
+    if count_slot_selection(&transaction, code, "promote", frequency.trigger_count)? {
+        let new_slot = ranking_target(slot, frequency.mode, frequency.linear_step, false);
         if new_slot != slot {
             write_quick_phrase_slot(&transaction, code, new_slot as i64)?;
         }
@@ -226,15 +227,13 @@ pub fn learn_quick_phrase_bypass(
     code: &str,
     ordinary_rank: usize,
     slot: usize,
-    mode: FrequencyAdjustmentMode,
-    linear_step: i32,
-    trigger_count: i32,
     max_slot: usize,
+    frequency: &FrequencyAdjustmentOptions,
 ) -> Result<()> {
     if code.is_empty() {
         return Err(EngineError::invalid(UNSTORABLE_ENTRY));
     }
-    if mode == FrequencyAdjustmentMode::Disabled || max_slot == 0 {
+    if frequency.mode == FrequencyAdjustmentMode::Disabled || max_slot == 0 {
         return Ok(());
     }
     // 选中的候选本来就在组前面，或者组已经退到首页末位。
@@ -242,13 +241,18 @@ pub fn learn_quick_phrase_bypass(
         return Ok(());
     }
     // 整组算作它前面的一个位置：它的目标位置落在组的位置或更前，才算越过了这一组。
-    let target = ranking_target(ordinary_rank + 1, mode, linear_step, false);
+    let target = ranking_target(
+        ordinary_rank + 1,
+        frequency.mode,
+        frequency.linear_step,
+        false,
+    );
     if target > slot {
         return Ok(());
     }
     let journal = open_journal(journal_path)?;
     let transaction = Transaction::new_unchecked(&journal, TransactionBehavior::Immediate)?;
-    if count_slot_selection(&transaction, code, "bypass", trigger_count)? {
+    if count_slot_selection(&transaction, code, "bypass", frequency.trigger_count)? {
         write_quick_phrase_slot(&transaction, code, (slot + 1).min(max_slot) as i64)?;
     }
     Ok(transaction.commit()?)

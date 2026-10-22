@@ -138,9 +138,7 @@ impl InputSession {
                 &selected.word,
                 first_in_group,
                 slot,
-                self.frequency.mode,
-                self.frequency.linear_step,
-                self.frequency.trigger_count,
+                &self.frequency,
             )
             .err()
             .map(|_| diagnostics::FREQUENCY_NOT_PERSISTED.to_owned());
@@ -158,10 +156,8 @@ impl InputSession {
             &code,
             ordinary_rank,
             slot,
-            self.frequency.mode,
-            self.frequency.linear_step,
-            self.frequency.trigger_count,
             max_slot,
+            &self.frequency,
         )
         .err()
         .map(|_| diagnostics::FREQUENCY_NOT_PERSISTED.to_owned())
