@@ -39,7 +39,7 @@ Status: implemented
 
 ## Decision
 
-按四个切片落地：chord 契约与冲突表、macOS 宿主按键路由已交付；其他宿主的按键路由和设置页编辑器还没接，是后面的切片。
+按四个切片落地：chord 契约与冲突表、macOS 宿主按键路由、共享设置页录键编辑器与 MCP 读写已交付；其他宿主的按键路由仍写死，是后面的切片。
 
 `crates/client-core/src/key_chord.rs` 持有共享契约：`KeyChord { key: ChordKey, modifiers: ChordModifiers }`。`ChordKey` 是枚举（`Letter(char)`、`Digit(char)`、`Function(u8)` 加 Space/Semicolon/Period 等十二个具名键），`ChordModifiers` 是 `ctrl`/`alt`/`shift`/`meta` 四个布尔，`meta` 是 macOS Command、Windows Win、Linux Super 的中立名。字符串写法沿用旧版 v0.11.1 `key_chord.h` 的 `Key`/`Digit`/`F` 前缀和 `NamedKeys[]` 键名，与旧文档和设置页录入的写法互读；解析比旧版宽：大小写不敏感、修饰键按集合比较、`Ctrl`/`Control`、`Alt`/`Option`/`Opt`、`Meta`/`Win`/`Cmd`/`Command`/`Super` 互为别名；格式化输出唯一规范形（修饰键固定 `Ctrl`/`Alt`/`Shift`/`Meta` 顺序、键名取规范名），所以相等比较就是冲突判定（`conflicts_with` 是语义命名入口）。
 
@@ -55,6 +55,16 @@ Status: implemented
 
 全半角是两条触发臂（`ToggleFullWidthArm`）：绑定的 chord（出厂 `Ctrl+Shift+Space`）在中英文模式下都生效；`Option+Shift+H` 不算进 chord，仍是 macOS 既有快捷键，由 `keybindings.toggle_fullwidth_option_shift_h` 单独门控、只在中文模式——和改动前的行为逐项对应。
 
+## 共享设置页录键与 MCP
+
+快捷键页新增「切换热键」组（`ToggleHotkeysSection`），三个槽位各一行 `KeyChordRecorder`：点击进入「按下组合键…」录制态，按下的修饰键与主键实时回显（DOM `KeyboardEvent.code` 的物理键名与 `KeyChord` 规范名逐字一致，录入不需要第二份解析器）；按下非修饰键即提交，`Esc` 取消不写，`Backspace`/`Delete` 提交空串解绑、行上显示「未绑定」。提交经 `SettingsClient.checkToggleHotkey` 走 Tauri 命令 `check_toggle_hotkey` 调 `KeybindingPreferences::check_toggle_hotkey`——解析、归一化、`conflicts_with` 与占用表（`occupied_toggle_chords`，`Preferences::validate` 用同一份）全部只在 Rust 一侧；通过回规范写法写入草稿，非法写法回 `invalid`、撞键回 `conflict` 加 `ToggleChordOwner::id()`（另一个切换槽位用文档字段名、开关占用用开关字段名、语音/维护键用 `voice_hotkey`/`macos_maintenance`），页面按 id 行内指出「与『全角 / 半角切换』相同」一类的冲突项，不写草稿。整组只在 `host.toggle_hotkey_chords`（宿主认这三个 chord，目前只有 macOS）且 `checkToggleHotkey` 在时渲染——没有桥的宿主不可能绕过校验写入。`save_locked` 在 `validate` 前调 `normalize_toggle_hotkeys`，任何写入方（MCP、原生宿主）写下的别名写法落盘时归一成规范形。
+
+MCP 侧 `PreferencesView` / `PreferencesChange` 加了同名字段，`apply` 直接写 `keybindings`，归一化与冲突拒绝走 store 同一入口，错误串是 `InvalidToggleHotkey`/`ConflictingToggleHotkeys` 的 Display。
+
+「一个 chord 是另一个的前缀」在这个模型里不存在：chord 是修饰键集合加单主键的单击组合，不是序列，`conflicts_with` 的相等判定完备，没有扩展语义。
+
+原生侧范围：macOS AppKit 原生设置窗口冻结为回退（`docs/ARCHITECTURE.md`），本切片**不向它加这三个值的显示或录入**；它连三个切换键的既有行都没有，只读展示也无的放矢。可录入口只有共享 React 页（Tauri 设置应用、HarmonyOS 设置），其中能录的只有声明 `toggle_hotkey_chords` 的宿主。
+
 ## Alternatives considered
 
 - **只做 macOS，其他宿主保持写死。** 一个宿主改完就能验收，改动面小一个数量级，也不碰 Windows TSF 的 compartment 语义。不选：chord 契约与冲突检测必须落在共享 `client-core`（`docs/ARCHITECTURE.md` 要求规则下沉），共享层有了字段却只有 macOS 消费，正是「已迁但无消费」的危险状态；Windows 两行「无条件吞掉」恰是冲突点。
@@ -64,13 +74,13 @@ Status: implemented
 
 ## Consequences
 
-`cargo test -p msime-client-core` 全绿（`key_chord` 模块 11 项单测加偏好层 6 项）；`cargo fmt --all --check`、`cargo clippy -p msime-client-core --all-targets --locked -- -D warnings`、`cargo check -p msime-host-api -p msime-input-runtime -p msime-mcp-server --all-targets`、`bash scripts/run-checks.sh` 都过。
+`cargo test -p msime-client-core` 全绿（`key_chord` 模块 11 项单测加偏好层 10 项：`check_toggle_hotkey` 的规范归一、非法拒绝、按 owner 归因冲突、空串/解绑/重绑自己、开关开合改变占用表、保存归一化）；MCP 读写字段由 `msime-mcp-server` 的 `toggle_hotkeys_are_read_and_written_as_canonical_chords` 覆盖（别名写法归一落盘、非法与撞键拒绝且文档不动）。录键交互由 `apps/desktop/tests/settings/toggle-hotkeys.test.tsx` 六项 vitest 覆盖（三行渲染、录制提交、Esc 取消、Backspace 解绑显示未绑定、冲突与非法的行内错误）。`cargo fmt --all --check`、`cargo clippy -p msime-client-core --all-targets --locked -- -D warnings`、`cargo check -p msime-host-api -p msime-input-runtime -p msime-mcp-server --all-targets`、`pnpm --dir apps/desktop exec tsc --noEmit`、`bash scripts/run-checks.sh` 都过。
 
 macOS 侧两条 CTest：`toggle-hotkeys` 覆盖规范名解码、chord 命中和 FFI 回答的一致性（把 `Period` 的 keyCode 改错时它先失败、恢复后转绿）；`shortcut-toggle-hotkeys`（`shortcut-test --toggle-hotkeys`）走完 `applySharedInputPreferences` → 解码 → `handleEvent` 的真实路径：改成新键后按新键命中、按旧键不再命中、空串不绑定，Option+Shift+H 不随 `toggle_full_width` 改动。全量 `shortcut` suite 在无图形会话的机器上先倒在皮肤颜色断言（上游自身问题），所以重绑路径单独注册成一条 CTest。
 
-偏好文档形态是纯字符串：设置页和四份原生设置直接读写 `keybindings.toggle_*`，不再需要额外的序列化层；TS 契约（`packages/ui/src/settings/keybinding-preferences.ts`）随录键编辑器一起进。三个字段在 `scripts/test-preferences-field-parity.py` 的 `RUST_ONLY` 登记为「Rust 先行」，录入控件落地时移出。非法 chord 在 `load`/`save` 的 `validate` 被拒，整份文档进恢复流程逐字段打捞，坏字段回到出厂值而不是整份重置——与既有校验失败的恢复语义一致。`KeybindingPreferences` 不再 `Copy`：全仓只有本 crate 与它的测试按值用它，下游 `msime-host-api`、`msime-input-runtime`、`msime-mcp-server` 编译零改动。
+偏好文档形态是纯字符串：设置页和四份原生设置直接读写 `keybindings.toggle_*`，不再需要额外的序列化层；TS 契约随录键编辑器落地，三个字段已移出 `scripts/test-preferences-field-parity.py` 的 `RUST_ONLY`。非法 chord 在 `load`/`save` 的 `validate` 被拒，整份文档进恢复流程逐字段打捞，坏字段回到出厂值而不是整份重置——与既有校验失败的恢复语义一致。`KeybindingPreferences` 不再 `Copy`：全仓只有本 crate 与它的测试按值用它，下游 `msime-host-api`、`msime-input-runtime`、`msime-mcp-server` 编译零改动。
 
-`preference_coverage.py` 曾把三个字段登记为「预留、尚未接线」；macOS 宿主开始消费后该登记按门禁规则删除（「已读却挂着不适用理由」也是失败）。剩余切片的边界：输入菜单里写死的键位标签（`InputController.mm` 的菜单项 `keyEquivalent` 只是展示用、不构成第二绑定）和录键设置界面还没做；Windows / Linux / HarmonyOS 的路由仍写死，`Ctrl+Shift+Space` 在 Windows 上依旧无条件吞掉。
+`preference_coverage.py` 曾把三个字段登记为「预留、尚未接线」；macOS 宿主开始消费后该登记按门禁规则删除（「已读却挂着不适用理由」也是失败）。剩余切片的边界：输入菜单里写死的键位标签（`InputController.mm` 的菜单项 `keyEquivalent` 只是展示用、不构成第二绑定）没跟着 chord 更新显示；Windows / Linux / HarmonyOS 的路由仍写死，`Ctrl+Shift+Space` 在 Windows 上依旧无条件吞掉，这三处的录键入口由 `toggle_hotkey_chords` 门控、随各自路由切片打开。
 
 偏好测试新增在三态循环测试闭合之后，每项都有独立 `#[test]`：集成时漏掉旧函数闭合与第一项的属性会让整个 `lib test` 编译失败，也让出厂值断言无法被单独发现。修复后六项 `toggle_hotkeys` 回归通过。
 

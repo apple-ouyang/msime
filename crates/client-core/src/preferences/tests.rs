@@ -351,6 +351,174 @@ fn toggle_hotkeys_all_empty_disables_every_toggle() {
 }
 
 #[test]
+fn toggle_hotkey_check_returns_the_canonical_spelling() {
+    let keybindings = KeybindingPreferences::default();
+    for (slot, text, expected) in [
+        (
+            ToggleHotkeySlot::EnglishCandidates,
+            "Ctrl+Alt+KeyR",
+            "Ctrl+Alt+KeyR",
+        ),
+        // 解析比文档宽：别名、大小写和修饰键顺序都归一成规范形。
+        (
+            ToggleHotkeySlot::Punctuation,
+            "control+alt+slash",
+            "Ctrl+Alt+Slash",
+        ),
+        (
+            ToggleHotkeySlot::FullWidth,
+            "shift+ctrl+period",
+            "Ctrl+Shift+Period",
+        ),
+    ] {
+        assert_eq!(
+            keybindings.check_toggle_hotkey(slot, text, true),
+            Ok(expected.to_string()),
+            "{text}"
+        );
+    }
+    // 空串是合法的「不绑定」，通过且回空。
+    assert_eq!(
+        keybindings.check_toggle_hotkey(ToggleHotkeySlot::Punctuation, "  ", true),
+        Ok(String::new())
+    );
+    // 写回自己当前的绑定不算冲突（写法不同、指向同一按键也归一成同一个值）。
+    assert_eq!(
+        keybindings.check_toggle_hotkey(ToggleHotkeySlot::Punctuation, "control+period", true),
+        Ok("Ctrl+Period".to_string())
+    );
+}
+
+#[test]
+fn toggle_hotkey_check_rejects_unparseable_text() {
+    let keybindings = KeybindingPreferences::default();
+    for bad in ["Ctrl+", "Ctrl+Alt+Shift", "Ctrl+Banana", "Period+Ctrl"] {
+        assert!(
+            matches!(
+                keybindings.check_toggle_hotkey(ToggleHotkeySlot::Punctuation, bad, true),
+                Err(ToggleHotkeyRejection::Invalid(_))
+            ),
+            "{bad} must fail"
+        );
+    }
+}
+
+#[test]
+fn toggle_hotkey_check_names_the_conflicting_owner() {
+    let keybindings = KeybindingPreferences {
+        toggle_japanese_ctrl_shift_j: true,
+        ..KeybindingPreferences::default()
+    };
+    // 撞另一个切换热键：owner 是那个槽位，设置页按它指出「与哪一项冲突」。
+    for (slot, text, owner) in [
+        (
+            ToggleHotkeySlot::Punctuation,
+            "ctrl+shift+keye",
+            ToggleChordOwner::EnglishCandidates,
+        ),
+        (
+            ToggleHotkeySlot::EnglishCandidates,
+            "Ctrl+Period",
+            ToggleChordOwner::Punctuation,
+        ),
+        // 撞已启用开关占用的组合键：owner 指到占用它的开关。
+        (
+            ToggleHotkeySlot::Punctuation,
+            "Ctrl+Shift+KeyF",
+            ToggleChordOwner::ToggleCharacterSetCtrlShiftF,
+        ),
+        (
+            ToggleHotkeySlot::FullWidth,
+            "Ctrl+Space",
+            ToggleChordOwner::SwitchLanguageCtrlSpace,
+        ),
+        (
+            ToggleHotkeySlot::FullWidth,
+            "Ctrl+Shift+KeyJ",
+            ToggleChordOwner::ToggleJapaneseCtrlShiftJ,
+        ),
+        (
+            ToggleHotkeySlot::FullWidth,
+            "Ctrl+F9",
+            ToggleChordOwner::VoiceHotkey,
+        ),
+        (
+            ToggleHotkeySlot::FullWidth,
+            "Ctrl+Shift+F9",
+            ToggleChordOwner::VoiceHotkey,
+        ),
+        // macOS 维护键没有开关，照样指名。
+        (
+            ToggleHotkeySlot::FullWidth,
+            "Ctrl+Alt+Shift+KeyT",
+            ToggleChordOwner::MacosMaintenance,
+        ),
+    ] {
+        let Err(ToggleHotkeyRejection::Conflict {
+            owner: actual,
+            chord,
+        }) = keybindings.check_toggle_hotkey(slot, text, true)
+        else {
+            panic!("{text} must conflict");
+        };
+        assert_eq!(actual, owner, "{text}");
+        assert_eq!(chord, text.parse().unwrap(), "{text}");
+    }
+    // owner 有跨进程用的稳定标识：撞切换热键时用文档字段名，撞占用键时用开关字段名或 `voice_hotkey` / `macos_maintenance`。
+    assert_eq!(
+        ToggleChordOwner::EnglishCandidates.id(),
+        "toggle_english_candidates"
+    );
+    assert_eq!(ToggleChordOwner::VoiceHotkey.id(), "voice_hotkey");
+    assert_eq!(ToggleChordOwner::MacosMaintenance.id(), "macos_maintenance");
+
+    // 占用随开关开合：关掉简繁、中日切换和语音热键后，这些组合键可以绑出去。
+    let mut keybindings = KeybindingPreferences {
+        toggle_character_set_ctrl_shift_f: false,
+        toggle_japanese_ctrl_shift_j: false,
+        ..KeybindingPreferences::default()
+    };
+    assert_eq!(
+        keybindings.check_toggle_hotkey(ToggleHotkeySlot::FullWidth, "Ctrl+Shift+KeyF", false),
+        Ok("Ctrl+Shift+KeyF".to_string())
+    );
+    assert_eq!(
+        keybindings.check_toggle_hotkey(ToggleHotkeySlot::FullWidth, "Ctrl+F9", false),
+        Ok("Ctrl+F9".to_string())
+    );
+    // 另一个切换热键解绑（空串）后，这个组合键也可以绑出去。
+    keybindings.toggle_punctuation = String::new();
+    assert_eq!(
+        keybindings.check_toggle_hotkey(ToggleHotkeySlot::FullWidth, "Ctrl+Period", false),
+        Ok("Ctrl+Period".to_string())
+    );
+}
+
+#[test]
+fn saving_canonicalizes_toggle_hotkey_spellings() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let snapshot = store.load().unwrap();
+    let mut preferences = snapshot.preferences.clone();
+    preferences.keybindings.toggle_punctuation = "control+alt+slash".into();
+    // 与出厂值等价的别名写法归一后与出厂写法相同，一样不落盘。
+    preferences.keybindings.toggle_english_candidates = "control+shift+keye".into();
+    let saved = store.save(snapshot.revision, preferences).unwrap();
+    assert_eq!(
+        saved.preferences.keybindings.toggle_punctuation,
+        "Ctrl+Alt+Slash"
+    );
+    assert_eq!(
+        saved.preferences.keybindings.toggle_english_candidates,
+        "Ctrl+Shift+KeyE"
+    );
+    let document = serde_json::to_value(&saved).unwrap();
+    let keybindings = document["preferences"]["keybindings"].as_object().unwrap();
+    assert_eq!(keybindings["toggle_punctuation"], "Ctrl+Alt+Slash");
+    assert!(!keybindings.contains_key("toggle_english_candidates"));
+}
+
+#[test]
 fn voice_commit_mode_defaults_for_legacy_documents() {
     let mut value = serde_json::to_value(Preferences::default()).unwrap();
     value["voice_input"]
