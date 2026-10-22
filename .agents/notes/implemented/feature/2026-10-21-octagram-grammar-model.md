@@ -59,3 +59,13 @@ SHA-256 一致。许可声明在 `resources/licenses/rime-baguwen-LGPL-3.0.txt` 
 资源包卸载通过 `msime-host-api` 的边界摘除共享映射，桌面宿主不再直接依赖 Engine；卸载命令与其他桌面资源包命令使用相同的平台条件，不进入 Android/iOS 的 Tauri 命令表；白霜模型因 GPL 及构建链许可未确认继续不在桌面设置提供。模型包安装或删除后，宿主在下一次聚焦时比较当前 `.gram` 路径并触发 Engine 重建。读取端拒绝数组偏移落在文件末尾之外的非法头部。
 
 资源包卸载复用语音安装器的跨进程锁、目录描述符与先整体改名的流程，只处理已发布的真实目录，安装期间拒绝卸载；符号链接和未发布目录保持原样。活跃会话持有的映射不会被强制释放，Windows 的占用错误仍通过原有错误入口报告。
+
+## 2026-10-22 补充：octagram 调参系数进偏好（对应 Windows `sentence_collocation_*`）
+
+Windows v0.11.1 出厂模板的 `[association]` 有七个不进设置页的高级调参键：`sentence_collocation_weight`（1.0）、`sentence_collocation_max_length`（6）、`sentence_collocation_min_length`（2）、`sentence_collocation_penalty`（-14.0）、`sentence_collocation_non_penalty`（-6.0）、`sentence_collocation_weak_penalty`（-100.0）、`sentence_collocation_rear_penalty`（-18.0）。新架构的 `GramConfig` 早已是这些参数的结构体，但值是定值，偏好层不可调。本轮把同名七键加进 `SentenceAssociationPreferences`（键名逐字与 Windows 一致），host-api 的 `engine_sentence_association` 逐字段透传进 `collocation_weight` 与 `collocation_grammar`。
+
+**不进设置页**与 Windows 一致：两边都只让它们在配置文件里可写，共享设置页不加控件；TS 侧对象经 `...value` 展开保存，未知键原样保留不会被抹掉。
+
+**校验口径选了「逐键回退」而不是「整份拒绝」**，照 Windows 的实际做法：参考实现只走 `value_or(出厂值)`，类型不可转才回退，没有显式范围或有限性校验（`cn_en_mixed_input_*` 那种 clamp 是别的键的写法，不在这组上）。本侧用 `deserialize_with` 把「类型不符 / i32 放不下 / 非有限」逐键回出厂值，文档其余部分照常生效——偏好文档是全量写入的，整份拒绝会让一个手误把用户全部设置打回默认，比 Windows 的后果重得多。越界的有限值（如 `max_length = -5`）照 Windows 原样透传：引擎端 `n < 1` 与 `min(n, 8)` 已把极端值挡在安全范围，不为它发明语义。**与 v0.11.1 的差异（只记录）**：Windows 的 TOML 写 `inf`/`nan` 会原样进打分；本侧拦了非有限值（JSON `1e400` 可解析出 `inf`），属刻意的更严一侧。
+
+`SentenceAssociationPreferences` 因引入 `f64` 字段移除了 `Eq`（保留 `PartialEq`），`Copy` 不变。缺键时由容器级 `#[serde(default)]` 落到 `Default` 出厂值，等于出厂值时 `skip_serializing_if` 不写进文档（与 `quote_style` 一致）。`scripts/test-windows-config-keys.py` 的钉住来源（345cb87a）早于这组键，不受影响；`preference_coverage.py` 因 host-api 直接读这些字段名而判定可达，无需 `NOT_APPLICABLE` 登记。

@@ -410,6 +410,16 @@ fn engine_sentence_association(
         show_next_on_duplicate: preferences.show_next_on_duplicate,
         collocation_model,
         collocation_rerank: pack.is_some(),
+        // 搭配调参系数逐字段透传；偏好层已把非法值回退到出厂值。
+        collocation_weight: preferences.sentence_collocation_weight,
+        collocation_grammar: msime_engine::octagram::GramConfig {
+            collocation_max_length: preferences.sentence_collocation_max_length,
+            collocation_min_length: preferences.sentence_collocation_min_length,
+            collocation_penalty: preferences.sentence_collocation_penalty,
+            non_collocation_penalty: preferences.sentence_collocation_non_penalty,
+            weak_collocation_penalty: preferences.sentence_collocation_weak_penalty,
+            rear_penalty: preferences.sentence_collocation_rear_penalty,
+        },
         ..Default::default()
     }
 }

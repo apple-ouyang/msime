@@ -18773,3 +18773,41 @@ fn grammar_pack_install_and_remove_mark_the_session_for_rebuild() {
     });
     read(msime_client_destroy(handle));
 }
+
+/// 搭配调参系数从偏好透传到引擎：出厂映射与 `GramConfig::default()` 逐项一致；
+/// `weight = 0` 原样下发（词典按 `collocation_weight != 0.0` 判定装配 scorer，
+/// 0 即关闭加成），惩罚改动原样进 `collocation_grammar` 参与打分。
+#[test]
+fn sentence_collocation_tuning_reaches_engine_options() {
+    let defaults = engine_sentence_association(
+        &msime_client_core::preferences::SentenceAssociationPreferences::default(),
+        None,
+    );
+    assert_eq!(defaults.collocation_weight, 1.0);
+    assert_eq!(
+        defaults.collocation_grammar,
+        msime_engine::octagram::GramConfig::default()
+    );
+
+    let mut preferences = msime_client_core::preferences::SentenceAssociationPreferences::default();
+    preferences.sentence_collocation_weight = 0.0;
+    preferences.sentence_collocation_max_length = 4;
+    preferences.sentence_collocation_min_length = 3;
+    preferences.sentence_collocation_penalty = -30.0;
+    preferences.sentence_collocation_non_penalty = -9.0;
+    preferences.sentence_collocation_weak_penalty = -120.0;
+    preferences.sentence_collocation_rear_penalty = -25.0;
+    let options = engine_sentence_association(&preferences, None);
+    assert_eq!(options.collocation_weight, 0.0);
+    assert_eq!(
+        options.collocation_grammar,
+        msime_engine::octagram::GramConfig {
+            collocation_max_length: 4,
+            collocation_min_length: 3,
+            collocation_penalty: -30.0,
+            non_collocation_penalty: -9.0,
+            weak_collocation_penalty: -120.0,
+            rear_penalty: -25.0,
+        }
+    );
+}

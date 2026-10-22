@@ -861,7 +861,7 @@ pub enum GrammarModel {
 }
 
 /// Candidate sentence-association sources. The dictionary lattice keeps its historical default; neural rerankers are opt-in because they add model work while typing or settling.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SentenceAssociationPreferences {
     #[serde(default = "enabled_by_default")]
@@ -877,6 +877,51 @@ pub struct SentenceAssociationPreferences {
     /// 选中但还没下载时等于 `None`（逐字节退回无模型基线）。
     #[serde(default)]
     pub grammar_model: GrammarModel,
+    /// 搭配项标定系数（log10 域）：0 = 关闭加成。与 Windows `[association]`
+    /// `sentence_collocation_weight` 同名同出厂值；不进设置页，只在
+    /// preferences.json 里手调，等于出厂值时不写进文档。键缺失、类型不符或
+    /// 非有限值时回出厂值（见 `deserialize_sentence_collocation_weight`）。
+    #[serde(
+        deserialize_with = "deserialize_sentence_collocation_weight",
+        skip_serializing_if = "is_default_sentence_collocation_weight"
+    )]
+    pub sentence_collocation_weight: f64,
+    /// 搭配上下文与词的码点长度上限/下限，对应 Windows `sentence_collocation_max_length`
+    /// / `sentence_collocation_min_length`；取值口径与写入约定同 `sentence_collocation_weight`。
+    #[serde(
+        deserialize_with = "deserialize_sentence_collocation_max_length",
+        skip_serializing_if = "is_default_sentence_collocation_max_length"
+    )]
+    pub sentence_collocation_max_length: i32,
+    #[serde(
+        deserialize_with = "deserialize_sentence_collocation_min_length",
+        skip_serializing_if = "is_default_sentence_collocation_min_length"
+    )]
+    pub sentence_collocation_min_length: i32,
+    /// 命中搭配的惩罚，对应 Windows `sentence_collocation_penalty`。
+    #[serde(
+        deserialize_with = "deserialize_sentence_collocation_penalty",
+        skip_serializing_if = "is_default_sentence_collocation_penalty"
+    )]
+    pub sentence_collocation_penalty: f64,
+    /// 全部窗口未命中时的常数分，对应 Windows `sentence_collocation_non_penalty`。
+    #[serde(
+        deserialize_with = "deserialize_sentence_collocation_non_penalty",
+        skip_serializing_if = "is_default_sentence_collocation_non_penalty"
+    )]
+    pub sentence_collocation_non_penalty: f64,
+    /// 搭配长度低于下限时的弱命中惩罚，对应 Windows `sentence_collocation_weak_penalty`。
+    #[serde(
+        deserialize_with = "deserialize_sentence_collocation_weak_penalty",
+        skip_serializing_if = "is_default_sentence_collocation_weak_penalty"
+    )]
+    pub sentence_collocation_weak_penalty: f64,
+    /// 句尾词的「词+$」项惩罚，对应 Windows `sentence_collocation_rear_penalty`。
+    #[serde(
+        deserialize_with = "deserialize_sentence_collocation_rear_penalty",
+        skip_serializing_if = "is_default_sentence_collocation_rear_penalty"
+    )]
+    pub sentence_collocation_rear_penalty: f64,
 }
 
 impl Default for SentenceAssociationPreferences {
@@ -887,8 +932,127 @@ impl Default for SentenceAssociationPreferences {
             neural_keyboard: false,
             show_next_on_duplicate: false,
             grammar_model: GrammarModel::None,
+            sentence_collocation_weight: SENTENCE_COLLOCATION_WEIGHT_DEFAULT,
+            sentence_collocation_max_length: SENTENCE_COLLOCATION_MAX_LENGTH_DEFAULT,
+            sentence_collocation_min_length: SENTENCE_COLLOCATION_MIN_LENGTH_DEFAULT,
+            sentence_collocation_penalty: SENTENCE_COLLOCATION_PENALTY_DEFAULT,
+            sentence_collocation_non_penalty: SENTENCE_COLLOCATION_NON_PENALTY_DEFAULT,
+            sentence_collocation_weak_penalty: SENTENCE_COLLOCATION_WEAK_PENALTY_DEFAULT,
+            sentence_collocation_rear_penalty: SENTENCE_COLLOCATION_REAR_PENALTY_DEFAULT,
         }
     }
+}
+
+/// octagram 搭配调参系数的出厂值：与 Windows `installer/default_config/config.default.toml`
+/// 的 `[association]` 键和 `engine` 的 `GramConfig::default()` 逐项一致（万象现行
+/// 6/2/-14/-6/-100/-18，weight 1.0）。
+const SENTENCE_COLLOCATION_WEIGHT_DEFAULT: f64 = 1.0;
+const SENTENCE_COLLOCATION_MAX_LENGTH_DEFAULT: i32 = 6;
+const SENTENCE_COLLOCATION_MIN_LENGTH_DEFAULT: i32 = 2;
+const SENTENCE_COLLOCATION_PENALTY_DEFAULT: f64 = -14.0;
+const SENTENCE_COLLOCATION_NON_PENALTY_DEFAULT: f64 = -6.0;
+const SENTENCE_COLLOCATION_WEAK_PENALTY_DEFAULT: f64 = -100.0;
+const SENTENCE_COLLOCATION_REAR_PENALTY_DEFAULT: f64 = -18.0;
+
+/// 搭配调参系数的容错读取，与 Windows `value_or(出厂值)` 同口径：键缺失走
+/// `#[serde(default)]`（即 `Default` 里的出厂值），类型不符、超出目标范围或
+/// 非有限值回出厂值，文档其余字段照常生效——单个手误不该让整份偏好不可读。
+/// JSON 里 `1e400` 能解析出 `inf`，不挡会把非有限分带进词格打分。
+fn tuned_collocation_f64<'de, D>(deserializer: D, default: f64) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(serde_json::Value::deserialize(deserializer)?
+        .as_f64()
+        .filter(|value| value.is_finite())
+        .unwrap_or(default))
+}
+
+fn tuned_collocation_i32<'de, D>(deserializer: D, default: i32) -> Result<i32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(serde_json::Value::deserialize(deserializer)?
+        .as_i64()
+        .and_then(|value| i32::try_from(value).ok())
+        .unwrap_or(default))
+}
+
+fn deserialize_sentence_collocation_weight<'de, D>(d: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    tuned_collocation_f64(d, SENTENCE_COLLOCATION_WEIGHT_DEFAULT)
+}
+
+fn deserialize_sentence_collocation_max_length<'de, D>(d: D) -> Result<i32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    tuned_collocation_i32(d, SENTENCE_COLLOCATION_MAX_LENGTH_DEFAULT)
+}
+
+fn deserialize_sentence_collocation_min_length<'de, D>(d: D) -> Result<i32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    tuned_collocation_i32(d, SENTENCE_COLLOCATION_MIN_LENGTH_DEFAULT)
+}
+
+fn deserialize_sentence_collocation_penalty<'de, D>(d: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    tuned_collocation_f64(d, SENTENCE_COLLOCATION_PENALTY_DEFAULT)
+}
+
+fn deserialize_sentence_collocation_non_penalty<'de, D>(d: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    tuned_collocation_f64(d, SENTENCE_COLLOCATION_NON_PENALTY_DEFAULT)
+}
+
+fn deserialize_sentence_collocation_weak_penalty<'de, D>(d: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    tuned_collocation_f64(d, SENTENCE_COLLOCATION_WEAK_PENALTY_DEFAULT)
+}
+
+fn deserialize_sentence_collocation_rear_penalty<'de, D>(d: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    tuned_collocation_f64(d, SENTENCE_COLLOCATION_REAR_PENALTY_DEFAULT)
+}
+
+fn is_default_sentence_collocation_weight(value: &f64) -> bool {
+    *value == SENTENCE_COLLOCATION_WEIGHT_DEFAULT
+}
+
+fn is_default_sentence_collocation_max_length(value: &i32) -> bool {
+    *value == SENTENCE_COLLOCATION_MAX_LENGTH_DEFAULT
+}
+
+fn is_default_sentence_collocation_min_length(value: &i32) -> bool {
+    *value == SENTENCE_COLLOCATION_MIN_LENGTH_DEFAULT
+}
+
+fn is_default_sentence_collocation_penalty(value: &f64) -> bool {
+    *value == SENTENCE_COLLOCATION_PENALTY_DEFAULT
+}
+
+fn is_default_sentence_collocation_non_penalty(value: &f64) -> bool {
+    *value == SENTENCE_COLLOCATION_NON_PENALTY_DEFAULT
+}
+
+fn is_default_sentence_collocation_weak_penalty(value: &f64) -> bool {
+    *value == SENTENCE_COLLOCATION_WEAK_PENALTY_DEFAULT
+}
+
+fn is_default_sentence_collocation_rear_penalty(value: &f64) -> bool {
+    *value == SENTENCE_COLLOCATION_REAR_PENALTY_DEFAULT
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

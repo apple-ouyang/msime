@@ -6781,3 +6781,113 @@ fn helpcode_trigger_keys_roundtrip_independently_and_validate() {
         }
     }
 }
+
+#[test]
+fn sentence_collocation_tuning_defaults_match_windows_factory() {
+    let association = Preferences::default().sentence_association;
+    assert_eq!(association.sentence_collocation_weight, 1.0);
+    assert_eq!(association.sentence_collocation_max_length, 6);
+    assert_eq!(association.sentence_collocation_min_length, 2);
+    assert_eq!(association.sentence_collocation_penalty, -14.0);
+    assert_eq!(association.sentence_collocation_non_penalty, -6.0);
+    assert_eq!(association.sentence_collocation_weak_penalty, -100.0);
+    assert_eq!(association.sentence_collocation_rear_penalty, -18.0);
+}
+
+#[test]
+fn sentence_collocation_tuning_serializes_only_when_not_factory() {
+    // 全出厂值：七个键一个都不写进文档（与 quote_style 的约定一致）。
+    let defaults = serde_json::to_value(Preferences::default()).unwrap();
+    let association = defaults["sentence_association"].as_object().unwrap();
+    for key in [
+        "sentence_collocation_weight",
+        "sentence_collocation_max_length",
+        "sentence_collocation_min_length",
+        "sentence_collocation_penalty",
+        "sentence_collocation_non_penalty",
+        "sentence_collocation_weak_penalty",
+        "sentence_collocation_rear_penalty",
+    ] {
+        assert!(
+            !association.contains_key(key),
+            "{key} 等于出厂值不该写进文档"
+        );
+    }
+
+    // 改过才写，且写出的值能原样读回。
+    let mut tuned = Preferences::default();
+    tuned.sentence_association.sentence_collocation_weight = 0.0;
+    tuned.sentence_association.sentence_collocation_penalty = -30.0;
+    tuned.sentence_association.sentence_collocation_max_length = 4;
+    let value = serde_json::to_value(&tuned).unwrap();
+    let association = &value["sentence_association"];
+    assert_eq!(
+        association["sentence_collocation_weight"],
+        serde_json::json!(0.0)
+    );
+    assert_eq!(
+        association["sentence_collocation_penalty"],
+        serde_json::json!(-30.0)
+    );
+    assert_eq!(
+        association["sentence_collocation_max_length"],
+        serde_json::json!(4)
+    );
+    assert!(!association
+        .as_object()
+        .unwrap()
+        .contains_key("sentence_collocation_min_length"));
+    let restored: Preferences = serde_json::from_value(value).unwrap();
+    assert_eq!(restored.sentence_association, tuned.sentence_association);
+}
+
+/// 与 Windows `value_or` 同口径的逐键回退：类型不符、i32 放不下的整数、非有限值
+/// 各自回出厂值，相邻键和文档其余部分照常生效——单个手误不让整份文档不可读。
+#[test]
+fn sentence_collocation_tuning_falls_back_per_key_on_bad_values() {
+    let mut document = serde_json::to_value(Preferences::default()).unwrap();
+    document["sentence_association"] = serde_json::json!({
+        "word_lattice": false,
+        "sentence_collocation_weight": "high",
+        "sentence_collocation_max_length": 5_000_000_000i64,
+        "sentence_collocation_min_length": true,
+        "sentence_collocation_penalty": -20.0,
+        "sentence_collocation_non_penalty": {"bad": "object"},
+        "sentence_collocation_weak_penalty": [1, 2],
+        "sentence_collocation_rear_penalty": null
+    });
+    let parsed: Preferences = serde_json::from_value(document).unwrap();
+    let association = parsed.sentence_association;
+    assert!(!association.word_lattice, "相邻的合法键照常生效");
+    assert_eq!(association.sentence_collocation_weight, 1.0);
+    assert_eq!(association.sentence_collocation_max_length, 6);
+    assert_eq!(association.sentence_collocation_min_length, 2);
+    assert_eq!(association.sentence_collocation_penalty, -20.0);
+    assert_eq!(association.sentence_collocation_non_penalty, -6.0);
+    assert_eq!(association.sentence_collocation_weak_penalty, -100.0);
+    assert_eq!(association.sentence_collocation_rear_penalty, -18.0);
+    parsed.validate().unwrap();
+}
+
+/// `1e400` 这种合法 JSON 数能进到 f64 的非有限区；读成偏好必须回出厂值，
+/// 不能把 inf/NaN 带进词格打分。
+#[test]
+fn sentence_collocation_tuning_rejects_non_finite_values() {
+    for (key, raw) in [
+        ("sentence_collocation_weight", "1e400"),
+        ("sentence_collocation_penalty", "-1e400"),
+    ] {
+        let mut document = serde_json::to_value(Preferences::default()).unwrap();
+        document["sentence_association"][key] =
+            serde_json::from_str(raw).unwrap_or(serde_json::Value::Null);
+        let parsed: Preferences = serde_json::from_value(document).unwrap();
+        assert_eq!(
+            parsed.sentence_association.sentence_collocation_weight, 1.0,
+            "{key}"
+        );
+        assert_eq!(
+            parsed.sentence_association.sentence_collocation_penalty, -14.0,
+            "{key}"
+        );
+    }
+}
