@@ -95,6 +95,10 @@ pub struct EngineOptions {
     pub corner_quotes: bool,
     /// 中文标点下 `[` `]` 出空心〖〗（`BracketMarks::Hollow`），否则是实心【】。
     pub hollow_brackets: bool,
+    /// 中文标点下 `\` 键出顿号「、」（契约 `enumerationComma` 段，宿主已按偏好解析）。默认开。
+    pub enumeration_comma_backslash: bool,
+    /// 中文标点下 `/` 键出顿号「、」。默认关：词首的 `/` 是命令模式触发键，命令模式优先。
+    pub enumeration_comma_slash: bool,
     pub frequency_mode: String,
     pub frequency_trigger_count: u8,
     pub frequency_linear_step: u8,
@@ -219,6 +223,8 @@ pub fn prepare_options_for(
         punctuation_lock: 0,
         corner_quotes: false,
         hollow_brackets: false,
+        enumeration_comma_backslash: true,
+        enumeration_comma_slash: false,
         frequency_mode: FrequencyAdjustmentMode::Promote.name().to_owned(),
         frequency_trigger_count: 1,
         frequency_linear_step: 1,
@@ -333,6 +339,8 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         } else {
             BracketMarks::Solid
         },
+        enumeration_comma_backslash: options.enumeration_comma_backslash,
+        enumeration_comma_slash: options.enumeration_comma_slash,
     };
     session.helpcode = options.helpcode;
     session.helpcode_trigger_key = options.helpcode_trigger_key;

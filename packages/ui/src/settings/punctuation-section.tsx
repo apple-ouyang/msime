@@ -12,6 +12,7 @@ import {
   smartPunctuation,
   smartPunctuationRefinements,
   capsLockPunctuation,
+  enumerationCommaSwitches,
   pairedPunctuation,
   punctuationLockOptions,
   punctuationModeOptions,
@@ -58,7 +59,8 @@ export function PunctuationSection({
   showCapsLockPunctuation = false,
   onChange,
 }: PunctuationSectionProps) {
-  const smartEnabled = punctuationControlState(preferences).smart_punctuation;
+  const state = punctuationControlState(preferences);
+  const smartEnabled = state.smart_punctuation;
   return (
     <>
       <PunctuationModeRow preferences={preferences} onChange={onChange} />
@@ -73,6 +75,23 @@ export function PunctuationSection({
       />
       <MoreOptions>
         <BracketStyleRow preferences={preferences} onChange={onChange} />
+        {enumerationCommaSwitches.map(([key, label, description]) => (
+          <PunctuationSwitchRow
+            key={key}
+            preference={key}
+            title={label}
+            description={description}
+            disabled={
+              !state[
+                key === "enumeration_comma_backslash"
+                  ? "enumeration_comma_slash"
+                  : "enumeration_comma_backslash"
+              ]
+            }
+            preferences={preferences}
+            onChange={onChange}
+          />
+        ))}
         <SmartPunctuationRow preferences={preferences} onChange={onChange} />
         {smartPunctuationRefinements.map(([key, label, description]) => (
           <PunctuationSwitchRow
@@ -241,7 +260,8 @@ export function PhonePunctuationSection({
   preferences,
   onChange,
 }: Pick<PunctuationSectionProps, "preferences" | "onChange">) {
-  const smartEnabled = punctuationControlState(preferences).smart_punctuation;
+  const state = punctuationControlState(preferences);
+  const smartEnabled = state.smart_punctuation;
   return (
     <>
       <SwitchRow
@@ -258,6 +278,23 @@ export function PhonePunctuationSection({
       <MoreOptions>
         <QuoteStyleRow preferences={preferences} onChange={onChange} />
         <BracketStyleRow preferences={preferences} onChange={onChange} />
+        {enumerationCommaSwitches.map(([key, label, description]) => (
+          <PunctuationSwitchRow
+            key={key}
+            preference={key}
+            title={label}
+            description={description}
+            disabled={
+              !state[
+                key === "enumeration_comma_backslash"
+                  ? "enumeration_comma_slash"
+                  : "enumeration_comma_backslash"
+              ]
+            }
+            preferences={preferences}
+            onChange={onChange}
+          />
+        ))}
         <SmartPunctuationRow preferences={preferences} onChange={onChange} />
         {smartPunctuationRefinements.map(([key, label, description]) => (
           <PunctuationSwitchRow

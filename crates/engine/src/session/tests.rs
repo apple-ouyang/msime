@@ -10878,6 +10878,8 @@ fn a_zero_first_page_rows_reads_as_one_row() {
 const CORNER_HOLLOW: crate::punctuation::PunctuationMarks = crate::punctuation::PunctuationMarks {
     quotes: crate::punctuation::QuoteMarks::Corner,
     brackets: crate::punctuation::BracketMarks::Hollow,
+    enumeration_comma_backslash: true,
+    enumeration_comma_slash: false,
 };
 
 #[test]

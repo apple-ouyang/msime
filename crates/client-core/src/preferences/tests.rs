@@ -6308,6 +6308,46 @@ fn punctuation_styles_default_omitted_roundtrip_and_reject_unknown_values() {
     }
 }
 
+// 顿号自定义（Windows v0.11.1 `input.enumeration_comma_*`）：`\` 默认开、`/` 默认关，等于缺省时不写进文档，没有这个键的旧文档按缺省读；两个键各自的取值都能保存读回。
+#[test]
+fn enumeration_comma_keys_default_omitted_and_roundtrip() {
+    let defaults = Preferences::default();
+    assert!(defaults.enumeration_comma_backslash);
+    assert!(!defaults.enumeration_comma_slash);
+    let written = serde_json::to_value(&defaults).unwrap();
+    assert!(written.get("enumeration_comma_backslash").is_none());
+    assert!(written.get("enumeration_comma_slash").is_none());
+    let read = serde_json::from_value::<Preferences>(written).unwrap();
+    assert!(read.enumeration_comma_backslash);
+    assert!(!read.enumeration_comma_slash);
+
+    // 「两个都关」的文档照样读得进来（deny_unknown_fields 不拦），归一在 `punctuation_marks`。
+    let mut document = serde_json::to_value(&defaults).unwrap();
+    document["enumeration_comma_backslash"] = serde_json::Value::Bool(false);
+    document["enumeration_comma_slash"] = serde_json::Value::Bool(false);
+    let parsed: Preferences = serde_json::from_value(document).unwrap();
+    assert!(!parsed.enumeration_comma_backslash);
+    assert!(!parsed.enumeration_comma_slash);
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let saved = store
+        .save(
+            0,
+            Preferences {
+                enumeration_comma_backslash: false,
+                enumeration_comma_slash: true,
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    let on_disk: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(on_disk["preferences"]["enumeration_comma_backslash"], false);
+    assert_eq!(on_disk["preferences"]["enumeration_comma_slash"], true);
+    assert_eq!(store.load().unwrap(), saved);
+}
+
 /// `value` 里每一个对象（数组元素里的除外）的键路径。
 fn object_paths(value: &serde_json::Value, path: &mut Vec<String>, found: &mut Vec<Vec<String>>) {
     let serde_json::Value::Object(object) = value else {

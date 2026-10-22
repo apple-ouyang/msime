@@ -4802,6 +4802,8 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         punctuation_lock: 0,
         corner_quotes: false,
         hollow_brackets: false,
+        enumeration_comma_backslash: true,
+        enumeration_comma_slash: false,
         frequency_mode: "promote".into(),
         frequency_trigger_count: 1,
         frequency_linear_step: 1,
@@ -9548,18 +9550,29 @@ fn view_reports_the_applied_punctuation_marks() {
     let json = serde_json::to_value(runtime.view()).unwrap();
     assert_eq!(
         json["punctuation_marks"],
-        serde_json::json!({ "quotes": "curly", "brackets": "solid" })
+        serde_json::json!({
+            "quotes": "curly",
+            "brackets": "solid",
+            "enumeration_comma_backslash": true,
+            "enumeration_comma_slash": false,
+        })
     );
     let before = runtime.view().generation;
     runtime.set_punctuation_marks(PunctuationMarks {
         quotes: QuoteMarks::Corner,
         brackets: msime_client_core::preferences::BracketStyle::Hollow,
+        ..PunctuationMarks::default()
     });
     let view = runtime.view();
     assert_eq!(view.generation, before);
     assert_eq!(
         serde_json::to_value(&view).unwrap()["punctuation_marks"],
-        serde_json::json!({ "quotes": "corner", "brackets": "hollow" })
+        serde_json::json!({
+            "quotes": "corner",
+            "brackets": "hollow",
+            "enumeration_comma_backslash": true,
+            "enumeration_comma_slash": false,
+        })
     );
 }
 

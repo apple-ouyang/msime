@@ -1165,6 +1165,12 @@ pub struct Preferences {
     /// 中文标点下方头括号键的样式（W#24）。等于默认值（实心）时不写进文档。
     #[serde(default, skip_serializing_if = "BracketStyle::is_default")]
     pub bracket_style: BracketStyle,
+    /// 顿号自定义：中文标点下 `\` 键输出顿号「、」（Windows v0.11.1 `input.enumeration_comma_backslash`）。默认开，等于默认值时不写进文档。两个顿号键都关掉时按「`\` 开」读，归一在 `crate::punctuation::punctuation_marks`。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub enumeration_comma_backslash: bool,
+    /// 顿号自定义：中文标点下 `/` 键输出顿号「、」。默认关：新架构的 `/` 在词首是命令模式触发键，现有用户的 `/` 从来不出顿号，和 Windows 升级用户（旧配置没有这个键时并成 `false`）一致；打开后词首仍打开命令模式，其余位置出顿号。等于默认值时不写进文档。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub enumeration_comma_slash: bool,
     #[serde(default)]
     pub navigation: NavigationPreferences,
     #[serde(default)]
@@ -2690,6 +2696,8 @@ impl Default for Preferences {
             caps_lock_ascii_punctuation: false,
             quote_style: QuoteStyle::Curly,
             bracket_style: BracketStyle::Solid,
+            enumeration_comma_backslash: true,
+            enumeration_comma_slash: false,
             navigation: NavigationPreferences::default(),
             keybindings: KeybindingPreferences::default(),
             word_character: WordCharacterPreferences::default(),

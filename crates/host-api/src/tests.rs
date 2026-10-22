@@ -268,6 +268,8 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         punctuation_lock: 0,
         corner_quotes: false,
         hollow_brackets: false,
+        enumeration_comma_backslash: true,
+        enumeration_comma_slash: false,
         frequency_mode: "disabled".into(),
         frequency_trigger_count: 1,
         frequency_linear_step: 1,
@@ -17495,10 +17497,17 @@ fn punctuation_marks_follow_preferences_and_the_view_reports_them() {
     let view = read(msime_client_view(handle))["value"].clone();
     assert_eq!(
         view["punctuation_marks"],
-        json!({ "quotes": "curly", "brackets": "solid" })
+        json!({
+            "quotes": "curly",
+            "brackets": "solid",
+            "enumeration_comma_backslash": true,
+            "enumeration_comma_slash": false,
+        })
     );
     assert_eq!(punctuation_commit(handle, b'\''), "‘");
     assert_eq!(punctuation_commit(handle, b'['), "【");
+    // 顿号键随偏好：`/` 默认关时是普通字符，`\` 默认开出顿号；打开 slash 后 `/` 也出顿号。
+    assert_eq!(punctuation_commit(handle, b'\\'), "、");
 
     let corner = Preferences {
         quote_style: msime_client_core::preferences::QuoteStyle::Corner,
@@ -17508,7 +17517,12 @@ fn punctuation_marks_follow_preferences_and_the_view_reports_them() {
     assert_eq!(update(handle, 1, &corner)["value"]["deferred"], false);
     assert_eq!(
         read(msime_client_view(handle))["value"]["punctuation_marks"],
-        json!({ "quotes": "corner", "brackets": "hollow" })
+        json!({
+            "quotes": "corner",
+            "brackets": "hollow",
+            "enumeration_comma_backslash": true,
+            "enumeration_comma_slash": false,
+        })
     );
     // 重建会话重置交替，所以从前半个开始。
     assert_eq!(punctuation_commit(handle, b'\''), "「");
@@ -17518,6 +17532,31 @@ fn punctuation_marks_follow_preferences_and_the_view_reports_them() {
     assert_eq!(punctuation_commit(handle, b'['), "〖");
     assert_eq!(punctuation_commit(handle, b']'), "〗");
     assert_eq!(punctuation_commit(handle, b','), "，");
+
+    // 打开 `enumeration_comma_slash` 后 `/` 才出顿号：两个开关经 View 与引擎同步生效。
+    let slash = Preferences {
+        enumeration_comma_slash: true,
+        ..chinese_preferences()
+    };
+    assert_eq!(update(handle, 2, &slash)["value"]["deferred"], false);
+    assert_eq!(
+        read(msime_client_view(handle))["value"]["punctuation_marks"]["enumeration_comma_slash"],
+        true
+    );
+    assert_eq!(punctuation_commit(handle, b'/'), "、");
+    let backslash_off = Preferences {
+        enumeration_comma_backslash: false,
+        enumeration_comma_slash: true,
+        ..chinese_preferences()
+    };
+    assert_eq!(
+        update(handle, 3, &backslash_off)["value"]["deferred"],
+        false
+    );
+    assert_eq!(
+        read(msime_client_punctuation_with_context(handle, b'\\', 0))["value"]["handled"],
+        false
+    );
     read(msime_client_destroy(handle));
 }
 
