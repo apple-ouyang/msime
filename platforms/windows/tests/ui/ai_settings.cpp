@@ -48,42 +48,65 @@ int main() {
             provider_uses_token(L"deepseek"),
         "only ollama goes without a token");
 
-  // aiProviderUpdate：默认值跟着换，用户填的保留。
+  // aiProviderUpdate：默认值跟着换；自定义值存进原服务商的槽位，切走再切回来还在。
+  std::map<std::wstring, std::wstring> endpoints, models;
   auto update = provider_update(L"openai", {L"deepseek", L"https://api.deepseek.com/chat/completions",
-                                            L"deepseek-v4-flash"});
+                                            L"deepseek-v4-flash"},
+                                endpoints, models);
   check(update.provider == L"openai" &&
             update.endpoint == L"https://api.openai.com/v1/chat/completions" &&
-            update.model == L"gpt-4.1-mini",
-        "defaults follow the provider");
+            update.model == L"gpt-4.1-mini" && endpoints.empty() && models.empty(),
+        "defaults follow the provider and stay out of the slots");
   update = provider_update(L"openai", {L"deepseek", L"https://llm.internal.example/v1/chat/completions",
-                                       L"my-model"});
-  check(update.endpoint == L"https://llm.internal.example/v1/chat/completions" &&
+                                       L"my-model"},
+                           endpoints, models);
+  check(update.endpoint == L"https://api.openai.com/v1/chat/completions" &&
+            update.model == L"gpt-4.1-mini" &&
+            endpoints[L"deepseek"] == L"https://llm.internal.example/v1/chat/completions" &&
+            models[L"deepseek"] == L"my-model",
+        "custom endpoint and model move into the previous provider's slot");
+  // 切回 deepseek：它的槽位回来，openai 的默认值没有槽位可写。
+  update = provider_update(L"deepseek", update, endpoints, models);
+  check(update.provider == L"deepseek" &&
+            update.endpoint == L"https://llm.internal.example/v1/chat/completions" &&
             update.model == L"my-model",
-        "custom endpoint and model are kept");
-  update = provider_update(L"kimi", {L"deepseek", L"  ", L""});
+        "switching back restores the remembered values");
+  // openai 上改成自定义值再切走：槽位按编辑后的值更新。
+  update = provider_update(L"kimi", {L"openai", L"https://proxy.internal/v1", L"gpt-custom"},
+                           endpoints, models);
+  check(endpoints[L"openai"] == L"https://proxy.internal/v1" &&
+            models[L"openai"] == L"gpt-custom",
+        "a second provider keeps its own slot");
+  update = provider_update(L"kimi", {L"deepseek", L"  ", L""}, endpoints, models);
   check(update.endpoint == L"https://api.moonshot.cn/v1/chat/completions" &&
             update.model == L"kimi-k2.6",
         "blank values take the new defaults");
   update = provider_update(L"custom", {L"deepseek", L"https://api.deepseek.com/chat/completions",
-                                       L"deepseek-v4-flash"});
+                                       L"deepseek-v4-flash"},
+                           endpoints, models);
   check(update.provider == L"custom" && update.endpoint.empty() && update.model.empty(),
-        "switching to custom clears the previous defaults");
-  update = provider_update(L"nonexistent", {L"openai", L"https://example.com/v1", L"x"});
-  check(update.provider == L"custom" && update.endpoint == L"https://example.com/v1" &&
-            update.model == L"x",
+        "switching to custom takes its empty defaults");
+  update = provider_update(L"nonexistent", {L"openai", L"https://example.com/v1", L"x"}, endpoints,
+                           models);
+  check(update.provider == L"custom" && update.endpoint.empty() && update.model.empty(),
         "an unknown provider falls back to custom");
-  // 原服务商不认识时，只有空值会被换掉；与默认值相同但不是原服务商的，也算用户自己填的。
+  // 原服务商不认识时，现值照存进它名下的槽位。
   update = provider_update(L"openai", {L"legacy", L"https://api.deepseek.com/chat/completions",
-                                       L"deepseek-v4-flash"});
-  check(update.endpoint == L"https://api.deepseek.com/chat/completions" &&
-            update.model == L"deepseek-v4-flash",
-        "only the previous provider's defaults are replaced");
-  // 比较不去空白：带空格的默认值算用户填的。
-  update = provider_update(L"openai", {L"deepseek", L" https://api.deepseek.com/chat/completions",
-                                       L"deepseek-v4-flash "});
-  check(update.endpoint == L" https://api.deepseek.com/chat/completions" &&
-            update.model == L"deepseek-v4-flash ",
-        "padded defaults are kept");
+                                       L"deepseek-v4-flash"},
+                           endpoints, models);
+  check(update.endpoint == L"https://api.openai.com/v1/chat/completions" &&
+            update.model == L"gpt-4.1-mini" &&
+            endpoints[L"legacy"] == L"https://api.deepseek.com/chat/completions" &&
+            models[L"legacy"] == L"deepseek-v4-flash",
+        "an unknown previous provider still gets a slot");
+  // 与默认值相同的值不进槽位（比较前去掉首尾空白）。
+  endpoints.clear();
+  models.clear();
+  update = provider_update(L"openai", {L"deepseek", L" https://api.deepseek.com/chat/completions ",
+                                       L"deepseek-v4-flash "},
+                           endpoints, models);
+  check(update.endpoint == L"https://api.openai.com/v1/chat/completions" && endpoints.empty(),
+        "padded defaults are not custom values");
 
   // aiServiceCredentialTestDisabled。
   check(!credential_test_disabled(true, true, L"m", L"t", L"openai"), "complete settings can be tested");

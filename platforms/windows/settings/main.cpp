@@ -14150,6 +14150,21 @@ private:
     schedule_save();
   }
 
+  // 编辑接口地址/模型时同步进当前服务商的槽位（共享设置页 ai-provider-update.ts 的 slotUpdate）：与目录默认相同的值删键回默认。
+  void write_ai_slot(std::wstring_view map, std::wstring const &value, bool endpoint_slot) {
+    const auto provider = document_.String(L"ai_assistant.provider", L"deepseek");
+    const auto *preset = ais::find_provider(provider);
+    const std::wstring fallback =
+        preset ? (endpoint_slot ? std::wstring(preset->endpoint) : std::wstring(preset->model))
+               : L"";
+    const auto trimmed = msime::settings::js_trim(value);
+    if (!provider.empty() && !trimmed.empty() && trimmed != fallback)
+      document_.SetEntry(map, provider, trimmed);
+    else
+      document_.RemoveEntry(map, provider);
+    schedule_save();
+  }
+
   // 「测试配置」按钮和结果（共享页的 `CredentialTestSection`），放在一张卡片里。config 给出输入框里的当前配置，disabled 说明按钮此刻能不能按。结果只在配置与测试时相同时显示，改了任何一项就收起；测试进行中按钮显示「测试中…」。
   void add_credential_test(StackPanel const &group, std::wstring const &service,
                            std::wstring const &label, std::function<JsonObject()> config,
@@ -22731,6 +22746,7 @@ private:
         L"AI 接口地址", endpoint_text, false, L"https://example.com/v1/chat/completions", true,
         [this](std::wstring const &value) {
           write_credential(L"ai_assistant.endpoint", value);
+          write_ai_slot(L"ai_assistant.endpoints", value, true);
           ai_edited(true);
           sync_ai();
           return value.empty() || ai_endpoint(value).origin.has_value();
@@ -22767,11 +22783,13 @@ private:
           ai_change([&](PreferencesDocument &doc) {
             doc.SetString(L"ai_assistant.model", value);
           }, false);
+          write_ai_slot(L"ai_assistant.models", value, false);
         },
         [this](std::wstring const &name) {
           return credential_input(name, document_.String(L"ai_assistant.model", L""), false, L"",
                                   true, [this](std::wstring const &value) {
                                     write_credential(L"ai_assistant.model", value);
+                                    write_ai_slot(L"ai_assistant.models", value, false);
                                     ai_edited(false);
                                     sync_ai();
                                     return true;
@@ -22844,15 +22862,38 @@ private:
         });
   }
 
-  // 换服务商（aiProviderUpdate）：接口地址和模型为空或还是原服务商的默认值时换成新服务商的默认值，保存后重画整页。
+  // 换服务商（aiProviderUpdate）：旧服务商的接口地址/模型写回它的槽位，新服务商从槽位回填或取目录默认，保存后重画整页。
   void select_ai_provider(std::wstring const &value) {
     const ais::ProviderFields current{document_.String(L"ai_assistant.provider", L"deepseek"),
                                       document_.String(L"ai_assistant.endpoint", L""),
                                       document_.String(L"ai_assistant.model", L"")};
     if (value == current.provider)
       return;
-    const auto update = ais::provider_update(value, current);
     ai_change([&](PreferencesDocument &doc) {
+      const auto *next = ais::find_provider(value);
+      if (!next)
+        next = &ais::providers().back();
+      // 槽位只取切换双方需要的键：新服务商的槽位先读进 map 让 provider_update 回填，旧服务商的槽位由它改写后落回文档。
+      std::map<std::wstring, std::wstring> endpoints, models;
+      const auto endpoint_slot = doc.Entry(L"ai_assistant.endpoints", next->id, L"");
+      if (!endpoint_slot.empty())
+        endpoints.emplace(next->id, endpoint_slot);
+      const auto model_slot = doc.Entry(L"ai_assistant.models", next->id, L"");
+      if (!model_slot.empty())
+        models.emplace(next->id, model_slot);
+      const auto update = ais::provider_update(value, current, endpoints, models);
+      const auto write_slot = [&doc](std::wstring_view map, std::wstring_view provider,
+                                     const std::map<std::wstring, std::wstring> &slots) {
+        const auto slot = slots.find(std::wstring(provider));
+        if (slot != slots.end())
+          doc.SetEntry(map, provider, slot->second);
+        else
+          doc.RemoveEntry(map, provider);
+      };
+      if (!current.provider.empty()) {
+        write_slot(L"ai_assistant.endpoints", current.provider, endpoints);
+        write_slot(L"ai_assistant.models", current.provider, models);
+      }
       doc.SetString(L"ai_assistant.provider", update.provider);
       doc.SetString(L"ai_assistant.endpoint", update.endpoint);
       doc.SetString(L"ai_assistant.model", update.model);

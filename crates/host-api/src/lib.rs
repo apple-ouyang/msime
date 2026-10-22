@@ -535,6 +535,7 @@ impl HostSession {
             model: ai.model.clone(),
             endpoint: ai.endpoint.clone(),
             candidate_limit: host_ai_candidate_limit(ai.candidate_limit),
+            thinking: ai.thinking.clone(),
             prompt_id: ai.prompt_id.clone(),
             prompt_custom_1: ai.prompt_custom_1.clone(),
             prompt_custom_2: ai.prompt_custom_2.clone(),

@@ -1322,6 +1322,9 @@ pub struct VoiceInputPreferences {
     pub polish_provider: String,
     #[serde(default)]
     pub polish_token: String,
+    /// DeepSeek 润色的思考强度：disabled | low | high | max，仅接口地址属于 DeepSeek 时生效；请求体按档写 `thinking.type` 与 `reasoning_effort`（shared/voice 的 polish_cloud_text）。
+    #[serde(default = "default_thinking_level")]
+    pub polish_thinking: String,
     /// One polish token per provider id, for the same reason as `asr_tokens`.
     #[serde(default)]
     pub polish_tokens: BTreeMap<String, String>,
@@ -1399,6 +1402,7 @@ impl Default for VoiceInputPreferences {
             polish_text: source_voice_default(),
             polish_provider: polish.provider.into(),
             polish_token: String::new(),
+            polish_thinking: "disabled".into(),
             polish_tokens: BTreeMap::new(),
             polish_endpoint: polish.endpoint.into(),
             polish_model: polish.model.into(),
@@ -1436,6 +1440,14 @@ pub struct AiAssistantPreferences {
     pub tokens: BTreeMap<String, String>,
     #[serde(default)]
     pub endpoint: String,
+    /// 每个提供方记住的接口地址与模型，键为提供方 id；槽位只存自定义值，空槽或缺键表示用目录默认值。设置页切提供方时按槽位回填 endpoint/model，自定义过的值不会随切换丢失（Windows `endpoint_*`/`model_*` 槽的对应物）。
+    #[serde(default)]
+    pub endpoints: BTreeMap<String, String>,
+    #[serde(default)]
+    pub models: BTreeMap<String, String>,
+    /// DeepSeek 的思考强度：disabled | low | high | max，仅接口地址属于 DeepSeek 时生效；请求体按档写 `thinking.type` 与 `reasoning_effort`（client-providers 的 `chat_completion_body`）。
+    #[serde(default = "default_thinking_level")]
+    pub thinking: String,
     #[serde(default = "default_ai_candidate_limit")]
     pub candidate_limit: u8,
     #[serde(default)]
@@ -1490,6 +1502,11 @@ fn default_ai_candidate_limit() -> u8 {
     3
 }
 
+/// `ai_assistant.thinking` 与 `voice_input.polish_thinking` 共同的出厂档位。
+fn default_thinking_level() -> String {
+    "disabled".into()
+}
+
 /// Kept equal to `AiAssistantPreferences::default().provider`.
 fn default_ai_provider() -> String {
     "deepseek".into()
@@ -1509,6 +1526,9 @@ impl Default for AiAssistantPreferences {
             token: String::new(),
             tokens: BTreeMap::new(),
             endpoint: endpoint.into(),
+            endpoints: BTreeMap::new(),
+            models: BTreeMap::new(),
+            thinking: "disabled".into(),
             candidate_limit: 3,
             prompt_id: "custom_1".into(),
             prompt_custom_1: String::new(),

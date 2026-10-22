@@ -4,7 +4,7 @@ import type { AiAssistantPreferences } from "./ai-assistant-preferences";
 import type { SettingsClient } from "../core/settings-client";
 import type { useProviderCredentials } from "./use-provider-credentials";
 import { aiProviderOption, aiProviderOptionsFor, aiProviderUsesToken } from "./ai-provider-options";
-import { aiProviderUpdate } from "./ai-provider-update";
+import { aiProviderUpdate, aiEndpointUpdate, aiModelUpdate } from "./ai-provider-update";
 import {
   aiCredentialTestDisabled,
   aiProviderCredentialTestConfig,
@@ -152,8 +152,10 @@ export function AiSettingsContent({
       )}
       onEnabledChange={(enabled) => updateAi({ enabled })}
       onProviderChange={(provider) => updateAi(aiProviderUpdate(provider, ai))}
-      onModelChange={(model) => updateAi({ model })}
-      onEndpointChange={(endpoint) => updateAi({ endpoint })}
+      onModelChange={(model) => updateAi(aiModelUpdate(model, ai))}
+      onEndpointChange={(endpoint) => updateAi(aiEndpointUpdate(endpoint, ai))}
+      thinking={ai.thinking}
+      onThinkingChange={(thinking) => updateAi({ thinking })}
       // 不鉴权的服务（Ollama）没有 Token 可填，整块不显示；Linux 的 provider 直接用页面上的地址和模型。
       credentialSection={
         !aiProviderUsesToken(ai.provider) ? null : linuxPlatform && client.providerCredentials ? (

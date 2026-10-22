@@ -285,6 +285,9 @@ pub struct AiAssistantProviderConfig {
     pub endpoint: String,
     #[serde(default = "default_ai_candidate_limit")]
     pub candidate_limit: u8,
+    /// 参与陈旧判定：思考强度变了，在途的旧档位回答不算数（Windows 把它计入 AI 缓存键）。
+    #[serde(default)]
+    pub thinking: String,
     #[serde(default)]
     pub prompt_id: String,
     #[serde(default)]
