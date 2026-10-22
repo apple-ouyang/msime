@@ -8189,7 +8189,27 @@ static void TestAiCandidateEngineDelivery() {
     assert(!bridgeError);
     assert([descriptor[@"timeout_ms"] isEqual:@8000]);
     assert([descriptor[@"headers"][@"Authorization"] isEqual:@"Bearer synthetic-secret"]);
+    // 标签是 deepseek、接口地址在别家：厂商字段不外发。
+    assert(descriptor[@"body"][@"thinking"] == nil);
+    // 真实 DeepSeek 地址：默认档写 disabled；开 high 档写 enabled 加 reasoning_effort，预算放大到 30 秒。
+    descriptor = [MSIMEClientSession aiHTTPRequest:@{
+        @"config":@{@"enabled":@YES, @"provider":@"deepseek",
+            @"endpoint":@"https://api.deepseek.com/chat/completions", @"model":@"synthetic",
+            @"tokens":@{@"https://api.deepseek.com:443":@"synthetic-secret"}, @"candidate_limit":@3},
+        @"input":@{@"segmented_pinyin":@[@"ni"], @"context":@"", @"candidate_limit":@3}} error:&bridgeError];
+    assert(descriptor && !bridgeError);
     assert([descriptor[@"body"][@"thinking"][@"type"] isEqual:@"disabled"]);
+    assert([descriptor[@"timeout_ms"] isEqual:@8000]);
+    descriptor = [MSIMEClientSession aiHTTPRequest:@{
+        @"config":@{@"enabled":@YES, @"provider":@"deepseek", @"thinking":@"high",
+            @"endpoint":@"https://api.deepseek.com/chat/completions", @"model":@"synthetic",
+            @"tokens":@{@"https://api.deepseek.com:443":@"synthetic-secret"}, @"candidate_limit":@3},
+        @"input":@{@"segmented_pinyin":@[@"ni"], @"context":@"", @"candidate_limit":@3}} error:&bridgeError];
+    assert(descriptor && !bridgeError);
+    assert([descriptor[@"body"][@"thinking"][@"type"] isEqual:@"enabled"]);
+    assert([descriptor[@"body"][@"reasoning_effort"] isEqual:@"high"]);
+    assert([descriptor[@"body"][@"max_tokens"] isEqual:@8192]);
+    assert([descriptor[@"timeout_ms"] isEqual:@30000]);
     NSData *response = [NSJSONSerialization dataWithJSONObject:@{@"choices":@[@{@"message":@{@"content":
         @"{\"candidates\":[{\"text\":\"合成候选甲\"},{\"text\":\"合成候选乙\"}]}"}}]} options:0 error:nil];
     NSArray *parsed = [MSIMEClientSession parseAIResponse:response limit:3 error:&bridgeError];

@@ -1449,14 +1449,20 @@ test("mobile AI settings expose the Apple provider catalog and preserve custom e
     endpoint: "https://api.anthropic.com/v1/chat/completions",
     model: "claude-sonnet-4-6",
   });
-  expect(
-    aiProviderUpdate("openai", {
-      ...base,
-      endpoint: "https://private.invalid/v1/chat/completions",
-      model: "private-model",
-    }),
-  ).toMatchObject({
+  // 自定义值进 deepseek 的槽位，新提供方用自己的默认值；切回来原样返回。
+  const patched = aiProviderUpdate("openai", {
+    ...base,
+    endpoint: "https://private.invalid/v1/chat/completions",
+    model: "private-model",
+  });
+  expect(patched).toMatchObject({
     provider: "openai",
+    endpoint: "https://api.openai.com/v1/chat/completions",
+    model: "gpt-4.1-mini",
+    endpoints: { deepseek: "https://private.invalid/v1/chat/completions" },
+    models: { deepseek: "private-model" },
+  });
+  expect(aiProviderUpdate("deepseek", { ...base, ...patched })).toMatchObject({
     endpoint: "https://private.invalid/v1/chat/completions",
     model: "private-model",
   });

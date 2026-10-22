@@ -46,10 +46,10 @@ inline ProviderFields provider_update(std::wstring_view provider, ProviderFields
   const auto *previous = find_provider(current.provider);
   // 槽位只记自定义值（ai-provider-update.ts 的 storeSlot）：默认值升级后空槽自动跟上。
   const auto store = [](std::map<std::wstring, std::wstring> &slots,
-                        std::wstring_view provider, std::wstring value,
+                        std::wstring_view provider, std::wstring_view value,
                         std::wstring_view fallback, bool has_fallback) {
     if (!provider.empty() && !value.empty() && (!has_fallback || value != fallback))
-      slots[std::wstring(provider)] = std::move(value);
+      slots[std::wstring(provider)] = std::wstring(value);
     else
       slots.erase(std::wstring(provider));
   };
@@ -59,10 +59,10 @@ inline ProviderFields provider_update(std::wstring_view provider, ProviderFields
         previous ? previous->model : std::wstring_view{}, previous != nullptr);
   ProviderFields update;
   update.provider = std::wstring(next->id);
-  const auto endpoint = endpoints.find(next->id);
+  const auto endpoint = endpoints.find(std::wstring(next->id));
   update.endpoint =
       endpoint == endpoints.end() ? std::wstring(next->endpoint) : endpoint->second;
-  const auto model = models.find(next->id);
+  const auto model = models.find(std::wstring(next->id));
   update.model = model == models.end() ? std::wstring(next->model) : model->second;
   return update;
 }
