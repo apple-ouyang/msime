@@ -236,6 +236,35 @@ fn single_and_double_helpcodes_filter_the_base() {
         .is_empty());
 }
 
+/// `shuangpin_helpcode_modes.direct` 关闭后，「完整基座 + 末尾裸字母」不再算辅助码：单码 `nihcc` 与双码 `nihcAB` 都按纯拼音读，与辅助码整体关闭一致；打开时维持现有的重排与筛选。
+#[test]
+fn direct_off_reads_trailing_letters_as_plain_pinyin() {
+    let fixture = Fixture::new(HELPCODE_FILTER);
+    let codes = helpcode_filter_keymap();
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+
+    let off = |typed: &str| {
+        let mut request = request(typed, true);
+        request.shuangpin_helpcode_modes.direct = false;
+        request
+    };
+    for typed in ["nihcc", "nihcA", "nihcAB"] {
+        assert_eq!(
+            words(&engine.query(&off(typed), Some(&codes))),
+            words(&engine.query(&request(typed, false), Some(&codes))),
+            "direct off must read {typed} as plain pinyin"
+        );
+    }
+    // 开关确实生效：同一串开着时仍是单码重排 / 双码筛选。
+    assert_eq!(
+        words(&engine.query(&request("nihcc", true), Some(&codes))),
+        ["拟好", "你好", "𠀀方案𠮷", "C语言 2", "GitHub"]
+    );
+    assert!(engine
+        .query(&request("nihcAB", true), Some(&codes))
+        .is_empty());
+}
+
 #[test]
 fn single_helpcode_capacity_includes_whole_and_unmatched_rows() {
     let fixture = Fixture::new(&format!(

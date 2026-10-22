@@ -3685,6 +3685,7 @@ fn helpcode_legacy_defaults_and_independent_schemes_roundtrip() {
                 enabled: false,
                 schema,
                 show_in_candidate_window: true,
+                modes: ShuangpinHelpcodeModes::default(),
             },
             ..Preferences::default()
         };
@@ -3726,6 +3727,126 @@ fn custom_helpcode_schema_roundtrips_and_rejects_unsafe_ids() {
         fs::write(store.path(), invalid).unwrap();
         assert!(store.load().is_err(), "accepted unsafe schema {unsafe_id}");
     }
+}
+
+#[test]
+fn shuangpin_helpcode_modes_follow_windows_v0_11_1_defaults() {
+    let modes = ShuangpinHelpcodeModes::default();
+    assert!(modes.direct);
+    assert!(!modes.trigger_backtick && modes.trigger_semicolon && !modes.trigger_uppercase);
+    assert!(!modes.mid_sentence);
+    assert!(
+        modes.mid_sentence_backtick
+            && !modes.mid_sentence_semicolon
+            && !modes.mid_sentence_uppercase
+    );
+    assert!(
+        !modes.direct_helpcode && modes.direct_helpcode_slash && !modes.direct_helpcode_uppercase
+    );
+    // 默认值不写进文档：旧文档缺这一段时按默认读，默认的文档也不带这一段。
+    let serialized = serde_json::to_value(Preferences::default()).unwrap();
+    assert!(serialized["shuangpin_helpcode"].get("modes").is_none());
+    assert!(serialized["quanpin_helpcode"].get("modes").is_none());
+    let mut legacy = serialized;
+    legacy["shuangpin_helpcode"]
+        .as_object_mut()
+        .unwrap()
+        .remove("modes");
+    assert_eq!(
+        serde_json::from_value::<Preferences>(legacy)
+            .unwrap()
+            .shuangpin_helpcode
+            .modes,
+        ShuangpinHelpcodeModes::default()
+    );
+}
+
+#[test]
+fn shuangpin_helpcode_modes_roundtrip_and_stay_off_quanpin() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let modes = ShuangpinHelpcodeModes {
+        direct: false,
+        trigger_backtick: true,
+        ..ShuangpinHelpcodeModes::default()
+    };
+    let saved = store
+        .save(
+            0,
+            Preferences {
+                shuangpin_helpcode: HelpcodePreferences {
+                    modes,
+                    ..default_shuangpin_helpcode()
+                },
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(saved.preferences.shuangpin_helpcode.modes, modes);
+    assert_eq!(
+        store.load().unwrap().preferences.shuangpin_helpcode.modes,
+        modes
+    );
+    // 全拼不写也不读这一段：保存后文档里 `quanpin_helpcode` 仍没有 `modes`。
+    let document: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert!(document["preferences"]["quanpin_helpcode"]
+        .get("modes")
+        .is_none());
+    assert_eq!(
+        document["preferences"]["shuangpin_helpcode"]["modes"]["trigger_backtick"],
+        true
+    );
+}
+
+#[test]
+fn save_normalizes_conflicting_shuangpin_helpcode_modes() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let modes = ShuangpinHelpcodeModes {
+        mid_sentence: true,
+        mid_sentence_semicolon: true,
+        // 与句中同一枚触发键同时开着：归一后只归句中。
+        trigger_semicolon: true,
+        // 句中没认领的键仍归末尾（`mid_sentence_backtick` 出厂即真，反引号此时只能归句中）。
+        trigger_uppercase: true,
+        ..ShuangpinHelpcodeModes::default()
+    };
+    let saved = store
+        .save(
+            0,
+            Preferences {
+                shuangpin_helpcode: HelpcodePreferences {
+                    modes,
+                    ..default_shuangpin_helpcode()
+                },
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    let normalized = saved.preferences.shuangpin_helpcode.modes;
+    assert!(!normalized.trigger_semicolon && normalized.mid_sentence_semicolon);
+    // 句中没认领的键仍归末尾；`mid_sentence_backtick` 出厂即真，反引号此时只能归句中。
+    assert!(normalized.trigger_uppercase);
+    assert_eq!(store.load().unwrap(), saved);
+
+    // `mid_sentence` 与 `direct_helpcode` 同真时按万象式直接：归一后句中让位。
+    let mut conflict = normalized;
+    conflict.direct_helpcode = true;
+    let saved = store
+        .save(
+            saved.revision,
+            Preferences {
+                shuangpin_helpcode: HelpcodePreferences {
+                    modes: conflict,
+                    ..default_shuangpin_helpcode()
+                },
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    let normalized = saved.preferences.shuangpin_helpcode.modes;
+    assert!(normalized.direct_helpcode && !normalized.mid_sentence);
 }
 
 #[test]

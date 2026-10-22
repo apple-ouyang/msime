@@ -946,6 +946,47 @@ impl Default for FirstPageRows {
     }
 }
 
+/// 双拼辅助码的触发方式开关（Windows v0.11.1 `[helpcode]` 组的双拼专属键），随 `QueryRequest` 交给双拼引擎。默认值与 Windows 出厂配置一致；当前引擎只读 `direct`，其余键在输入串契约扩展后逐层生效（`trigger_*` 末尾间接、`mid_sentence*` 句中间接、`direct_helpcode*` 万象式直接）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShuangpinHelpcodeModes {
+    /// 末尾直接：完整音节基座后的裸字母按辅助码读。关闭后只认触发键开启的段。
+    pub direct: bool,
+    /// 末尾间接触发键：反引号段。
+    pub trigger_backtick: bool,
+    /// 末尾间接触发键：分号段。
+    pub trigger_semicolon: bool,
+    /// 末尾间接触发键：段首大写。
+    pub trigger_uppercase: bool,
+    /// 句中（间接）辅助码总开关。
+    pub mid_sentence: bool,
+    pub mid_sentence_backtick: bool,
+    pub mid_sentence_semicolon: bool,
+    pub mid_sentence_uppercase: bool,
+    /// 句中（直接）「万象式」总开关。
+    pub direct_helpcode: bool,
+    pub direct_helpcode_slash: bool,
+    pub direct_helpcode_uppercase: bool,
+}
+
+impl Default for ShuangpinHelpcodeModes {
+    /// Windows v0.11.1 出厂值：末尾直接开、末尾间接的分号开，句中间接与万象式直接关。
+    fn default() -> Self {
+        Self {
+            direct: true,
+            trigger_backtick: false,
+            trigger_semicolon: true,
+            trigger_uppercase: false,
+            mid_sentence: false,
+            mid_sentence_backtick: true,
+            mid_sentence_semicolon: false,
+            mid_sentence_uppercase: false,
+            direct_helpcode: false,
+            direct_helpcode_slash: true,
+            direct_helpcode_uppercase: false,
+        }
+    }
+}
+
 /// What a scheme turns its composition into for the providers. Built fresh on every refresh; providers never mutate it.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct QueryRequest {
@@ -959,6 +1000,8 @@ pub struct QueryRequest {
     pub normalized_segmentation: String,
     pub segmentation: String,
     pub enable_shuangpin_helpcode: bool,
+    /// 双拼辅助码的触发方式；`enable_shuangpin_helpcode` 为真时才读。
+    pub shuangpin_helpcode_modes: ShuangpinHelpcodeModes,
     pub enable_quanpin_helpcode: bool,
     /// 会话的「拼音纠错」开关。名字带 quanpin 是历史原因：双拼也按它决定是否给纠错整句。
     pub enable_quanpin_autocorrect_transposition: bool,
