@@ -39,6 +39,8 @@ pub struct SessionOptions {
     /// `msime-japanese.dat` 的位置；为空时读资源目录里的那份。文件缺失时日文只给假名行。
     pub japanese_dictionary: PathBuf,
     pub helpcode_schema: String,
+    /// 辅助码前导标点；None 保留现有 Shift 加字母。
+    pub helpcode_trigger_key: Option<u8>,
     /// 宿主给的辅助码表；有它时直接装上它，不再按 `helpcode_schema` 读表（名字仍然要合法）。`Session::set_helpcode_table` 可以实时替换。
     pub helpcode_table: Option<SharedKeymap>,
     /// 内置辅助码表缺失时使用的随包资源根目录。
@@ -53,6 +55,8 @@ pub struct SessionOptions {
     /// 中文标点下引号键和方头括号键出哪一组字，缺省是弯引号、实心括号。
     pub punctuation_marks: PunctuationMarks,
     pub learning: bool,
+    /// 回车上屏英文拼写时是否把它学进英文词库（Windows `input.enter_learns_english_word`，出厂为开）。
+    pub learn_english_on_enter: bool,
     /// Hand back every whole-sentence reading instead of only the best. A host that sets this must reorder and crop them itself.
     pub sentence_alternatives: bool,
     /// 宿主的每页候选数（`candidate_page_size`）：全长组的精确同音词够这么多行就不再并入更长的补全词。0 到请求里会归一成 1。
@@ -103,6 +107,7 @@ impl SessionOptions {
             stroke_dictionary: PathBuf::new(),
             japanese_dictionary: PathBuf::new(),
             helpcode_schema: "lantian".to_owned(),
+            helpcode_trigger_key: None,
             helpcode_table: None,
             helpcode_fallback_resources: None,
             autocorrect_types: 0,
@@ -112,6 +117,7 @@ impl SessionOptions {
             punctuation_lock: 0,
             punctuation_marks: PunctuationMarks::default(),
             learning: true,
+            learn_english_on_enter: true,
             sentence_alternatives: false,
             first_page_rows: DEFAULT_FIRST_PAGE_ROWS,
             single_character_only: false,

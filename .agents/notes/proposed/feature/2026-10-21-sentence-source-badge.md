@@ -4,62 +4,50 @@ Status: proposed
 
 ## Problem
 
-旧版 Windows 正式版（v0.11.1）有「整句来源标签」设置（`sentence_source_badge`）：整句候选后面显示〔Trigram〕〔Unigram〕〔神经D〕〔神经K〕〔万象〕〔八股〕〔墨奇〕等来源，共 7 种，用户能看出每句是哪套模型给的（对照见 `/tmp/msime-audit/legacy-windows.md` §1.2、§2）。
+旧版 Windows v0.11.1 用 `sentence_source_badge` 区分多种整句来源。macOS 尚未提供对应徽章设置；照搬旧标签前，需要先核对当前生产者、wire 来源与正常设置路径。
 
-macOS 侧既没有来源徽章 UI，`CandidateSource` 枚举里也没有对应 `Collocation`、`Google` 这类的整句来源值。照搬 Windows 之前要先回答：macOS 实际能产生的整句来源有几种？如果只有 1–2 种，标签区分不出什么，就不值得为它加设置行、wire 字段和展示链路。
-
-本篇记录盘点结果与判定，等维护者拍板，不改代码。
-
-## macOS 实际整句来源盘点（证据）
-
-整句行的生产者全部走 `crates/engine/src/lattice/merge.rs` 的 `owned_sentence_row`，`source` 只有两个取值：
-
-| 整句来源 | 引擎判别 | 何时出现 | 证据 |
-| --- | --- | --- | --- |
-| 词格（本地整句联想，含纠错整句、整句改字） | `CandidateSource::Generated`（wire 值 8） | `word_lattice` 开着时总是有；默认开 | `crates/engine/src/lattice/merge.rs:121-125,229-233,277-281`；纠错 `crates/engine/src/quanpin/dictionary.rs:1088-1098`、`crates/engine/src/shuangpin/dictionary.rs:389-399`；整句改字 `crates/engine/src/session/conversion.rs:287-290` |
-| 神经联想（键盘模型） | `CandidateSource::NeuralKeyboard`（wire 值 11） | 只在该模型被加载且重排选中时，至多多一行 | `crates/engine/src/lattice/merge.rs:282-288`；模型加载 `crates/engine/src/quanpin/dictionary.rs:604-612` |
-
-要点：
-
-- 枚举 `crates/engine/src/types.rs:8-33` 里没有任何 `Collocation`、`Google` 或「神经桌面」来源值。整句只用到上面两个。
-- 桌面神经联想（`settled-model`）不是引擎的来源：它由输入运行时在打字停顿后做 **落定重排**，只旋转已有候选，`candidate_sources` 元数据跟着旋转但不改值（`crates/input-runtime/src/runtime.rs:867-903`，旋转在 `:2044`）。被它排到首位的整句仍然是 `Generated`，徽章看不出区别。
-- 引擎的整句开关里根本没有桌面模型这一项（`crates/engine/src/types.rs:887-893` 的 `SentenceAssociationOptions` 只有 `word_lattice` / `neural_keyboard` / `show_next_on_duplicate`）；注释明确桌面模型只跑运行时的落定重排（`crates/engine/src/types.rs:887`、`crates/engine/src/lattice/neural.rs:1-6`）。
-- macOS 设置页 `mobile = false`：输入页只列「本地整句联想」和「桌面神经联想」两个开关，`neural_keyboard` 开关只在触屏宿主列出，「键盘神经联想」在 macOS 上不可见、也不默认打开（`packages/ui/src/settings/pages/input-page.tsx:396-400` 传 `mobile={mobilePlatform}`；`packages/ui/src/settings/sentence-association-section.tsx:36-47,68-80`；`crates/client-core/src/host_surface.rs:459-460`）。因此 macOS 桌面上用户实际能看到的整句来源只有 **1 种**：词格。
-- 把触屏宿主的键盘神经行也算上，全平台最多 **2 种**；Windows 的 7 种里有 5 种（Unigram/Google、万象、八股、墨奇、以及独立的神经D）在 macOS 没有生产者——Google 解码器已移除（`crates/engine/src/lattice/mod.rs:1`），octagram 没有读取端。
-
-**结论：1–2 种，低于「≥3 种且用户能看出差别」的门槛，本期不做。**
+本提案只讨论词格及本地模型产生的整句联想行，不把云候选、AI 回答、插件或原样输入回退混入模型来源统计。它记录暂缓新增徽章的建议，仍待产品决策；合并这份笔记不表示徽章方案已经定案。
 
 ## Proposal
 
-本期不实现整句来源徽章：不加 `sentence_source_badge` 偏好键、不加设置行、不在 `CandidateSource` 上新增 wire 值、不改候选展示。
+本期暂不为 macOS 新增来源徽章，先保留现有整句功能。原审计“桌面只有一种、全平台最多两种、octagram 没有读取端”的前提已经过时，不能继续用它证明暂缓建议。
 
-只有满足下面任一条时才重开这项：
+以 `3579090da7` 为审查基线，当前有以下三种模型来源值；其中 macOS 常规设置路径提供前两种：
 
-1. 引擎出现第三种整句来源的实际生产者（例如接入 octagram/语法搭配模型，或新增独立的桌面神经整句解码器）。
-2. 桌面神经落定重排被改成会回写来源（那时 `Generated` 与「神经桌面」才在徽章上可分）。
+| 来源值 | 生产条件 | 证据 |
+| --- | --- | --- |
+| `Generated = 8` | 普通词格行、纠错及整句改字 | `crates/engine/src/lattice/merge.rs` 的 `lattice_row_source`、`generated_block_linear` 与 `reranked_block` |
+| `Collocation = 17` | octagram 语法模型参与词格打分，标记解码首选行 | 同文件的 `include_collocation_best` 分支；`crates/engine/src/lattice/octagram.rs` 与 `merge_collocation_tests.rs` |
+| `NeuralKeyboard = 11` | 键盘神经模型挑出的整句行；正常 UI 只在触屏宿主提供开关 | `reranked_block` 与 `packages/ui/src/settings/sentence-association-section.tsx` |
 
-## 需要维护者拍板的点
+macOS 默认未选择语法模型时主要是 `Generated`；用户安装并启用语法模型后，`Collocation` 已可达，普通词格备选仍可标为 `Generated`。因此常规桌面路径最多两种模型来源，触屏路径可涉及三种，不能再写成“全平台最多两种”。这里统计的是来源类别，不保证一张候选列表同时出现全部类别。
 
-1. **是否接受「macOS 整句来源只有 2 种、桌面只有 1 种可达」的判定，本期不做。** 推荐：接受，本篇留在 `proposed` 作为记录。
-2. **桌面神经联想是否要单独标一种来源。** 推荐：不做。落定重排不产生新候选，单独标只会把同一条词格句换个标签，却要新增冻结的 wire 值并改宿主回写链路。若维护者认为「用户看到顺序变了却不知道是神经模型干的」算问题，再单独立项。
-3. **是否只在触屏宿主（Android/iOS）做来源徽章。** 推荐：不在本任务做。那边 `neural_keyboard` 开关可见、确实有 2 种来源，但 2 种标签的信息量仍低，且本任务范围是 macOS。
-4. **相邻缺口「去重后补充次选」（`show_next_on_duplicate`）桌面设置行是否并入。** 审计把它列为「字段/引擎都有、只缺设置行」的真缺 UI（`/tmp/msime-audit/legacy-windows.md` §1.2）。推荐：走独立那条线（已有 `msime-sentence-next-on-duplicate` worktree），不并进徽章任务。
+万象、八股文等具体语法模型共用 `Collocation`，没有分别占用 wire 值。它是同一词格解码路径叠加语法分后的首选归属，也不表示每种模型都是一个独立解码器。桌面神经联想仍通过运行时落定重排调整已有候选及其元数据顺序，不将来源改写成新的神经桌面值。
+
+暂缓建议的理由是 macOS 常规路径目前只有两类可见来源，新增标签的收益与展示成本仍需评估；“至少三种才考虑”仅是本提案建议的产品门槛，不是已经存在的仓库规则。触屏已有三种来源，也不能直接代替 macOS 的评估。
+
+## Existing notes audit
+
+- [octagram 读取端与打分](../../implemented/feature/2026-10-21-octagram-grammar-model.md)已经落地，部分重叠，继续拥有模型、许可、下载和 wire 来源的契约；本提案据此更新来源统计。
+- [落定重排顺序缓冲](../../implemented/testing/2026-10-17-runtime-settled-order-scratch.md)部分重叠，继续拥有运行时重排与元数据顺序的实现约束，本提案只讨论展示来源。
 
 ## Alternatives considered
 
-- **照搬 Windows 的 7 个来源标签和 `sentence_source_badge` 开关。** 最强的理由是用户可见行为与 Windows 完全对齐、设置键名也一致。但 macOS 只有 2 个来源有生产者，7 个标签里 5 个永远是空的：Unigram/Google 随 Google 解码器一起移除（`crates/engine/src/lattice/mod.rs:1`），万象/八股/墨奇要等 octagram `.gram` 读取端接入，独立的神经D 在当前架构里不产生候选。照搬会把一个在 Windows 上有意义的开关做成 macOS 上的死设置，故否掉。
-- **只把「神经」标出来（词格行不标）。** 最强的理由是用户最需要知道「这一句是神经模型挑的」，且实现只需读现有 `NeuralKeyboard`。但桌面上 `neural_keyboard` 没有 UI 开关、不默认打开，桌面神经又不改来源，所以桌面上这条标签几乎不会出现；要让它出现就得先做上面第 2 点那条改架构的事，已超出「搬徽章」的范围，故否掉。
-- **只在触屏宿主做（键盘神经 vs 词格）。** 最强的理由是那 2 种来源在触屏上确实都能出现，改动面收窄到一个宿主。但标签区分价值仍由 2 种来源决定，且本任务的范围是 macOS；先把判定记录下来，避免在没有新信息的情况下为移动端单独开一套 UI，故否掉。
-- **不做（复用现状）。** 最强的理由：macOS 来源 ≤2 种、桌面只有 1 种可达，徽章区分度低；默认关的开关还会多出一行设置和一层 UI 维护成本，而真正缺的整句能力（octagram 语法模型）另有专节在审。这也是本篇的结论。
+- **照搬 Windows 的七个标签。** 最强理由是便于旧版用户识别模型；但当前语法模型共用一个 `Collocation` 值，桌面神经仅重排已有行。七个旧标签不能直接从当前来源值一一还原，需要先定义按生产者还是按所选模型展示。
+- **现在展示词格与搭配两种徽章。** 最强理由是这两种来源已经在 macOS 可达，不需等待第三种；但是否值得增加设置行与候选宽度尚待评估，不能仅靠来源计数决定。
+- **单独标注桌面神经重排。** 最强理由是解释候选顺序为何变化；但重排不产生新候选，现有来源只随行移动。若要记录“经神经重排”的属性，应另行定义元数据含义。
+- **先只在触屏做。** 最强理由是正常设置路径能涉及三类来源；但移动端显示空间和产品诉求需要独立评估，不并入本次 macOS 提案。
+- **暂缓新增徽章。** 最强理由是先保留当前展示与模型契约，避免过早固化标签语义；代价是用户暂时不能从候选窗区分词格与搭配行。这是本提案的建议，仍待确认。
 
 ## Acceptance criteria
 
-- 维护者对上面 4 个拍板点给出结论；本篇保持 `proposed` 直到结论落定（接受则记录判定，翻转则另开一篇并互链）。
-- 任何「其实有 ≥3 种来源」的反驳，必须给出 `crates/engine` 里第三种整句来源的实际生产者（新的 `CandidateSource::*`，或现枚举里被漏计的整句行）作为证据。
-- 无代码改动时，本篇的验证是 `pnpm run verify-notes` 通过。
+- 产品评审确认是否接受暂缓建议，以及是否需要现在展示已经可达的两类 macOS 来源；本篇保持 `proposed`。
+- 后续若新增第三种 macOS 常规路径可达的来源，或增加桌面神经重排标记，重新评估展示方案；已有 `Collocation` 不再列作未来尚未接入的能力。
+- 具体模型名称与 wire 来源类别分别评估，不新增仅用于凑齐旧标签的枚举值。
+- `pnpm run verify-notes` 与本次文档范围的 quick 门禁通过。
 
 ## Risks
 
-- **判定会过时。** 一旦接入 octagram/语法搭配模型，或为桌面神经新增可区分的来源，来源数就 ≥3，本判定失效，需要重开。
-- **判别口径依赖 wire 枚举。** 徽章若要落地，来源判别只能读 `CandidateSource`；将来新增来源时必须同步维护冻结的 wire 值和标签映射，漏一处就会出现无名标签或错标。
-- **移动端有独立诉求。** 触屏宿主的键盘神经行确实产生 2 种来源；若只按桌面结论一刀切，可能压下移动端后续的真实需求。
+- 来源与展示策略可能继续变化，判断应核对实际生产分支及宿主可配置路径。
+- 暂缓 macOS 不代表否定触屏宿主的独立需求，也不意味着两类来源一定没有展示价值。
+- 本次只更新提案事实；未实现徽章或验证真实候选窗外观。

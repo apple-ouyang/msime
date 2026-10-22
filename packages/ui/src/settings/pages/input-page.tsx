@@ -55,6 +55,7 @@ export function InputSettingsPage() {
     showPluginTriggers,
     showHelpcode,
     showHelpcodeShiftEntry,
+    showHelpcodeTriggerKey,
     customHelpcodeSchemas,
     helpcodePacks,
     refreshHelpcodePacks,
@@ -162,6 +163,7 @@ export function InputSettingsPage() {
       importStatus={helpcodeImport.status}
       mobile={mobilePlatform}
       showShiftEntry={showHelpcodeShiftEntry}
+      showTriggerKey={showHelpcodeTriggerKey}
       // 当前方案所属那一族的辅助码，选法与 Android 的 `pickHelpcode` 一致：双拼 方案用 双拼，其他用 全拼。鸿蒙手机和桌面只摆出这一族，iOS 和 Android 照旧两族直列。
       activeFamily={
         harmonyPhone || !mobilePlatform
@@ -363,6 +365,7 @@ export function InputSettingsPage() {
         ios={iosPlatform}
         // 中英文切换提示在所有平台都放在这里；macOS 以前把它放在快捷键页。
         showInputModeHUD={showInputModeHUD}
+        showInputModeFocusHUD={linuxPlatform}
         showInputModeStatusItem={showInputModeStatusItem}
         showModeScope={showModeScope}
         modeExtra={

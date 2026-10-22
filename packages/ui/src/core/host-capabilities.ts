@@ -61,13 +61,18 @@ export interface HostCapabilities {
   candidate_corner_radius: boolean;
   /** 宿主按 `candidate_padding` 设置卡片边缘与候选之间的内边距，优先于皮肤包；目前是 macOS 和 Linux 的 Fcitx5。 */
   candidate_padding: boolean;
+  /** 窗口分轴内边距与候选项的内边距、圆角和间距；旧宿主不显示这些控件。 */
+  candidate_item_geometry?: boolean;
   candidate_follow_cursor: boolean;
   input_mode_hud: boolean;
   /** 宿主在系统菜单栏放一个常驻状态项显示当前输入模式。只有 macOS 提供：Windows 有托盘语言栏，Linux 有输入法面板，触屏键盘的键面已显示模式。 */
   input_mode_status_item: boolean;
   candidate_english_font: boolean;
   english_suggestions: boolean;
+  english_online_candidates?: boolean;
   helpcode_shift_entry: boolean;
+  /** 宿主已接通辅助码前导键。 */
+  helpcode_trigger_key?: boolean;
   skin_directory_import: boolean;
   /** 设置页提供「制作皮肤」标签：宿主经 client-services 的 `skin::candidate_editor` 把编辑器做的皮肤装进本机皮肤目录（`SettingsClient.candidateSkinEditor`）。桌面宿主为真；HarmonyOS 按设备形态只在 2in1 上打开。缺省按不提供处理。 */
   candidate_skin_editor?: boolean;

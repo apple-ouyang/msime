@@ -67,6 +67,8 @@ pub struct EngineOptions {
     pub shuangpin_custom_profile: Option<ShuangpinCustomTable>,
     pub shuangpin_preedit_uses_raw: bool,
     pub learning: bool,
+    /// 回车上屏英文拼写时是否学进英文词库（`SessionOptions::learn_english_on_enter`）。参照实现出厂为开。
+    pub learn_english_on_enter: bool,
     pub autocorrect_transposition: bool,
     pub autocorrect_neighbor: bool,
     /// Masked with `fuzzy_rule::ALL`.
@@ -80,6 +82,8 @@ pub struct EngineOptions {
     /// Display only: filtering stays on while annotations are hidden.
     pub show_helpcode: bool,
     pub helpcode_schema: String,
+    /// 辅助码前导标点；None 保留现有 Shift 加字母。
+    pub helpcode_trigger_key: Option<u8>,
     /// 宿主给的辅助码表（已安装的辅助码表插件）；有它时 Engine 直接用它，`helpcode_schema` 只用来校验和作为回退。
     pub helpcode_table: Option<SharedKeymap>,
     /// 主资源缺少内置辅助码表时，从宿主指定的随包资源根目录读取；自定义表不回退。
@@ -118,6 +122,8 @@ pub struct EngineOptions {
     pub local_mention: bool,
     /// `C`：拆字反查。默认关；host-api 按宿主形态决定偏好缺省时的值。
     pub local_chaizi: bool,
+    /// `S`：符号模式，按分组码或符号名查符号。默认开，和 Windows 正式版的出厂配置一致。
+    pub local_symbol: bool,
     /// Shift+字母进入快捷模式的总开关（`LocalModeOptions::shift_letter_entry`）。
     pub local_shift_letter_entry: bool,
     /// 宿主会把候选转成繁体输出（`SessionOptions::chaizi_traditional_output`）。
@@ -195,6 +201,7 @@ pub fn prepare_options_for(
         shuangpin_preedit_uses_raw: true,
         single_character_only: false,
         learning: false,
+        learn_english_on_enter: true,
         autocorrect_transposition: false,
         autocorrect_neighbor: false,
         fuzzy_pinyin_rules: 0,
@@ -204,6 +211,7 @@ pub fn prepare_options_for(
         helpcode: true,
         show_helpcode: true,
         helpcode_schema: "ziranma".to_owned(),
+        helpcode_trigger_key: None,
         helpcode_table: None,
         helpcode_fallback_resources: None,
         chinese_punctuation: true,
@@ -232,6 +240,7 @@ pub fn prepare_options_for(
         local_command: false,
         local_mention: false,
         local_chaizi: false,
+        local_symbol: true,
         local_shift_letter_entry: true,
         chaizi_traditional_output: false,
         command_table: Vec::new(),
@@ -300,6 +309,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     session.stroke_dictionary = PathBuf::from(&options.stroke_dictionary);
     session.japanese_dictionary = PathBuf::from(&options.japanese_dictionary);
     session.learning = options.learning;
+    session.learn_english_on_enter = options.learn_english_on_enter;
     session.autocorrect_types = autocorrect_types;
     session.fuzzy_pinyin = FuzzyPinyinOptions {
         rules: options.fuzzy_pinyin_rules & fuzzy_rule::ALL,
@@ -325,6 +335,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         },
     };
     session.helpcode = options.helpcode;
+    session.helpcode_trigger_key = options.helpcode_trigger_key;
     session.helpcode_schema = options.helpcode_schema.clone();
     session.helpcode_table = options.helpcode_table.clone();
     session.helpcode_fallback_resources = options
@@ -359,6 +370,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         command: options.local_command,
         mention: options.local_mention,
         chaizi: options.local_chaizi,
+        symbol: options.local_symbol,
         shift_letter_entry: options.local_shift_letter_entry,
     };
     session.chaizi_traditional_output = options.chaizi_traditional_output;
@@ -368,7 +380,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     session.quick_phrase_table = options.quick_phrase_table.clone();
     session.quick_phrase_candidates = options.quick_phrase_candidates;
     session.sentence_alternatives = options.sentence_alternatives;
-    session.sentence_association = options.sentence_association;
+    session.sentence_association = options.sentence_association.clone();
     session.first_page_rows = options.first_page_rows;
     session.rescoring_context = options.rescoring_context.clone();
     // `personal_context` keeps its default: the bridge never exposed it (api-contract §1a).

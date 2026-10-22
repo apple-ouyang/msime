@@ -817,6 +817,25 @@ pub enum CharacterWidthPreference {
     Fullwidth,
 }
 
+/// octagram `.gram` 语法模型选择：`None` 不用语法模型（默认），其余三项
+/// 各对应一个按需下载的资源包（`grammar-model-<变体>`）。白霜（GPL-3.0 且
+/// 构建链许可未声明）本轮不提供。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GrammarModel {
+    #[default]
+    None,
+    /// 万象 LTS（CC-BY-4.0），`wanxiang-lts-zh-hans.gram`。
+    Wanxiang,
+    /// 八股文·词级（LGPL-3.0），`zh-hans-t-essay-bgw.gram`。
+    BaguwenWord,
+    /// 八股文·词级紧凑（LGPL-3.0），`zh-hans-t-essay-bgw-compact.gram`。
+    BaguwenCompact,
+    /// 白霜/墨奇（实验，GPL-3.0 且构建链许可未声明），`zh-moqi.gram`。
+    /// 收录与旧版 Windows 正式版一致，界面上标「实验」。
+    Baishuang,
+}
+
 /// Candidate sentence-association sources. The dictionary lattice keeps its historical default; neural rerankers are opt-in because they add model work while typing or settling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -830,6 +849,10 @@ pub struct SentenceAssociationPreferences {
     pub neural_keyboard: bool,
     #[serde(default)]
     pub show_next_on_duplicate: bool,
+    /// octagram `.gram` 语法模型：对应资源包装好后引擎才拿到文件路径，
+    /// 选中但还没下载时等于 `None`（逐字节退回无模型基线）。
+    #[serde(default)]
+    pub grammar_model: GrammarModel,
 }
 
 impl Default for SentenceAssociationPreferences {
@@ -839,6 +862,7 @@ impl Default for SentenceAssociationPreferences {
             neural_desktop: false,
             neural_keyboard: false,
             show_next_on_duplicate: false,
+            grammar_model: GrammarModel::None,
         }
     }
 }
@@ -911,6 +935,9 @@ pub struct Preferences {
     /// 切换中英文后在光标旁短暂显示一个不抢焦点的「中」/「英」徽标。macOS 和 Windows 自己画，HarmonyOS 和 Linux 交给各自的面板（见 `HostCapabilities::input_mode_hud`），其他宿主保留这个偏好但不画。
     #[serde(default = "enabled_by_default")]
     pub input_mode_hud: bool,
+    /// Linux 聚焦输入框时显示当前中英文状态，与切换提示独立。新装与缺字段的旧文档默认关闭；其他宿主保留但不使用。
+    #[serde(default)]
+    pub input_mode_focus_hud: bool,
     /// 在 macOS 菜单栏放一个状态项，常驻显示当前输入模式（中/双/五/日……，英文时为「英」），不需要把「英」加成系统输入源。默认关闭；只有 macOS 宿主画它（见 `HostCapabilities::input_mode_status_item`），其他宿主保留这个偏好但不画。
     #[serde(default)]
     pub input_mode_status_item: bool,
@@ -1036,6 +1063,24 @@ pub struct Preferences {
     /// 候选卡片边缘到候选的距离，单位为点（Windows 上为 DIP），0–16，在 `candidate_scale_percent` 缩放之前生效。它优先于皮肤包的内边距和宿主自己的常量（macOS 为 4pt）；缺省时由宿主或皮肤决定。宿主可以保留一个很小的下限，让选中高亮不压住卡片边框（macOS 至少留出边框的宽度）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_padding: Option<u8>,
+    /// 窗口水平内边距，0–16pt；缺省时沿用 `candidate_padding`，再跟随皮肤与宿主。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_padding_horizontal: Option<u8>,
+    /// 窗口垂直内边距，0–16pt；缺省时沿用 `candidate_padding`，再跟随皮肤与宿主。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_padding_vertical: Option<u8>,
+    /// 候选项左右各自的内边距，0–16pt；缺省时保留皮肤与宿主的留白。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_item_padding_horizontal: Option<u8>,
+    /// 候选项上下各自的内边距，0–16pt；缺省时保留皮肤与宿主的行高规则。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_item_padding_vertical: Option<u8>,
+    /// 选中与悬停背景的独立圆角，0–32pt；缺省时保留原有圆角推导。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_item_corner_radius: Option<u8>,
+    /// 相邻候选项之间的间距，0–16pt；横排为列距，竖排为行距。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_item_spacing: Option<u8>,
     #[serde(default = "default_candidate_font_family")]
     pub candidate_font_family: String,
     /// Optional leading face for the Windows candidate glyph fallback chain.
@@ -1045,6 +1090,9 @@ pub struct Preferences {
     #[serde(default = "default_candidate_fallback_fonts")]
     pub candidate_fallback_fonts: Vec<String>,
     pub learning: bool,
+    /// 回车上屏英文时把该英文单词写入英文词库，之后可作为候选出现（Windows `input.enter_learns_english_word`）。Windows 正式版 `installer/default_config/config.default.toml` 出厂为 `true`，所以等于出厂值时文档里不写这个键，没有它的旧版本照样按开启读；关掉后回车照常上屏，只是不学词。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub enter_learns_english_word: bool,
     #[serde(default)]
     pub quanpin: QuanpinPreferences,
     #[serde(default)]
@@ -1122,6 +1170,9 @@ pub struct Preferences {
     /// 普通退格在剩余拼写即将删空时，是否撤回最近一次选词；默认保持原行为。
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub backspace_reverts_selection: bool,
+    /// 造词时按 Esc 只丢掉还没选的拼写、保留已经选好的词，再按一次才整体取消（Windows `input.escape_keeps_selected_word` 的语义，即小狼毫的 `ClearNonConfirmedComposition`）。Windows 正式版 `installer/default_config/config.default.toml` 出厂为 `false`，关着时 Esc 连已选词一起丢掉，与旧行为一致；关着时不写进文档，没有这个键的旧版本照样能读。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub escape_keeps_selected_word: bool,
     #[serde(default)]
     pub frequency: FrequencyPreferences,
     #[serde(default)]
@@ -1171,10 +1222,32 @@ pub struct Preferences {
     /// gloss column never includes it.
     #[serde(default)]
     pub candidate_pronunciation: bool,
+    /// 候选译文中显示 n.、v. 等词性标记；关闭后只显示释义。出厂默认对齐 Windows v0.11.1 的
+    /// `candidate_translation_show_pos = true`。
+    #[serde(default = "enabled_by_default")]
+    pub candidate_translation_show_pos: bool,
+    /// 候选译文只显示第一条释义，关闭时显示全部释义。出厂默认对齐 Windows v0.11.1 的
+    /// `candidate_translation_single_sense = false`。
+    #[serde(default)]
+    pub candidate_translation_single_sense: bool,
+    /// 固定排位的候选词是否显示角标。出厂默认对齐 Windows v0.11.1 的 `candidate_fixed_badge = true`。
+    #[serde(default = "enabled_by_default")]
+    pub candidate_fixed_badge: bool,
+    /// 固定排位候选角的样式，可选 "paperclip"（📎）、"pushpin"（📌）、"dot"（·）；未知值渲染时不加角标。
+    /// 出厂默认对齐 Windows v0.11.1 的 `candidate_fixed_badge_style = "paperclip"`。
+    #[serde(default = "default_candidate_fixed_badge_style")]
+    pub candidate_fixed_badge_style: String,
+    /// AI 联想候选的来源角标样式，可选 "robot"（🤖）、"whale"（🐳）；未知值回退到 robot。
+    /// 出厂默认对齐 Windows v0.11.1 的 `candidate_ai_badge_style = "robot"`。
+    #[serde(default = "default_candidate_ai_badge_style")]
+    pub candidate_ai_badge_style: String,
     /// Show read-only English word completions in direct English touch input.
     /// Hosts without a direct English suggestion surface preserve this value.
     #[serde(default = "enabled_by_default")]
     pub english_suggestions: bool,
+    /// 额外授权：允许英文组字和前文发送给已启用的 AI 或自定义云候选服务。
+    #[serde(default)]
+    pub english_online_candidates: bool,
     #[serde(default)]
     pub translation_target_language: TranslationTargetLanguage,
     /// Optional second language for mobile candidate glosses. `None` shows a single language and is omitted from serialized snapshots.
@@ -1733,7 +1806,10 @@ pub struct LocalModePreferences {
     /// 拆字反查（`C`）：没有组字时 Shift+C，再输入字的各个部件的拼音找字。`None` 表示用户没动过开关，由宿主形态决定：触屏宿主（iOS、Android、HarmonyOS）读作开，屏幕键盘从菜单进入；桌面宿主读作关，因为打开后句首和中英混打的大写 C（C盘、C语言）会进入模式。Android 和 HarmonyOS 接实体键盘（含鸿蒙电脑）时 Shift+C 同样会进入模式，桌面的这个问题在那里仍然存在，而且这两个宿主不提供「Shift+字母」总开关，用户只能整项关掉拆字。只有用户动过开关时文档里才有这个键，缺键的文档读作 `None`，旧版本也只在这种情况下因 `deny_unknown_fields` 读不懂文档。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chaizi: Option<bool>,
-    /// 「Shift+字母进入快捷模式」总开关：关掉后没有组字时 Shift+U/T/K/E/M/J/Y/R/V/C 不进入快捷模式，照常打出大写字母，上面各模式自己的开关保留原值。默认开，和以前的行为一样；缺这个键的旧文档读作开。
+    /// 符号模式（`S`）：没有组字时 Shift+S，再输入分组码（`xl` 希腊字母、`sx` 数学、`szq` 带圈数字、`jt` 箭头）或符号名（`alpha`、`infinity`）。默认开，与 Windows 正式版的出厂配置一致；缺这个键的旧文档读作开。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub symbol: bool,
+    /// 「Shift+字母进入快捷模式」总开关：关掉后没有组字时 Shift+U/T/K/E/M/J/Y/R/V/C/S 不进入快捷模式，照常打出大写字母，上面各模式自己的开关保留原值。默认开，和以前的行为一样；缺这个键的旧文档读作开。
     #[serde(default = "enabled_by_default")]
     pub shift_letter_entry: bool,
 }
@@ -1754,6 +1830,7 @@ impl Default for LocalModePreferences {
             mention: false,
             mention_places: false,
             chaizi: None,
+            symbol: true,
             shift_letter_entry: true,
         }
     }
@@ -2207,7 +2284,7 @@ impl Default for NavigationPreferences {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeybindingPreferences {
     #[serde(default = "enabled_by_default")]
     pub switch_language_shift: bool,
@@ -2232,6 +2309,56 @@ pub struct KeybindingPreferences {
     /// 中日英循环切换：打开后，「切换中英文」那一组快捷键按 中 → 日 → 英 → 中 依次切换，有组字时先把正在组的原始字母上屏；英文模式下再按切换键回到中文。默认关，对齐旧版 Windows 正式版的出厂值（`installer/default_config/config.default.toml`）。没打开时这一组快捷键仍是二态切换，行为与加这个开关之前完全一样。只有声明 `HostCapabilities::trilingual_cycle` 的宿主读它；状态机在 `crate::language_cycle`。
     #[serde(default)]
     pub trilingual_cycle: bool,
+    /// 中英切换（英文候选模式）热键，写法见 [`crate::key_chord::KeyChord`]；空串表示不绑定。键名沿用旧版 Windows 的 `keybindings.toggle_english_candidates`，出厂值 `Ctrl+Shift+KeyE` 不写进文档，没有这个键的旧文档照出厂值读。
+    #[serde(
+        default = "default_toggle_english_candidates",
+        skip_serializing_if = "is_default_toggle_english_candidates"
+    )]
+    pub toggle_english_candidates: String,
+    /// 全角 / 半角切换热键（旧版 `keybindings.toggle_full_width`），出厂值 `Ctrl+Shift+Space`；空串表示不绑定。
+    #[serde(
+        default = "default_toggle_full_width",
+        skip_serializing_if = "is_default_toggle_full_width"
+    )]
+    pub toggle_full_width: String,
+    /// 中英文标点切换热键（旧版 `keybindings.toggle_punctuation`），出厂值 `Ctrl+Period`；空串表示不绑定。
+    #[serde(
+        default = "default_toggle_punctuation",
+        skip_serializing_if = "is_default_toggle_punctuation"
+    )]
+    pub toggle_punctuation: String,
+}
+
+/// 三个切换热键的出厂值，沿用旧版 Windows v0.11.1 `engine/contracts/input_state_shortcuts.h` 的 `defaultBinding`。
+pub const TOGGLE_ENGLISH_CANDIDATES_DEFAULT: &str = "Ctrl+Shift+KeyE";
+pub const TOGGLE_FULL_WIDTH_DEFAULT: &str = "Ctrl+Shift+Space";
+pub const TOGGLE_PUNCTUATION_DEFAULT: &str = "Ctrl+Period";
+
+impl KeybindingPreferences {
+    /// `toggle_english_candidates` 解析出的 chord；空串或非法写法为 `None`，宿主按「不绑定」处理。`Preferences::validate` 保证能进文档的串都解析得出来。
+    pub fn english_candidates_chord(&self) -> Option<crate::key_chord::KeyChord> {
+        toggle_chord(&self.toggle_english_candidates)
+    }
+
+    /// `toggle_full_width` 解析出的 chord；语义同上。
+    pub fn full_width_chord(&self) -> Option<crate::key_chord::KeyChord> {
+        toggle_chord(&self.toggle_full_width)
+    }
+
+    /// `toggle_punctuation` 解析出的 chord；语义同上。
+    pub fn punctuation_chord(&self) -> Option<crate::key_chord::KeyChord> {
+        toggle_chord(&self.toggle_punctuation)
+    }
+}
+
+/// 「不绑定」在文档里存成空串而不是缺键：缺键读回出厂值，空串才留在「不绑定」。
+fn toggle_chord(text: &str) -> Option<crate::key_chord::KeyChord> {
+    let text = text.trim();
+    if text.is_empty() {
+        None
+    } else {
+        text.parse().ok()
+    }
 }
 
 impl Default for KeybindingPreferences {
@@ -2246,12 +2373,47 @@ impl Default for KeybindingPreferences {
             switch_language_caps_lock: false,
             toggle_japanese_ctrl_shift_j: false,
             trilingual_cycle: false,
+            toggle_english_candidates: default_toggle_english_candidates(),
+            toggle_full_width: default_toggle_full_width(),
+            toggle_punctuation: default_toggle_punctuation(),
         }
     }
 }
 
+fn default_toggle_english_candidates() -> String {
+    TOGGLE_ENGLISH_CANDIDATES_DEFAULT.into()
+}
+
+fn default_toggle_full_width() -> String {
+    TOGGLE_FULL_WIDTH_DEFAULT.into()
+}
+
+fn default_toggle_punctuation() -> String {
+    TOGGLE_PUNCTUATION_DEFAULT.into()
+}
+
+fn is_default_toggle_english_candidates(value: &str) -> bool {
+    value == TOGGLE_ENGLISH_CANDIDATES_DEFAULT
+}
+
+fn is_default_toggle_full_width(value: &str) -> bool {
+    value == TOGGLE_FULL_WIDTH_DEFAULT
+}
+
+fn is_default_toggle_punctuation(value: &str) -> bool {
+    value == TOGGLE_PUNCTUATION_DEFAULT
+}
+
 fn enabled_by_default() -> bool {
     true
+}
+
+fn default_candidate_fixed_badge_style() -> String {
+    "paperclip".to_string()
+}
+
+fn default_candidate_ai_badge_style() -> String {
+    "robot".to_string()
 }
 
 fn disabled_by_default() -> bool {
@@ -2440,6 +2602,7 @@ impl Default for Preferences {
             diagnostic_log: DiagnosticLogPreferences::default(),
             candidate_follow_cursor: true,
             input_mode_hud: true,
+            input_mode_focus_hud: false,
             input_mode_status_item: false,
             show_app_logo: false,
             expand_candidates: false,
@@ -2480,10 +2643,17 @@ impl Default for Preferences {
             candidate_opacity_percent: default_candidate_opacity_percent(),
             candidate_corner_radius: None,
             candidate_padding: None,
+            candidate_padding_horizontal: None,
+            candidate_padding_vertical: None,
+            candidate_item_padding_horizontal: None,
+            candidate_item_padding_vertical: None,
+            candidate_item_corner_radius: None,
+            candidate_item_spacing: None,
             candidate_font_family: default_candidate_font_family(),
             candidate_english_font: None,
             candidate_fallback_fonts: default_candidate_fallback_fonts(),
             learning: true,
+            enter_learns_english_word: true,
             quanpin: QuanpinPreferences::default(),
             fuzzy_pinyin: FuzzyPinyinPreferences::default(),
             quanpin_helpcode: default_quanpin_helpcode(),
@@ -2509,6 +2679,7 @@ impl Default for Preferences {
             second_third_candidate: SecondThirdCandidatePreferences::default(),
             wubi_candidate_selection: WubiCandidateSelectionPreferences::default(),
             backspace_reverts_selection: true,
+            escape_keeps_selected_word: false,
             frequency: FrequencyPreferences::default(),
             mixed_input: MixedInputPreferences::default(),
             local_modes: LocalModePreferences::default(),
@@ -2524,7 +2695,14 @@ impl Default for Preferences {
             candidate_translations: false,
             candidate_english_gloss: false,
             candidate_pronunciation: false,
+            // 候选释义与角标的显示默认值对齐 Windows v0.11.1 的出厂配置。
+            candidate_translation_show_pos: true,
+            candidate_translation_single_sense: false,
+            candidate_fixed_badge: true,
+            candidate_fixed_badge_style: default_candidate_fixed_badge_style(),
+            candidate_ai_badge_style: default_candidate_ai_badge_style(),
             english_suggestions: true,
+            english_online_candidates: false,
             translation_target_language: TranslationTargetLanguage::default(),
             translation_secondary_language: None,
             translation_account: false,
@@ -2773,6 +2951,9 @@ impl<'de> Deserialize<'de> for HelpcodeSchema {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HelpcodePreferences {
+    /// Linux 的辅助码前导键；空串保留 Shift 加字母。
+    #[serde(default)]
+    pub trigger_key: String,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     pub schema: HelpcodeSchema,
@@ -2785,6 +2966,7 @@ impl Default for HelpcodePreferences {
         Self {
             enabled: true,
             schema: HelpcodeSchema::default(),
+            trigger_key: String::new(),
             show_in_candidate_window: true,
         }
     }
@@ -2794,6 +2976,7 @@ fn default_quanpin_helpcode() -> HelpcodePreferences {
     HelpcodePreferences {
         enabled: true,
         schema: HelpcodeSchema::Ziranma,
+        trigger_key: String::new(),
         show_in_candidate_window: false,
     }
 }
@@ -2845,6 +3028,7 @@ fn default_shuangpin_helpcode() -> HelpcodePreferences {
     HelpcodePreferences {
         enabled: true,
         schema: HelpcodeSchema::Lantian,
+        trigger_key: String::new(),
         show_in_candidate_window: true,
     }
 }
@@ -3068,6 +3252,14 @@ impl Preferences {
     }
 
     pub fn validate(&self) -> Result<(), PreferencesError> {
+        for helpcode in [&self.quanpin_helpcode, &self.shuangpin_helpcode] {
+            if !matches!(
+                helpcode.trigger_key.as_str(),
+                "" | ";" | "/" | "\\" | "`" | "="
+            ) {
+                return Err(PreferencesError::InvalidHelpcodeTriggerKey);
+            }
+        }
         if !self.cloud_candidate_provider.validate() {
             return Err(PreferencesError::InvalidCloudCandidateProvider);
         }
@@ -3204,6 +3396,19 @@ impl Preferences {
                 .candidate_corner_radius
                 .is_some_and(|radius| radius > 32)
             || self.candidate_padding.is_some_and(|padding| padding > 16)
+            || [
+                self.candidate_padding_horizontal,
+                self.candidate_padding_vertical,
+                self.candidate_item_padding_horizontal,
+                self.candidate_item_padding_vertical,
+                self.candidate_item_spacing,
+            ]
+            .into_iter()
+            .flatten()
+            .any(|value| value > 16)
+            || self
+                .candidate_item_corner_radius
+                .is_some_and(|radius| radius > 32)
         {
             return Err(PreferencesError::InvalidCandidateWindowStyle);
         }
@@ -3234,6 +3439,45 @@ impl Preferences {
         };
         if self.word_character.enabled && paging {
             return Err(PreferencesError::ConflictingKeyBindings);
+        }
+        // 三个切换热键两两不同，且不占已被其他开关认走的组合键。保留表随各开关开合：开关关掉时组合键已经还给应用，绑给它不冲突。macOS 维护组合键没有开关、永远占用（`InputControllerPhysicalKeys.h` 的 Ctrl+Shift+Option+C/R/T，对应 Alt 写作 Option 的一面），绑了它在 macOS 上会被维护动作吃掉，所以跨平台文档一律不让绑。
+        let keybindings = &self.keybindings;
+        let mut occupied: Vec<crate::key_chord::KeyChord> = Vec::new();
+        for (enabled, text) in [
+            (keybindings.switch_language_ctrl_space, "Ctrl+Space"),
+            (keybindings.switch_language_ctrl_alt_space, "Ctrl+Alt+Space"),
+            (
+                keybindings.toggle_character_set_ctrl_shift_f,
+                "Ctrl+Shift+KeyF",
+            ),
+            (keybindings.toggle_japanese_ctrl_shift_j, "Ctrl+Shift+KeyJ"),
+            (self.voice_input.hotkey_ctrl_f9, "Ctrl+F9"),
+            // Windows 的语音开关只看 Ctrl 是否按住、不看 Shift，`Ctrl+Shift+F9` 同样触发。
+            (self.voice_input.hotkey_ctrl_f9, "Ctrl+Shift+F9"),
+            (true, "Ctrl+Alt+Shift+KeyC"),
+            (true, "Ctrl+Alt+Shift+KeyR"),
+            (true, "Ctrl+Alt+Shift+KeyT"),
+        ] {
+            if enabled {
+                occupied.push(text.parse().expect("保留表里的写法必须是合法 chord"));
+            }
+        }
+        let mut toggles: Vec<crate::key_chord::KeyChord> = Vec::new();
+        for text in [
+            &keybindings.toggle_english_candidates,
+            &keybindings.toggle_full_width,
+            &keybindings.toggle_punctuation,
+        ] {
+            if text.trim().is_empty() {
+                continue;
+            }
+            let chord = text
+                .parse()
+                .map_err(|_| PreferencesError::InvalidToggleHotkey)?;
+            if toggles.contains(&chord) || occupied.contains(&chord) {
+                return Err(PreferencesError::ConflictingToggleHotkeys);
+            }
+            toggles.push(chord);
         }
         Ok(())
     }
@@ -3269,6 +3513,8 @@ impl PreferencesSnapshot {
 
 #[derive(Debug, thiserror::Error)]
 pub enum PreferencesError {
+    #[error("辅助码触发键必须为空或 ; / \\ ` = 中的一个标点")]
+    InvalidHelpcodeTriggerKey,
     #[error("五笔二三候选键必须是两个不同的单个 ASCII 标点")]
     InvalidWubiCandidateSelection,
     #[error("floating toolbar settings are invalid")]
@@ -3327,6 +3573,10 @@ pub enum PreferencesError {
     InvalidCandidateSkin,
     #[error("word-to-character and paging cannot use the same keys")]
     ConflictingKeyBindings,
+    #[error("切换热键必须是合法的快捷键组合；留空表示不绑定")]
+    InvalidToggleHotkey,
+    #[error("切换热键不能互相相同，也不能和已启用的快捷键相同")]
+    ConflictingToggleHotkeys,
     #[error("frequency trigger count and linear step must be between 1 and 10")]
     InvalidFrequency,
     #[error("mixed English minimum prefix must be between 1 and 8")]

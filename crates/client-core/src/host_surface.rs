@@ -249,6 +249,9 @@ pub struct HostCapabilities {
     pub candidate_corner_radius: bool,
     /// The host insets its candidates from the card's edge by `candidate_padding`, ahead of the skin package's padding and its own constant.
     pub candidate_padding: bool,
+    /// 宿主支持窗口分轴内边距、候选项内边距、独立圆角和间距。
+    #[serde(default)]
+    pub candidate_item_geometry: bool,
     /// The host places its own candidate window and can therefore pin it where
     /// it first appeared. A host whose desktop owns the placement - IBus draws
     /// and positions the candidate list itself - cannot honour the choice, so
@@ -309,6 +312,8 @@ pub struct HostCapabilities {
     /// offers the same surface but keeps its switch in the native App Group
     /// store, so it reads this as false and shows its own control.
     pub english_suggestions: bool,
+    /// 宿主已接通普通英文、专用英文和临时英文的在线候选。
+    pub english_online_candidates: bool,
     /// A letter becomes a helper code because the user held Shift for it, rather
     /// than because of where it sits in the spelling. Windows appends helper
     /// codes directly to a finished pinyin and needs no gesture; a keyboard host
@@ -316,6 +321,8 @@ pub struct HostCapabilities {
     /// them this way are the ones running the ported ChineseHelpcodePolicy, and
     /// the settings page explains the gesture only where it applies.
     pub helpcode_shift_entry: bool,
+    /// 宿主通过拼写符号优先路由接通可配置的辅助码前导键。
+    pub helpcode_trigger_key: bool,
     /// A skin arrives by being picked rather than by being dropped into a
     /// folder. The source opens its skin folder so the user can put one there;
     /// a host whose folder is inside an application sandbox has nothing to
@@ -707,6 +714,7 @@ impl HostCapabilities {
             ),
             // macOS 候选窗和 Linux 的 Fcitx5 经典界面主题按 `candidate_padding` 改卡片内边距（#7316；IBus 面板做不到，同样经 `candidate_panel_limit` 说明）。Windows 的卡片内边距写在 `candidate_card_metrics` 里，鸿蒙卡片有自己的边距，接上之前不声明，免得设置页出现一个改了没反应的滑块。
             candidate_padding: matches!(platform, HostPlatform::Macos | HostPlatform::Linux),
+            candidate_item_geometry: platform == HostPlatform::Macos,
             // macOS CandidatePanel and the HarmonyOS candidate panel track the current insertion
             // rect themselves; expose the shared toggle on both hosts.
             candidate_follow_cursor: matches!(
@@ -780,7 +788,9 @@ impl HostCapabilities {
                 HostPlatform::Macos | HostPlatform::Windows | HostPlatform::Harmony
             ),
             english_suggestions: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
-            // Android, HarmonyOS and the iOS keyboard extension share one gesture: Shift during a quanpin or shuangpin composition hands the next letter to the Engine as a helper code. The desktop hosts append the code to a finished spelling instead of marking it.
+            english_online_candidates: platform == HostPlatform::Macos,
+            helpcode_trigger_key: platform == HostPlatform::Linux,
+            // Android、HarmonyOS 和 iOS 键盘在组字时用 Shift 标记辅助码；桌面默认直接追加编码。
             helpcode_shift_entry: matches!(
                 platform,
                 HostPlatform::Android | HostPlatform::Harmony | HostPlatform::Ios

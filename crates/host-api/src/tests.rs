@@ -252,6 +252,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         shuangpin_preedit_uses_raw: true,
         single_character_only: false,
         learning: false,
+        learn_english_on_enter: true,
         autocorrect_transposition: false,
         autocorrect_neighbor: false,
         fuzzy_pinyin_rules: 0,
@@ -261,6 +262,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         helpcode: false,
         show_helpcode: false,
         helpcode_schema: "ziranma".into(),
+        helpcode_trigger_key: None,
         chinese_punctuation: true,
         paired_punctuation: true,
         punctuation_lock: 0,
@@ -287,6 +289,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         local_command: false,
         local_mention: false,
         local_chaizi: false,
+        local_symbol: true,
         local_shift_letter_entry: true,
         chaizi_traditional_output: false,
         command_table: Vec::new(),
@@ -300,6 +303,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
             word_lattice: true,
             neural_keyboard: false,
             show_next_on_duplicate: false,
+            ..Default::default()
         },
         rescoring_context: String::new(),
         sentence_alternatives: true,
@@ -3936,11 +3940,13 @@ fn helpcode_settings_switch_independently_after_composition() {
     let before = read(msime_client_view(handle))["value"].clone();
     let mut preferences = Preferences {
         quanpin_helpcode: HelpcodePreferences {
+            trigger_key: ";".into(),
             enabled: false,
             schema: HelpcodeSchema::Xiaohe,
             show_in_candidate_window: false,
         },
         shuangpin_helpcode: HelpcodePreferences {
+            trigger_key: "/".into(),
             enabled: true,
             schema: HelpcodeSchema::Shouyou2,
             show_in_candidate_window: true,
@@ -3955,12 +3961,20 @@ fn helpcode_settings_switch_independently_after_composition() {
         assert!(!sessions.borrow()[&handle].options.helpcode);
         assert_eq!(sessions.borrow()[&handle].options.helpcode_schema, "xiaohe");
         assert!(!sessions.borrow()[&handle].options.show_helpcode);
+        assert_eq!(
+            sessions.borrow()[&handle].options.helpcode_trigger_key,
+            Some(b';')
+        );
     });
     preferences.scheme = InputScheme::Shuangpin;
     assert_eq!(update(handle, 2, &preferences)["value"]["deferred"], false);
     SESSIONS.with(|sessions| {
         assert!(sessions.borrow()[&handle].options.helpcode);
         assert!(sessions.borrow()[&handle].options.show_helpcode);
+        assert_eq!(
+            sessions.borrow()[&handle].options.helpcode_trigger_key,
+            Some(b'/')
+        );
         assert_eq!(
             sessions.borrow()[&handle].options.helpcode_schema,
             "shouyou2_0"
@@ -18288,6 +18302,246 @@ fn voice_provider_update_export_rejects_invalid_requests_without_echoing_credent
 }
 
 #[test]
+fn ai_provider_catalog_export_is_public_and_matches_the_shared_presets() {
+    let result = read(msime_client_ai_provider_catalog());
+    assert_eq!(result["ok"], true);
+    let presets = msime_client_providers::ai::provider_catalog::PROVIDERS;
+    assert_eq!(result["value"].as_array().unwrap().len(), presets.len());
+    for (index, preset) in presets.iter().enumerate() {
+        let mut expected = json!(preset);
+        expected["uses_token"] = json!(msime_client_providers::ai::provider_uses_token(preset.id));
+        assert_eq!(result["value"][index], expected);
+    }
+}
+
+#[test]
+fn ai_provider_update_export_returns_only_the_four_configuration_fields() {
+    let request = br#"{"provider":"openai","current":{"enabled":true,"provider":"deepseek","endpoint":"","model":""}}"#;
+    let result = read(unsafe { msime_client_ai_provider_update(request.as_ptr(), request.len()) });
+    assert_eq!(result["ok"], true);
+    assert_eq!(
+        result["value"],
+        json!({"enabled":true,"provider":"openai","endpoint":"https://api.openai.com/v1/chat/completions","model":"gpt-4.1-mini"})
+    );
+}
+
+#[test]
+fn ai_provider_update_export_rejects_invalid_buffers_and_credential_fields() {
+    for request in [
+        r#"{"provider":"unknown","current":{"enabled":false,"provider":"deepseek","endpoint":"","model":""}}"#,
+        r#"{"provider":"openai","current":{"enabled":false,"provider":"deepseek","endpoint":"","model":"","token":"synthetic-token"}}"#,
+        r#"{"provider":"openai","current":{"enabled":"true","provider":"deepseek","endpoint":"","model":""}}"#,
+    ] {
+        let result =
+            read(unsafe { msime_client_ai_provider_update(request.as_ptr(), request.len()) });
+        assert_eq!(result["ok"], false);
+        assert!(!result.to_string().contains("synthetic-token"));
+    }
+    assert_eq!(
+        read(unsafe { msime_client_ai_provider_update(std::ptr::null(), 0) })["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_ai_provider_update(b"x".as_ptr(), 16 * 1024 + 1) })["ok"],
+        false
+    );
+}
+
+#[test]
+fn contacts_load_and_refresh_when_mention_mode_is_disabled() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = msime_client_services::plugins::mentions::MentionStore::new(
+        dir.path().join("state/plugins"),
+    );
+    let save = |phone: &str| {
+        store
+            .save(&[msime_client_services::plugins::mentions::MentionEntry {
+                text: "拟好".into(),
+                key: "ni'hao".into(),
+                phone: phone.into(),
+            }])
+            .unwrap()
+    };
+    save("202-555-0101");
+    let mut preferences = chinese_preferences();
+    preferences.local_modes.mention = false;
+    let handle = plugin_host(dir.path(), preferences);
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    assert_eq!(
+        &local_mode_candidates(handle, b"nihao")[..2],
+        ["拟好", "拟好 202-555-0101"]
+    );
+    save("202-555-0102");
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    assert_eq!(
+        &local_mode_candidates(handle, b"nihao")[..2],
+        ["拟好", "拟好 202-555-0102"]
+    );
+    store.save(&[]).unwrap();
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    assert!(!local_mode_candidates(handle, b"nihao")
+        .iter()
+        .any(|row| row.contains("202-555-")));
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+#[test]
+fn english_online_host_builds_explicit_requests_and_revokes_them_immediately() {
+    use msime_client_core::cloud::candidates::{
+        CloudCandidatePreferences, CloudCandidateSource, CloudHttpMethod,
+    };
+    for dedicated in [true, false] {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir(directory.path().join("resources")).unwrap();
+        msime_engine::ensure_english_schema(&directory.path().join("resources/msime-english.db"))
+            .unwrap();
+        let mut preferences = chinese_preferences();
+        preferences.local_modes.temporary_english = true;
+        preferences.local_modes.shift_letter_entry = true;
+        preferences.ai_assistant.enabled = true;
+        preferences.ai_assistant.endpoint = "https://synthetic.invalid/chat".into();
+        preferences.ai_assistant.model = "synthetic-model".into();
+        preferences.ai_assistant.tokens.insert(
+            "https://synthetic.invalid:443".into(),
+            "synthetic-token".into(),
+        );
+        preferences.cloud_candidates = true;
+        preferences.cloud_candidate_provider = CloudCandidatePreferences {
+            source: CloudCandidateSource::Custom,
+            endpoint: "https://synthetic.invalid/candidates".into(),
+            method: CloudHttpMethod::Post,
+            cache_enabled: false,
+            ..Default::default()
+        };
+        let handle = test_host_preferences(directory.path(), preferences.clone());
+        read(msime_client_focus(handle, true));
+        if dedicated {
+            read(msime_client_set_english_mode(handle, true));
+        } else {
+            read(msime_client_character(handle, b'Y', true));
+        }
+        for byte in b"accessability" {
+            read(msime_client_character(handle, *byte, false));
+        }
+        assert!(read(msime_client_online_query(handle))["value"].is_null());
+        preferences.english_online_candidates = true;
+        assert_eq!(update(handle, 1, &preferences)["ok"], true);
+        let query = read(msime_client_online_query(handle))["value"].clone();
+        assert_eq!(query["mode"], "english");
+        assert_eq!(query["query_text"], "accessability");
+        let cloud: Value =
+            serde_json::from_str(query["cloud_request"]["body_utf8"].as_str().unwrap()).unwrap();
+        assert_eq!(cloud["mode"], "english");
+        assert_eq!(cloud["query"], "accessability");
+        let cloud_query = serde_json::to_vec(&query).unwrap();
+        let cloud_body = br#"{"candidates":[{"text":"accessible"}]}"#;
+        let cloud_answer = read(unsafe {
+            msime_client_apply_cloud_response(
+                handle,
+                cloud_query.as_ptr(),
+                cloud_query.len(),
+                cloud_body.as_ptr(),
+                cloud_body.len(),
+            )
+        });
+        assert_eq!(cloud_answer["value"]["applied"], true, "{cloud_answer}");
+        assert!(cloud_answer["value"]["view"]["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["text"] == "accessible"));
+        let descriptor = |query: &Value| {
+            let bytes = serde_json::to_vec(query).unwrap();
+            read(unsafe { msime_client_ai_request_for_query(handle, bytes.as_ptr(), bytes.len()) })
+        };
+        let request = descriptor(&query);
+        assert_eq!(request["ok"], true, "{request}");
+        let payload: Value = serde_json::from_str(
+            request["value"]["body"]["messages"][1]["content"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(payload["mode"], "english");
+        assert_eq!(payload["input"], "accessability");
+        let query_bytes = serde_json::to_vec(&query).unwrap();
+        let candidate = b"accessibility";
+        let applied = read(unsafe {
+            msime_client_apply_online_candidate(
+                handle,
+                query_bytes.as_ptr(),
+                query_bytes.len(),
+                candidate.as_ptr(),
+                candidate.len(),
+                1,
+            )
+        });
+        assert_eq!(applied["value"]["applied"], true, "{applied}");
+        assert!(applied["value"]["view"]["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["text"] == "accessibility"));
+        preferences.english_online_candidates = false;
+        assert_eq!(update(handle, 2, &preferences)["ok"], true);
+        assert!(descriptor(&query)["value"].is_null());
+        let view = read(msime_client_view(handle));
+        assert!(!view["value"]["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["text"] == "accessibility"));
+        assert_eq!(
+            read(unsafe {
+                msime_client_apply_online_candidate(
+                    handle,
+                    query_bytes.as_ptr(),
+                    query_bytes.len(),
+                    candidate.as_ptr(),
+                    candidate.len(),
+                    1,
+                )
+            })["value"]["applied"],
+            false
+        );
+        preferences.english_online_candidates = true;
+        preferences.cloud_candidate_provider = Default::default();
+        assert_eq!(update(handle, 3, &preferences)["ok"], true);
+        let query = read(msime_client_online_query(handle))["value"].clone();
+        assert!(query["cloud_request"].is_null());
+        assert!(!descriptor(&query)["value"].is_null());
+        let query_bytes = serde_json::to_vec(&query).unwrap();
+        assert_eq!(
+            read(unsafe {
+                msime_client_apply_online_candidate(
+                    handle,
+                    query_bytes.as_ptr(),
+                    query_bytes.len(),
+                    candidate.as_ptr(),
+                    candidate.len(),
+                    1,
+                )
+            })["value"]["applied"],
+            true,
+            "不支持英文的云服务不能阻止 AI 回答"
+        );
+        assert_eq!(query["cloud_eligible"], true);
+        assert_eq!(query["cloud_candidates"], false);
+        assert_eq!(
+            read(unsafe {
+                msime_client_cloud_request_url(query_bytes.as_ptr(), query_bytes.len())
+            })["ok"],
+            false
+        );
+        read(msime_client_character(handle, b'x', false));
+        assert!(descriptor(&query)["value"].is_null());
+        read(msime_client_destroy(handle));
+    }
+}
+
+#[test]
 fn language_cycle_abi_publishes_the_shared_state_machine() {
     // `response` 把结果包成 {ok, value}；非法输入是 {ok:false, error}。
     let value = |pointer: *mut c_char| {
@@ -18333,4 +18587,38 @@ fn language_cycle_abi_publishes_the_shared_state_machine() {
     ] {
         assert_eq!(invalid["ok"], false, "{invalid}");
     }
+}
+
+#[test]
+fn grammar_pack_install_and_remove_mark_the_session_for_rebuild() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    SESSIONS.with(|sessions| {
+        let mut sessions = sessions.borrow_mut();
+        let session = sessions.get_mut(&handle).unwrap();
+        session.applied.sentence_association.grammar_model =
+            msime_client_core::preferences::GrammarModel::BaguwenCompact;
+        session.state_root = Some(dir.path().to_path_buf());
+        session.options.sentence_association =
+            engine_sentence_association(&session.applied.sentence_association, Some(dir.path()));
+        session.resources_pending = false;
+        let pack = ResourcePack::GrammarBaguwenCompact;
+        let root = resource_packs::root(dir.path()).join(pack.id());
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("msime-model.json"),
+            serde_json::to_vec(&pack.manifest()).unwrap(),
+        )
+        .unwrap();
+        let model = root.join(&pack.set().artifacts[0].name);
+        std::fs::write(&model, b"synthetic").unwrap();
+        session.refresh_resource_packs();
+        assert!(session.resources_pending);
+        session.resources_pending = false;
+        session.options.sentence_association.collocation_model = model;
+        assert!(resource_packs::remove(dir.path(), pack).unwrap());
+        session.refresh_resource_packs();
+        assert!(session.resources_pending);
+    });
+    read(msime_client_destroy(handle));
 }

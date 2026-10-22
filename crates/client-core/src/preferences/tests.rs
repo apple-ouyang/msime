@@ -245,6 +245,112 @@ fn trilingual_cycle_defaults_off_and_persists_an_explicit_enable() {
 }
 
 #[test]
+fn toggle_hotkeys_use_the_legacy_factory_defaults() {
+    let keybindings = Preferences::default().keybindings;
+    assert_eq!(keybindings.toggle_english_candidates, "Ctrl+Shift+KeyE");
+    assert_eq!(keybindings.toggle_full_width, "Ctrl+Shift+Space");
+    assert_eq!(keybindings.toggle_punctuation, "Ctrl+Period");
+    // 出厂值不落盘：写出的文档不带这三个键；没有这三个键的旧文档读回来还是出厂值。
+    let value = serde_json::to_value(Preferences::default()).unwrap();
+    let object = value["keybindings"].as_object().unwrap();
+    for key in [
+        "toggle_english_candidates",
+        "toggle_full_width",
+        "toggle_punctuation",
+    ] {
+        assert!(
+            !object.contains_key(key),
+            "{key} must stay out of the default document"
+        );
+    }
+    let restored: Preferences = serde_json::from_value(value).unwrap();
+    assert_eq!(restored.keybindings, Preferences::default().keybindings);
+}
+
+#[test]
+fn toggle_hotkeys_persist_custom_chords_and_disabled_bindings() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let snapshot = store.load().unwrap();
+    let mut preferences = snapshot.preferences.clone();
+    preferences.keybindings.toggle_punctuation = "Ctrl+Alt+Slash".into();
+    preferences.keybindings.toggle_full_width = String::new();
+    store.save(snapshot.revision, preferences).unwrap();
+    let loaded = store.load().unwrap().preferences.keybindings;
+    assert_eq!(
+        loaded.punctuation_chord().unwrap().to_string(),
+        "Ctrl+Alt+Slash"
+    );
+    // 空串是「不绑定」，不是回到出厂值。
+    assert!(loaded.full_width_chord().is_none());
+    assert_eq!(loaded.toggle_full_width, "");
+}
+
+#[test]
+fn toggle_hotkeys_reject_unparseable_values() {
+    for bad in ["Ctrl+", "Ctrl+Alt+Shift", "Ctrl+Banana", "Period+Ctrl"] {
+        let mut preferences = Preferences::default();
+        preferences.keybindings.toggle_punctuation = bad.into();
+        assert!(matches!(
+            preferences.validate(),
+            Err(PreferencesError::InvalidToggleHotkey)
+        ));
+    }
+}
+
+#[test]
+fn toggle_hotkeys_reject_two_bindings_for_the_same_chord() {
+    let mut preferences = Preferences::default();
+    preferences.keybindings.toggle_punctuation = "control+shift+keye".into();
+    assert!(matches!(
+        preferences.validate(),
+        Err(PreferencesError::ConflictingToggleHotkeys)
+    ));
+    preferences.keybindings.toggle_punctuation = "Shift+Ctrl+Space".into();
+    assert!(matches!(
+        preferences.validate(),
+        Err(PreferencesError::ConflictingToggleHotkeys)
+    ));
+}
+
+#[test]
+fn toggle_hotkeys_reject_chords_owned_by_enabled_switches() {
+    // 保留表随开关开合：简繁开着时 Ctrl+Shift+F 被占用，关掉后才绑得出去。
+    for (text, reason) in [
+        ("Ctrl+Shift+KeyF", "简繁切换"),
+        ("Ctrl+Space", "Linux 语言切换"),
+        ("Ctrl+Alt+Space", "语言切换"),
+        ("Ctrl+F9", "语音切换"),
+        ("Ctrl+Shift+F9", "Windows 语音只看 Ctrl 按住"),
+        ("Ctrl+Alt+Shift+KeyC", "macOS 维护键"),
+    ] {
+        let mut preferences = Preferences::default();
+        preferences.keybindings.toggle_punctuation = text.into();
+        assert!(
+            matches!(
+                preferences.validate(),
+                Err(PreferencesError::ConflictingToggleHotkeys)
+            ),
+            "{text} must conflict ({reason})"
+        );
+    }
+    let mut preferences = Preferences::default();
+    preferences.keybindings.toggle_punctuation = "Ctrl+Shift+KeyF".into();
+    preferences.keybindings.toggle_character_set_ctrl_shift_f = false;
+    preferences.validate().unwrap();
+}
+
+#[test]
+fn toggle_hotkeys_all_empty_disables_every_toggle() {
+    let mut preferences = Preferences::default();
+    preferences.keybindings.toggle_english_candidates = String::new();
+    preferences.keybindings.toggle_full_width = String::new();
+    preferences.keybindings.toggle_punctuation = String::new();
+    preferences.validate().unwrap();
+    assert!(preferences.keybindings.english_candidates_chord().is_none());
+}
+
+#[test]
 fn voice_commit_mode_defaults_for_legacy_documents() {
     let mut value = serde_json::to_value(Preferences::default()).unwrap();
     value["voice_input"]
@@ -541,6 +647,65 @@ fn candidate_pronunciation_is_opt_in_and_round_trips() {
             .unwrap()
             .candidate_pronunciation
     );
+}
+
+#[test]
+fn candidate_translation_display_defaults_follow_windows_factory_config() {
+    let defaults = Preferences::default();
+    assert!(defaults.candidate_translation_show_pos);
+    assert!(!defaults.candidate_translation_single_sense);
+
+    // 旧文档缺这两个键时按 Windows v0.11.1 的出厂配置补上。
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    let fields = legacy.as_object_mut().unwrap();
+    fields.remove("candidate_translation_show_pos");
+    fields.remove("candidate_translation_single_sense");
+    let parsed = serde_json::from_value::<Preferences>(legacy).unwrap();
+    assert!(parsed.candidate_translation_show_pos);
+    assert!(!parsed.candidate_translation_single_sense);
+
+    // 用户显式保存的选择原样往返。
+    let saved = Preferences {
+        candidate_translation_show_pos: false,
+        candidate_translation_single_sense: true,
+        ..defaults
+    };
+    let round_tripped =
+        serde_json::from_str::<Preferences>(&serde_json::to_string(&saved).unwrap()).unwrap();
+    assert!(!round_tripped.candidate_translation_show_pos);
+    assert!(round_tripped.candidate_translation_single_sense);
+}
+
+#[test]
+fn candidate_badge_defaults_follow_windows_factory_config() {
+    let defaults = Preferences::default();
+    assert!(defaults.candidate_fixed_badge);
+    assert_eq!(defaults.candidate_fixed_badge_style, "paperclip");
+    assert_eq!(defaults.candidate_ai_badge_style, "robot");
+
+    // 旧文档缺这几个键时按 Windows v0.11.1 的出厂配置补上。
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    let fields = legacy.as_object_mut().unwrap();
+    fields.remove("candidate_fixed_badge");
+    fields.remove("candidate_fixed_badge_style");
+    fields.remove("candidate_ai_badge_style");
+    let parsed = serde_json::from_value::<Preferences>(legacy).unwrap();
+    assert!(parsed.candidate_fixed_badge);
+    assert_eq!(parsed.candidate_fixed_badge_style, "paperclip");
+    assert_eq!(parsed.candidate_ai_badge_style, "robot");
+
+    // 用户显式保存的选择原样往返。
+    let saved = Preferences {
+        candidate_fixed_badge: false,
+        candidate_fixed_badge_style: "dot".to_string(),
+        candidate_ai_badge_style: "whale".to_string(),
+        ..defaults
+    };
+    let round_tripped =
+        serde_json::from_str::<Preferences>(&serde_json::to_string(&saved).unwrap()).unwrap();
+    assert!(!round_tripped.candidate_fixed_badge);
+    assert_eq!(round_tripped.candidate_fixed_badge_style, "dot");
+    assert_eq!(round_tripped.candidate_ai_badge_style, "whale");
 }
 
 #[test]
@@ -1288,6 +1453,38 @@ fn shift_letter_entry_defaults_on_and_survives_a_save() {
 }
 
 #[test]
+fn symbol_mode_defaults_on_and_is_written_only_when_off() {
+    // 与 Windows 正式版的出厂配置一致：缺键读作开，文档里也不写这个键。
+    assert!(LocalModePreferences::default().symbol);
+    let written = serde_json::to_value(Preferences::default()).unwrap();
+    assert!(written["local_modes"].get("symbol").is_none());
+
+    // 早于符号模式的文档没有这个键，读出来仍是开，其余模式开关照原样。
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut sparse = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    let local_modes = sparse["preferences"]["local_modes"]
+        .as_object_mut()
+        .unwrap();
+    assert_eq!(local_modes.remove("symbol"), None);
+    local_modes.insert("emoji".into(), false.into());
+    fs::write(store.path(), serde_json::to_vec(&sparse).unwrap()).unwrap();
+    let loaded = store.load().unwrap().preferences.local_modes;
+    assert!(loaded.symbol && !loaded.emoji && loaded.unicode);
+
+    // 关掉后文档里写 false，读回来还是关。
+    let mut value = serde_json::to_value(Preferences::default()).unwrap();
+    value["local_modes"]["symbol"] = false.into();
+    store
+        .save(0, serde_json::from_value(value).unwrap())
+        .unwrap();
+    assert!(!store.load().unwrap().preferences.local_modes.symbol);
+    let on_disk: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(on_disk["preferences"]["local_modes"]["symbol"], false);
+}
+
+#[test]
 fn chaizi_is_unset_until_the_user_flips_it() {
     // 缺省是 `None`：由宿主形态决定开关，文档里也不写这个键，旧版本照常读得懂。
     assert_eq!(LocalModePreferences::default().chaizi, None);
@@ -1797,6 +1994,7 @@ fn appearance_preferences_absent_defaults_and_roundtrip() {
         "custom_theme",
         "candidate_follow_cursor",
         "input_mode_hud",
+        "input_mode_focus_hud",
         "input_mode_status_item",
         "expand_candidates",
         "show_candidate_expand_button",
@@ -1806,7 +2004,9 @@ fn appearance_preferences_absent_defaults_and_roundtrip() {
     let bytes = serde_json::to_vec(&sparse).unwrap();
     fs::write(store.path(), &bytes).unwrap();
     let loaded = store.load().unwrap();
-    // 菜单栏状态项是新加的开关，缺字段的旧文档和新装一样读成关闭。
+    // 聚焦提示与菜单栏状态项都缺省关闭，旧文档和新装相同。
+    assert!(!Preferences::default().input_mode_focus_hud);
+    assert!(!loaded.preferences.input_mode_focus_hud);
     assert!(!Preferences::default().input_mode_status_item);
     assert!(!loaded.preferences.input_mode_status_item);
     // 「展开候选」同样是新加的开关，缺字段的旧文档和新装都读成关闭。
@@ -1833,6 +2033,7 @@ fn appearance_preferences_absent_defaults_and_roundtrip() {
         toolbar_theme: SettingsTheme::Light,
         candidate_follow_cursor: false,
         input_mode_hud: false,
+        input_mode_focus_hud: true,
         input_mode_status_item: true,
         expand_candidates: true,
         show_candidate_expand_button: false,
@@ -1840,6 +2041,15 @@ fn appearance_preferences_absent_defaults_and_roundtrip() {
     };
     let saved = store.save(0, preferences).unwrap();
     assert_eq!(store.load().unwrap(), saved);
+    assert!(store.load().unwrap().preferences.input_mode_focus_hud);
+    assert!(
+        !store
+            .load()
+            .unwrap()
+            .preferences
+            .restored_to_defaults()
+            .input_mode_focus_hud
+    );
     assert!(store.load().unwrap().preferences.input_mode_status_item);
     assert!(store.load().unwrap().preferences.expand_candidates);
     assert!(
@@ -3382,6 +3592,7 @@ fn helpcode_legacy_defaults_and_independent_schemes_roundtrip() {
     {
         let preferences = Preferences {
             quanpin_helpcode: HelpcodePreferences {
+                trigger_key: String::new(),
                 enabled: false,
                 schema,
                 show_in_candidate_window: true,
@@ -5368,6 +5579,55 @@ fn candidate_padding_is_absent_by_default_and_bounded() {
     ));
 }
 
+#[test]
+fn candidate_item_geometry_preserves_absence_zero_bounds_and_store_roundtrip() {
+    let base = serde_json::to_value(Preferences::default()).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut generation = 0;
+    for (key, maximum) in [
+        ("candidate_padding_horizontal", 16),
+        ("candidate_padding_vertical", 16),
+        ("candidate_item_padding_horizontal", 16),
+        ("candidate_item_padding_vertical", 16),
+        ("candidate_item_corner_radius", 32),
+        ("candidate_item_spacing", 16),
+    ] {
+        assert!(base.get(key).is_none());
+        for number in [0, maximum] {
+            let mut value = base.clone();
+            value[key] = number.into();
+            value["candidate_padding"] = 7.into();
+            let preferences: Preferences = serde_json::from_value(value).unwrap();
+            assert!(preferences.validate().is_ok());
+            assert_eq!(serde_json::to_value(&preferences).unwrap()[key], number);
+            store.save(generation, preferences.clone()).unwrap();
+            generation += 1;
+            assert_eq!(store.load().unwrap().preferences, preferences);
+        }
+        for invalid in [
+            serde_json::json!(-1),
+            serde_json::json!(1.5),
+            serde_json::json!(true),
+        ] {
+            let mut value = base.clone();
+            value[key] = invalid;
+            assert!(serde_json::from_value::<Preferences>(value).is_err());
+        }
+        let mut value = base.clone();
+        value[key] = (maximum + 1).into();
+        let invalid: Preferences = serde_json::from_value(value).unwrap();
+        assert!(matches!(
+            invalid.validate(),
+            Err(PreferencesError::InvalidCandidateWindowStyle)
+        ));
+        let mut value = base.clone();
+        value[key] = serde_json::Value::Null;
+        let cleared: Preferences = serde_json::from_value(value).unwrap();
+        assert!(serde_json::to_value(cleared).unwrap().get(key).is_none());
+    }
+}
+
 fn wubi_edition() -> &'static crate::edition::Edition {
     crate::edition::Edition::by_id("wubi").unwrap()
 }
@@ -5667,6 +5927,9 @@ const NOT_CREDENTIALS: &[&str] = &[
     "custom_theme.keyboard.keyShape",
     "floating_toolbar.screen_keyboard",
     "keybindings",
+    // 辅助码按键是普通键位偏好，不是服务凭据。
+    "quanpin_helpcode.trigger_key",
+    "shuangpin_helpcode.trigger_key",
     "screen_keyboard_theme",
     "second_third_candidate.keys",
     "sentence_association.neural_keyboard",
@@ -6073,6 +6336,33 @@ fn finished_scope_releases_inherited_lock() {
     );
 }
 
+#[test]
+fn english_online_is_an_explicit_local_opt_in() {
+    let defaults = Preferences::default();
+    assert!(!defaults.english_online_candidates);
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("english_online_candidates");
+    assert!(
+        !serde_json::from_value::<Preferences>(legacy)
+            .unwrap()
+            .english_online_candidates
+    );
+    let enabled = Preferences {
+        english_online_candidates: true,
+        ..defaults
+    };
+    assert!(
+        serde_json::from_value::<Preferences>(serde_json::to_value(&enabled).unwrap())
+            .unwrap()
+            .english_online_candidates
+    );
+    let exported = crate::settings_document::export_document(&enabled).unwrap();
+    assert!(!exported.contains("english_online_candidates"));
+}
+
 /// 网络代理设置：出厂值与 Windows 正式版相同，等于默认值时不写进文档，旧文档缺这一节时也能读。
 #[test]
 fn network_proxy_defaults_match_the_windows_release_and_stay_out_of_the_document() {
@@ -6137,4 +6427,41 @@ fn network_proxy_server_is_validated_and_restored_with_the_services() {
         configured.restored_to_defaults().network,
         configured.network
     );
+}
+
+#[test]
+fn helpcode_trigger_keys_roundtrip_independently_and_validate() {
+    let old = serde_json::json!({"enabled": true, "schema": "ziranma"});
+    let old: HelpcodePreferences = serde_json::from_value(old).unwrap();
+    assert!(old.trigger_key.is_empty());
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    for (revision, key) in ["", ";", "/", "\\", "`", "="].into_iter().enumerate() {
+        let mut preferences = Preferences::default();
+        preferences.quanpin_helpcode.trigger_key = key.into();
+        preferences.shuangpin_helpcode.trigger_key = "/".into();
+        preferences.validate().unwrap();
+        store.save(revision as u64, preferences).unwrap();
+        let loaded = PreferencesStore::new(directory.path())
+            .load()
+            .unwrap()
+            .preferences;
+        assert_eq!(loaded.quanpin_helpcode.trigger_key, key);
+        assert_eq!(loaded.shuangpin_helpcode.trigger_key, "/");
+    }
+    for key in ["a", "1", " ", "'", "Shift", "Ctrl+;", ";;", "；"] {
+        for shuangpin in [false, true] {
+            let mut preferences = Preferences::default();
+            let family = if shuangpin {
+                &mut preferences.shuangpin_helpcode
+            } else {
+                &mut preferences.quanpin_helpcode
+            };
+            family.trigger_key = key.into();
+            assert!(matches!(
+                preferences.validate(),
+                Err(PreferencesError::InvalidHelpcodeTriggerKey)
+            ));
+        }
+    }
 }

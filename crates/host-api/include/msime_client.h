@@ -681,6 +681,11 @@ char *msime_client_ai_endpoint_check(const uint8_t *endpoint, size_t length);
  * connection, timeout or error status) or ai_models_invalid (reply too large or no ids). Blocks
  * up to about 15 s: call off the UI thread. The request carries the token: never log it. */
 char *msime_client_ai_models(const uint8_t *request, size_t length);
+/* AI 公开预设数组；含 id/title/endpoint/model/models/documentation/desktop_only/uses_token，不做 I/O。 */
+char *msime_client_ai_provider_catalog(void);
+/* 纯计算切换补丁。请求 <=16 KiB：{provider,current:{enabled,provider,endpoint,model}}。
+ * 返回 {enabled,provider,endpoint,model}；不传凭据，错误码 ai_invalid。不保留请求缓冲区。 */
+char *msime_client_ai_provider_update(const uint8_t *request, size_t length);
 /* The AI settings page's 「测试」, the Tauri settings shell's ai_test. Request <=256 KiB:
  * {endpoint,model,prompt,token,text}: model non-empty <=256 bytes; prompt (may be empty) and
  * text (non-empty) <=16 KiB each, newlines and tabs allowed. POSTs one non-streaming chat
@@ -869,7 +874,7 @@ char *msime_client_all_candidates(uint64_t session);
 /* Return read-only English completions for a bounded ASCII prefix. */
 char *msime_client_english_completions(uint64_t session, const uint8_t *prefix,
                                        size_t prefix_length, size_t limit);
-/* View.local_mode 是 Engine 自己的模式，不是从预编辑前缀猜出来的；View.microsoft_shuangpin 报告 Engine 已应用的配置，不是尚未生效的新偏好；它为真表示当前是双拼且韵母或零声母编码用 `;` 作第二键，宿主要把 `;` 当字母键交给 msime_client_character。宿主结合模式、编辑文本和光标使用它。取值为 none、unicode、date_time、quick_phrase、emoji、kaomoji、super_jianpin、temporary_english、temporary_japanese、expression、command、mention、url、chaizi（拆字反查，Shift+C 进入；候选注释是字的带调读音，由 Engine 给出），未知取值视为不可用状态。
+/* View.local_mode 是 Engine 自己的模式，不是从预编辑前缀猜出来的；View.microsoft_shuangpin 报告 Engine 已应用的配置，不是尚未生效的新偏好；它为真表示当前是双拼且韵母或零声母编码用 `;` 作第二键，宿主要把 `;` 当字母键交给 msime_client_character。宿主结合模式、编辑文本和光标使用它。取值为 none、unicode、date_time、quick_phrase、emoji、kaomoji、super_jianpin、temporary_english、temporary_japanese、expression、command、mention、url、chaizi（拆字反查，Shift+C 进入；候选注释是字的带调读音，由 Engine 给出）、symbol（符号模式，Shift+S 进入；输入分组码 xl / sx / szq / jt 或符号名 alpha、infinity），未知取值视为不可用状态。
  * View.spelling_symbols 列出 Engine 在当前状态下当作输入的非字母键：当前模式的拼写（expression 的数字和运算符、unicode 的数字、url 的数字和网址符号）；没有组字时打开模式的键（`/` 和 `@`）；全拼、双拼、五笔组字中原文恰好是 www、http、https、ftp 时打开网址模式的键（`.` 或 `:`）。宿主要把它们当字符发送；列在里面的数字是输入，不是选候选的快捷键。转换结果的 commit_context.typing_statistics 对 expression、command、mention 模式生成的文本为 false，这些文本不计入打字统计。
  * 中文标点下 '\'' 与 '"' 出哪种引号、'[' ']' 出哪种方头括号由偏好 quote_style、bracket_style 决定（契约 shared/contracts/punctuation 的 styles 段）。View.punctuation_marks 报告引擎已应用的样式：{"quotes": "curly"|"corner", "brackets": "solid"|"hollow"}，corner_when_traditional 已按繁体输出开关解析成 curly 或 corner。宿主做成对补全、跨过后半个、空格转换、英文模式下的中文标点和画触屏键面时读它，不自己解析偏好；改了偏好要等空闲重建后它才变，和引擎出字同步。
  */

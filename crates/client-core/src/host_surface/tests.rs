@@ -969,6 +969,23 @@ fn only_macos_and_linux_offer_the_candidate_padding() {
     }
 }
 
+#[test]
+fn only_macos_offers_candidate_item_geometry() {
+    for platform in [
+        HostPlatform::Macos,
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert_eq!(
+            HostCapabilities::for_platform(platform).candidate_item_geometry,
+            platform == HostPlatform::Macos
+        );
+    }
+}
+
 /// 「键盘高度」只给真正按它改变键盘高度的宿主：macOS 和 Linux 的键盘窗口高度固定。间距只在 macOS 上固定成默认值，其余宿主照旧可调。
 #[test]
 fn touch_keyboard_geometry_is_offered_where_the_keyboard_applies_it() {
@@ -1155,5 +1172,39 @@ fn fixed_ai_candidate_limit_and_effect_intensity_sit_at_their_defaults() {
         assert_eq!(platform.fixed_effect_intensity(), None, "{platform:?}");
         let json = serde_json::to_value(&host).unwrap();
         assert!(json.get("fixed_effect_intensity").is_none(), "{platform:?}");
+    }
+}
+
+#[test]
+fn english_online_capability_only_names_a_host_with_the_input_path() {
+    for platform in [
+        HostPlatform::Macos,
+        HostPlatform::Linux,
+        HostPlatform::Windows,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert_eq!(
+            HostCapabilities::for_platform(platform).english_online_candidates,
+            platform == HostPlatform::Macos
+        );
+    }
+}
+
+#[test]
+fn custom_helpcode_trigger_is_only_offered_by_linux() {
+    for platform in [
+        HostPlatform::Linux,
+        HostPlatform::Macos,
+        HostPlatform::Windows,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert_eq!(
+            HostCapabilities::for_platform(platform).helpcode_trigger_key,
+            platform == HostPlatform::Linux
+        );
     }
 }

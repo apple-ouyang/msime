@@ -374,12 +374,47 @@ fn punctuation_lock_code(lock: msime_client_core::preferences::PunctuationLock) 
 /// The Engine's sentence association switches. The desktop model switch is not among them: it gates the runtime's settled reranker (`Runtime::set_settled_rerank_enabled`), the only place that model runs.
 fn engine_sentence_association(
     preferences: &msime_client_core::preferences::SentenceAssociationPreferences,
+    state_root: Option<&std::path::Path>,
 ) -> msime_engine::host::SentenceAssociationOptions {
+    // 选中的语法模型装好后才有文件路径；选中但没装（或包装在别处的 state_root
+    // 下没发布）时留空，引擎逐字节退回无模型基线。
+    let pack = match preferences.grammar_model {
+        msime_client_core::preferences::GrammarModel::None => None,
+        msime_client_core::preferences::GrammarModel::Wanxiang => {
+            Some(ResourcePack::GrammarWanxiang)
+        }
+        msime_client_core::preferences::GrammarModel::BaguwenWord => {
+            Some(ResourcePack::GrammarBaguwen)
+        }
+        msime_client_core::preferences::GrammarModel::BaguwenCompact => {
+            Some(ResourcePack::GrammarBaguwenCompact)
+        }
+        msime_client_core::preferences::GrammarModel::Baishuang => {
+            Some(ResourcePack::GrammarBaishuang)
+        }
+    };
+    let collocation_model = state_root
+        .zip(pack)
+        .and_then(|(root, pack)| {
+            pack.set()
+                .artifacts
+                .first()
+                .and_then(|artifact| resource_packs::installed_file(root, pack, &artifact.name))
+        })
+        .unwrap_or_default();
     msime_engine::host::SentenceAssociationOptions {
         word_lattice: preferences.word_lattice,
         neural_keyboard: preferences.neural_keyboard,
         show_next_on_duplicate: preferences.show_next_on_duplicate,
+        collocation_model,
+        collocation_rerank: pack.is_some(),
+        ..Default::default()
     }
+}
+
+/// 资源包卸载前摘掉引擎进程内的 `.gram` 映射，避免 Windows 删除目录时仍被文件句柄占用。
+pub fn evict_grammar_model(path: &std::path::Path) {
+    msime_engine::octagram::GramDb::evict_shared(path);
 }
 
 /// 引擎的引号与方头括号样式，由 client-core 从偏好解析（`corner_when_traditional` 在那里按繁体开关定下）。View 报告的是同一个解析结果。
@@ -460,8 +495,37 @@ impl HostSession {
         self.ai_provider_cache.as_ref()
     }
     fn ai_query_is_current(&self, query: &OnlineQuery) -> bool {
-        self.ai_provider_config()
-            .is_some_and(|config| query.ai_assistant.as_ref() == Some(config))
+        self.english_query_allowed(query)
+            && self
+                .ai_provider_config()
+                .is_some_and(|config| query.ai_assistant.as_ref() == Some(config))
+    }
+    fn english_query_allowed(&self, query: &OnlineQuery) -> bool {
+        if query.mode != msime_engine::OnlineInputMode::English {
+            return true;
+        }
+        let enabled = self
+            .requested
+            .as_ref()
+            .map_or(self.applied.english_online_candidates, |snapshot| {
+                snapshot.preferences.english_online_candidates
+            });
+        enabled
+            && self.runtime.online_query().is_ok_and(|live| {
+                live.is_some_and(|live| {
+                    live.mode == query.mode
+                        && live.scheme == query.scheme
+                        && live.session_id == query.session_id
+                        && live.generation == query.generation
+                        && live.identity == query.identity
+                        && live.query_text == query.query_text
+                        && live.cache_key == query.cache_key
+                        && live.pinyin_segments == query.pinyin_segments
+                        && live.ai_context == query.ai_context
+                        && live.cloud_eligible == query.cloud_eligible
+                        && live.ai_eligible == query.ai_eligible
+                })
+            })
     }
     fn set_ai_provider_cache(&mut self, preferences: &Preferences) {
         let ai = &preferences.ai_assistant;
@@ -483,9 +547,13 @@ impl HostSession {
             .requested
             .as_ref()
             .map_or(&self.applied, |snapshot| &snapshot.preferences);
-        self.cloud_candidates_enabled()
+        self.english_query_allowed(query)
+            && self.cloud_candidates_enabled()
             && query.cloud_request.as_ref().map_or_else(
-                || preferences.cloud_candidate_provider == Default::default(),
+                || {
+                    query.mode != msime_engine::OnlineInputMode::English
+                        && preferences.cloud_candidate_provider == Default::default()
+                },
                 |request| request.provider_id == preferences.cloud_candidate_provider.identity(),
             )
     }
@@ -649,6 +717,7 @@ impl HostSession {
         options.shuangpin_preedit_uses_raw = preferences.shuangpin_preedit_uses_raw;
         options.single_character_only = preferences.single_character_only;
         options.learning = preferences.learning;
+        options.learn_english_on_enter = preferences.enter_learns_english_word;
         options.autocorrect_transposition = preferences.quanpin.autocorrect_transposition;
         options.autocorrect_neighbor = preferences.quanpin.autocorrect_neighbor;
         options.fuzzy_pinyin_rules = preferences.fuzzy_pinyin.active_rules();
@@ -677,6 +746,7 @@ impl HostSession {
         options.local_command = preferences.local_modes.command;
         options.local_mention = preferences.local_modes.mention;
         options.local_chaizi = chaizi_enabled(&preferences.local_modes);
+        options.local_symbol = preferences.local_modes.symbol;
         options.local_shift_letter_entry = preferences.local_modes.shift_letter_entry;
         // 繁体输出开着时拆字行按繁体字形去重；改这个偏好同样会让 Engine 在空闲时重建。
         options.chaizi_traditional_output = preferences.traditional_chinese_output;
@@ -685,6 +755,7 @@ impl HostSession {
         options.helpcode = helpcode.enabled;
         options.show_helpcode = helpcode.show_in_candidate_window;
         options.helpcode_schema = helpcode.schema.as_str().into();
+        options.helpcode_trigger_key = helpcode.trigger_key.bytes().next();
         let plugin_root = self.plugin_roots.installed.as_deref();
         let plugin_tables = plugin_tables::PluginTables::stamp(
             plugin_root,
@@ -693,8 +764,10 @@ impl HostSession {
             &preferences.plugins,
         );
         plugin_tables.fill(&self.plugin_tables, plugin_root, &mut options);
-        options.sentence_association =
-            engine_sentence_association(&preferences.sentence_association);
+        options.sentence_association = engine_sentence_association(
+            &preferences.sentence_association,
+            self.state_root.as_deref(),
+        );
         // 引擎按宿主的每页候选数决定全长组要不要并入补全词；和下面交给 runtime 的值同源。
         let page_size = host_page_size(
             self.page_size_override
@@ -717,6 +790,7 @@ impl HostSession {
         let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
         // 云候选席位不是 EngineOptions；新引擎默认关闭，每次重建都要恢复当前偏好。
         engine.set_cloud_candidates_enabled(preferences.cloud_candidates);
+        engine.set_english_online_candidates_enabled(preferences.english_online_candidates);
         if self.punctuation_override.is_some() || self.punctuation_lock_override.is_some() {
             engine
                 .set_chinese_punctuation_enabled(engine_chinese_punctuation(
@@ -874,11 +948,15 @@ impl HostSession {
             state_root,
             Path::new(&self.options.resources),
         ));
+        let grammar_model =
+            engine_sentence_association(&self.applied.sentence_association, state_root)
+                .collocation_model;
         if cantonese == self.options.cantonese_dictionary
             && zhuyin == self.options.zhuyin_dictionary
             && stroke == self.options.stroke_dictionary
             && japanese == self.options.japanese_dictionary
             && wubi == self.options.wubi_dictionary
+            && grammar_model == self.options.sentence_association.collocation_model
         {
             return;
         }
@@ -1029,11 +1107,17 @@ impl HostSession {
             .clone();
         self.set_ai_provider_cache(&requested_preferences);
         self.runtime
+            .set_english_online_candidates_enabled(requested_preferences.english_online_candidates)
+            .map_err(|e| e.to_string())?;
+        self.runtime
             .set_cloud_candidates_enabled(requested_preferences.cloud_candidates)
             .map_err(|e| e.to_string())?;
         // 宿主状态，不是 Engine 状态：跟着最新请求的偏好走，不必等这次偏好重建 Engine，也不必等组字结束。
         self.runtime
             .set_backspace_reverts_selection(requested_preferences.backspace_reverts_selection);
+        // Esc 保留已选词同样是宿主状态：改完下一次 Esc 就按新开关解释。
+        self.runtime
+            .set_escape_keeps_selected_word(requested_preferences.escape_keeps_selected_word);
         // 左右键的候选回退（`navigation.left_right`）同样是宿主状态：改完立刻生效，左右键不必等 Engine 重建。
         self.runtime
             .set_left_right_navigation(requested_preferences.navigation.left_right);
@@ -1805,6 +1889,7 @@ impl HostOptions {
             shuangpin_preedit_uses_raw: self.preferences.shuangpin_preedit_uses_raw,
             single_character_only: self.preferences.single_character_only,
             learning: self.preferences.learning,
+            learn_english_on_enter: self.preferences.enter_learns_english_word,
             autocorrect_transposition: self.preferences.quanpin.autocorrect_transposition,
             autocorrect_neighbor: self.preferences.quanpin.autocorrect_neighbor,
             fuzzy_pinyin_rules: self.preferences.fuzzy_pinyin.active_rules(),
@@ -1834,6 +1919,7 @@ impl HostOptions {
             local_command: self.preferences.local_modes.command,
             local_mention: self.preferences.local_modes.mention,
             local_chaizi: chaizi_enabled(&self.preferences.local_modes),
+            local_symbol: self.preferences.local_modes.symbol,
             local_shift_letter_entry: self.preferences.local_modes.shift_letter_entry,
             chaizi_traditional_output: self.preferences.traditional_chinese_output,
             command_table: Vec::new(),
@@ -1845,6 +1931,7 @@ impl HostOptions {
             helpcode_fallback_resources: self.helpcode_fallback_resources,
             sentence_association: engine_sentence_association(
                 &self.preferences.sentence_association,
+                absolute_state_root(self.preferences_directory.as_deref()).as_deref(),
             ),
             rescoring_context: String::new(),
             sentence_alternatives: true,
@@ -1858,6 +1945,7 @@ impl HostOptions {
             helpcode: helpcode.enabled,
             show_helpcode: helpcode.show_in_candidate_window,
             helpcode_schema: helpcode.schema.as_str().into(),
+            helpcode_trigger_key: helpcode.trigger_key.bytes().next(),
             chinese_punctuation: engine_chinese_punctuation(
                 self.preferences.chinese_punctuation,
                 punctuation_lock_code(self.preferences.punctuation_lock),

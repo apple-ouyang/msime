@@ -10,6 +10,7 @@ mod composition;
 mod conversion;
 mod editing;
 mod glide;
+mod helpcode_entry;
 mod input;
 mod learning;
 mod literal;
@@ -67,7 +68,10 @@ impl Session {
                 .then(|| Arc::clone(&input.clock.local)),
         );
         // 九键的整句与 26 键遵守同一组句子联想设置（#6059）。
-        nine_key.set_sentence_options(options.sentence_association, options.sentence_alternatives);
+        nine_key.set_sentence_options(
+            options.sentence_association.clone(),
+            options.sentence_alternatives,
+        );
         nine_key.set_first_page_rows(FirstPageRows::new(options.first_page_rows));
         nine_key.set_rescoring_context(&options.rescoring_context);
         // 九键选中的词记进同一个个人上下文模型，开关与 26 键相同（#6185）。
@@ -143,6 +147,7 @@ impl Session {
 
     /// 换触屏的组码网格，先丢掉网格里的组字，所以在换键盘布局、没有组字时调用。英文九键和注音九键只在九键下打开（注音组字会被丢掉）：14 键的英文模式画全键盘，注音没有 14 键。
     pub fn set_key_grid(&mut self, grid: Option<KeyGrid>) {
+        self.input.helpcode_entry = None;
         self.nine_key.command(Command::Cancel);
         if let Some(grid) = grid {
             self.nine_key.set_grid(grid);
@@ -443,6 +448,14 @@ impl Session {
         self.input.set_cloud_candidates_enabled(enabled);
     }
 
+    pub fn english_online_candidates_enabled(&self) -> bool {
+        self.input.english_online_candidates_enabled
+    }
+
+    pub fn set_english_online_candidates_enabled(&mut self, enabled: bool) {
+        self.input.set_english_online_candidates_enabled(enabled);
+    }
+
     /// The committed text the neural sentence models condition on, updated without rebuilding the session. Only the last 64 characters matter.
     pub fn set_rescoring_context(&mut self, context: &str) {
         self.input.set_rescoring_context(context);
@@ -537,10 +550,12 @@ impl Session {
             candidate_answers_key: candidates
                 .iter()
                 .map(|item| {
-                    // AI 占位行和网址补全不回答按键：重排模型不能把它们提到前面。
+                    // 占位行、网址补全和联系人不交给重排模型；联系人保留本地优先顺序。
                     !matches!(
                         item.source,
-                        CandidateSource::AiPending | CandidateSource::CloudPending
+                        CandidateSource::AiPending
+                            | CandidateSource::CloudPending
+                            | CandidateSource::Contact
                     ) && !input.is_url_completion(item)
                         && input.selection_completes_composition(item)
                 })
