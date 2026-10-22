@@ -883,10 +883,6 @@ impl<E: InputEngine> Runtime<E> {
         })
     }
 
-    /// 左右键的候选回退（`navigation.left_right`）：不带修饰键的左右键在宿主那里先是编辑输入串的光标命令，
-    /// 光标已经停在要移动的那一端、引擎动不了它的时候，这一次按键换成移动候选高亮，与 ↑/↓ 落在同一段代码上
-    /// （[`Action::PreviousCandidate`] / [`Action::NextCandidate`]）。
-
     /// 左右键的候选导航（`navigation.left_right`）：不带修饰键的左右键在宿主那里是编辑输入串的光标命令，这里按高亮决定这一次按键是编辑还是移动候选，移动候选与 ↑/↓ 落在同一段代码上（[`Action::PreviousCandidate`] / [`Action::NextCandidate`]）。
     ///
     /// 只在候选横排时接管：方向键沿着候选的排列方向移动高亮，竖排时由 ↑/↓ 移高亮，左右键只编辑输入串。
