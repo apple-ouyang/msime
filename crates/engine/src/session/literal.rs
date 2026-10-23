@@ -132,6 +132,10 @@ impl InputSession {
                     self.engine
                         .request()
                         .shuangpin_helpcode_modes
+                        .direct_helpcode_slash,
+                    self.engine
+                        .request()
+                        .shuangpin_helpcode_modes
                         .direct_helpcode_uppercase,
                 ))
     }

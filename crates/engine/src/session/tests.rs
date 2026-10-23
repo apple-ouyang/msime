@@ -1220,6 +1220,7 @@ fn disabled_shift_shortcuts_leave_every_capital_available_for_pinyin() {
                 options.local_modes = crate::types::LocalModeOptions {
                     unicode: false,
                     date_time: false,
+                    date_time_inline: false,
                     quick_phrase: false,
                     emoji: false,
                     kaomoji: false,
@@ -2344,6 +2345,51 @@ fn shuangpin_mid_sentence_semicolon_and_uppercase() {
     upper.command(Command::Backspace);
     assert_eq!(upper.snapshot().editing_text, "b;j;");
     assert_eq!(words(&upper)[0], "冰晶");
+}
+
+#[test]
+fn shuangpin_backtick_two_code_block_preserves_semicolon_final() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_b(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_b VALUES('bing''bing','bb','冰冰',100);",
+    );
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.shuangpin_profile = ShuangpinProfileKind::Microsoft;
+        options.helpcode_table = Some(Arc::new(crate::helpcode::HelpcodeKeymap::from_codes(
+            [("冰".to_owned(), "xx".to_owned())].into_iter().collect(),
+        )));
+        options.shuangpin_helpcode_modes = crate::types::ShuangpinHelpcodeModes {
+            mid_sentence: true,
+            mid_sentence_backtick: true,
+            mid_sentence_uppercase: false,
+            ..crate::types::ShuangpinHelpcodeModes::default()
+        };
+    });
+    type_text(&mut session, "b;`xXb");
+    assert!(session.character(b';', false).handled);
+    assert_eq!(session.snapshot().editing_text, "b;`xXb;");
+    assert_eq!(words(&session), ["冰冰"]);
+}
+
+#[test]
+fn shuangpin_direct_mixed_endings_keep_chinese_candidates() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_s VALUES('shi''shi','ss','实实',100);",
+    );
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.shuangpin_profile = ShuangpinProfileKind::Ziranma;
+        options.helpcode_table = Some(Arc::new(crate::helpcode::HelpcodeKeymap::from_codes(
+            [("实".to_owned(), "bj".to_owned())].into_iter().collect(),
+        )));
+        options.shuangpin_helpcode_modes = direct_modes(true, true);
+    });
+    type_text(&mut session, "uibJuib/");
+    assert_eq!(session.snapshot().editing_text, "uibJuib/");
+    let index = index_of(&session, "实实");
+    assert_eq!(session.select(index).commit.as_deref(), Some("实实"));
 }
 
 fn direct_modes(slash: bool, uppercase: bool) -> crate::types::ShuangpinHelpcodeModes {
@@ -5319,6 +5365,41 @@ fn date_time_keywords_add_rows_after_their_word() {
     }
 }
 
+/// `utility.date_time_candidates`：行内日期时间混入与 T 模式是两个开关。混入关着时关键词只出它本来的词，T 模式仍照常；T 模式关着而混入开着时日期行照出。
+#[test]
+fn inline_date_time_is_a_separate_switch_from_the_mode() {
+    let fixture = Fixture::new(INLINE_DATE_TIME_FIXTURE);
+    let mut session = fixture.session_with(|options| options.local_modes.date_time_inline = false);
+    TestClock::install(&mut session);
+    type_text(&mut session, "riqi");
+    assert!(
+        !words(&session)
+            .iter()
+            .any(|word| word.contains("2026") || word.contains("14:30") || word.starts_with("📅")),
+        "{:?}",
+        words(&session)
+    );
+    session.command(Command::Cancel);
+
+    let mut session = fixture.session_with(|options| {
+        options.local_modes.date_time = false;
+        options.local_modes.date_time_inline = true;
+    });
+    TestClock::install(&mut session);
+    type_text(&mut session, "riqi");
+    assert_eq!(
+        words(&session)[..5],
+        [
+            "日期",
+            "2026年8月9日",
+            "📅日期",
+            "2026-08-09",
+            "2026年8月9日 星期日"
+        ]
+    );
+    session.command(Command::Cancel);
+}
+
 /// 选中日期行上屏它的文字并结束组字；它不是拼音读出的词，打开学习时也不写进词库和日志。
 #[test]
 fn a_date_time_row_commits_without_learning() {
@@ -5402,7 +5483,7 @@ fn date_time_menu_opens_the_full_format_list() {
     );
 }
 
-/// 词库里没有锚定词时什么都不加；关掉日期时间模式（T 模式）时 26 键、九宫格都不加。
+/// 词库里没有锚定词时什么都不加；关掉行内日期时间混入（`date_time_inline`）时 26 键、九宫格都不加。
 #[test]
 fn date_time_rows_need_their_word_and_the_date_time_switch() {
     let fixture = Fixture::new(&INLINE_DATE_TIME_FIXTURE.replace(
@@ -5415,7 +5496,7 @@ fn date_time_rows_need_their_word_and_the_date_time_switch() {
     assert!(!words(&session).contains(&"星期日".to_owned()));
     session.command(Command::Cancel);
 
-    let mut session = fixture.session_with(|options| options.local_modes.date_time = false);
+    let mut session = fixture.session_with(|options| options.local_modes.date_time_inline = false);
     TestClock::install(&mut session);
     type_text(&mut session, "riqi");
     assert_eq!(words(&session)[..1], ["日期"]);

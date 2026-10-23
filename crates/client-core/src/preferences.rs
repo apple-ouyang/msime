@@ -102,6 +102,17 @@ pub enum TwentySixKeyNumberLayout {
     NineKey,
 }
 
+/// 触屏键盘把正在拼写的内容（全拼、双拼、五笔、粤拼）放在哪里。桌面宿主原样保留、不使用：桌面候选窗画不画拼音行归 `candidate_preedit_style`，它的默认值是画，拿它当触屏的位置开关会让触屏默认把拼写挪出输入框。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchSpellingPosition {
+    /// 作为组字写进输入框，候选栏不再重复画它。
+    #[default]
+    Editor,
+    /// 只画在候选栏上，不写进输入框。
+    CandidateBar,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchSkinKeyShape {
@@ -850,7 +861,7 @@ pub enum GrammarModel {
 }
 
 /// Candidate sentence-association sources. The dictionary lattice keeps its historical default; neural rerankers are opt-in because they add model work while typing or settling.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SentenceAssociationPreferences {
     #[serde(default = "enabled_by_default")]
@@ -866,6 +877,51 @@ pub struct SentenceAssociationPreferences {
     /// 选中但还没下载时等于 `None`（逐字节退回无模型基线）。
     #[serde(default)]
     pub grammar_model: GrammarModel,
+    /// 搭配项标定系数（log10 域）：0 = 关闭加成。与 Windows `[association]`
+    /// `sentence_collocation_weight` 同名同出厂值；不进设置页，只在
+    /// preferences.json 里手调，等于出厂值时不写进文档。键缺失、类型不符或
+    /// 非有限值时回出厂值（见 `deserialize_sentence_collocation_weight`）。
+    #[serde(
+        deserialize_with = "deserialize_sentence_collocation_weight",
+        skip_serializing_if = "is_default_sentence_collocation_weight"
+    )]
+    pub sentence_collocation_weight: f64,
+    /// 搭配上下文与词的码点长度上限/下限，对应 Windows `sentence_collocation_max_length`
+    /// / `sentence_collocation_min_length`；取值口径与写入约定同 `sentence_collocation_weight`。
+    #[serde(
+        deserialize_with = "deserialize_sentence_collocation_max_length",
+        skip_serializing_if = "is_default_sentence_collocation_max_length"
+    )]
+    pub sentence_collocation_max_length: i32,
+    #[serde(
+        deserialize_with = "deserialize_sentence_collocation_min_length",
+        skip_serializing_if = "is_default_sentence_collocation_min_length"
+    )]
+    pub sentence_collocation_min_length: i32,
+    /// 命中搭配的惩罚，对应 Windows `sentence_collocation_penalty`。
+    #[serde(
+        deserialize_with = "deserialize_sentence_collocation_penalty",
+        skip_serializing_if = "is_default_sentence_collocation_penalty"
+    )]
+    pub sentence_collocation_penalty: f64,
+    /// 全部窗口未命中时的常数分，对应 Windows `sentence_collocation_non_penalty`。
+    #[serde(
+        deserialize_with = "deserialize_sentence_collocation_non_penalty",
+        skip_serializing_if = "is_default_sentence_collocation_non_penalty"
+    )]
+    pub sentence_collocation_non_penalty: f64,
+    /// 搭配长度低于下限时的弱命中惩罚，对应 Windows `sentence_collocation_weak_penalty`。
+    #[serde(
+        deserialize_with = "deserialize_sentence_collocation_weak_penalty",
+        skip_serializing_if = "is_default_sentence_collocation_weak_penalty"
+    )]
+    pub sentence_collocation_weak_penalty: f64,
+    /// 句尾词的「词+$」项惩罚，对应 Windows `sentence_collocation_rear_penalty`。
+    #[serde(
+        deserialize_with = "deserialize_sentence_collocation_rear_penalty",
+        skip_serializing_if = "is_default_sentence_collocation_rear_penalty"
+    )]
+    pub sentence_collocation_rear_penalty: f64,
 }
 
 impl Default for SentenceAssociationPreferences {
@@ -876,8 +932,127 @@ impl Default for SentenceAssociationPreferences {
             neural_keyboard: false,
             show_next_on_duplicate: false,
             grammar_model: GrammarModel::None,
+            sentence_collocation_weight: SENTENCE_COLLOCATION_WEIGHT_DEFAULT,
+            sentence_collocation_max_length: SENTENCE_COLLOCATION_MAX_LENGTH_DEFAULT,
+            sentence_collocation_min_length: SENTENCE_COLLOCATION_MIN_LENGTH_DEFAULT,
+            sentence_collocation_penalty: SENTENCE_COLLOCATION_PENALTY_DEFAULT,
+            sentence_collocation_non_penalty: SENTENCE_COLLOCATION_NON_PENALTY_DEFAULT,
+            sentence_collocation_weak_penalty: SENTENCE_COLLOCATION_WEAK_PENALTY_DEFAULT,
+            sentence_collocation_rear_penalty: SENTENCE_COLLOCATION_REAR_PENALTY_DEFAULT,
         }
     }
+}
+
+/// octagram 搭配调参系数的出厂值：与 Windows `installer/default_config/config.default.toml`
+/// 的 `[association]` 键和 `engine` 的 `GramConfig::default()` 逐项一致（万象现行
+/// 6/2/-14/-6/-100/-18，weight 1.0）。
+const SENTENCE_COLLOCATION_WEIGHT_DEFAULT: f64 = 1.0;
+const SENTENCE_COLLOCATION_MAX_LENGTH_DEFAULT: i32 = 6;
+const SENTENCE_COLLOCATION_MIN_LENGTH_DEFAULT: i32 = 2;
+const SENTENCE_COLLOCATION_PENALTY_DEFAULT: f64 = -14.0;
+const SENTENCE_COLLOCATION_NON_PENALTY_DEFAULT: f64 = -6.0;
+const SENTENCE_COLLOCATION_WEAK_PENALTY_DEFAULT: f64 = -100.0;
+const SENTENCE_COLLOCATION_REAR_PENALTY_DEFAULT: f64 = -18.0;
+
+/// 搭配调参系数的容错读取，与 Windows `value_or(出厂值)` 同口径：键缺失走
+/// `#[serde(default)]`（即 `Default` 里的出厂值），类型不符、超出目标范围或
+/// 非有限值回出厂值，文档其余字段照常生效——单个手误不该让整份偏好不可读。
+/// JSON 里 `1e400` 能解析出 `inf`，不挡会把非有限分带进词格打分。
+fn tuned_collocation_f64<'de, D>(deserializer: D, default: f64) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(serde_json::Value::deserialize(deserializer)?
+        .as_f64()
+        .filter(|value| value.is_finite())
+        .unwrap_or(default))
+}
+
+fn tuned_collocation_i32<'de, D>(deserializer: D, default: i32) -> Result<i32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(serde_json::Value::deserialize(deserializer)?
+        .as_i64()
+        .and_then(|value| i32::try_from(value).ok())
+        .unwrap_or(default))
+}
+
+fn deserialize_sentence_collocation_weight<'de, D>(d: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    tuned_collocation_f64(d, SENTENCE_COLLOCATION_WEIGHT_DEFAULT)
+}
+
+fn deserialize_sentence_collocation_max_length<'de, D>(d: D) -> Result<i32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    tuned_collocation_i32(d, SENTENCE_COLLOCATION_MAX_LENGTH_DEFAULT)
+}
+
+fn deserialize_sentence_collocation_min_length<'de, D>(d: D) -> Result<i32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    tuned_collocation_i32(d, SENTENCE_COLLOCATION_MIN_LENGTH_DEFAULT)
+}
+
+fn deserialize_sentence_collocation_penalty<'de, D>(d: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    tuned_collocation_f64(d, SENTENCE_COLLOCATION_PENALTY_DEFAULT)
+}
+
+fn deserialize_sentence_collocation_non_penalty<'de, D>(d: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    tuned_collocation_f64(d, SENTENCE_COLLOCATION_NON_PENALTY_DEFAULT)
+}
+
+fn deserialize_sentence_collocation_weak_penalty<'de, D>(d: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    tuned_collocation_f64(d, SENTENCE_COLLOCATION_WEAK_PENALTY_DEFAULT)
+}
+
+fn deserialize_sentence_collocation_rear_penalty<'de, D>(d: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    tuned_collocation_f64(d, SENTENCE_COLLOCATION_REAR_PENALTY_DEFAULT)
+}
+
+fn is_default_sentence_collocation_weight(value: &f64) -> bool {
+    *value == SENTENCE_COLLOCATION_WEIGHT_DEFAULT
+}
+
+fn is_default_sentence_collocation_max_length(value: &i32) -> bool {
+    *value == SENTENCE_COLLOCATION_MAX_LENGTH_DEFAULT
+}
+
+fn is_default_sentence_collocation_min_length(value: &i32) -> bool {
+    *value == SENTENCE_COLLOCATION_MIN_LENGTH_DEFAULT
+}
+
+fn is_default_sentence_collocation_penalty(value: &f64) -> bool {
+    *value == SENTENCE_COLLOCATION_PENALTY_DEFAULT
+}
+
+fn is_default_sentence_collocation_non_penalty(value: &f64) -> bool {
+    *value == SENTENCE_COLLOCATION_NON_PENALTY_DEFAULT
+}
+
+fn is_default_sentence_collocation_weak_penalty(value: &f64) -> bool {
+    *value == SENTENCE_COLLOCATION_WEAK_PENALTY_DEFAULT
+}
+
+fn is_default_sentence_collocation_rear_penalty(value: &f64) -> bool {
+    *value == SENTENCE_COLLOCATION_REAR_PENALTY_DEFAULT
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1021,6 +1196,9 @@ pub struct Preferences {
     /// 触屏 26 键双拼时在字母键底部画当前方案的声母/韵母提示，读屏也读它。默认关；全拼、独立英文和本地模式本来就不画，不受它影响。桌面宿主原样保留、不使用。
     #[serde(default = "disabled_by_default")]
     pub touch_shuangpin_key_hints: bool,
+    /// 触屏键盘的拼写写进输入框还是只画在候选栏；缺这个键的旧文档读作输入框。
+    #[serde(default)]
+    pub touch_spelling_position: TouchSpellingPosition,
     /// 中文触屏键盘的快捷符号，单个字素、去重，最多十二项；宿主只负责显示与提交。
     #[serde(default = "default_touch_quick_symbols")]
     pub touch_quick_punctuation_symbols: Vec<String>,
@@ -1097,6 +1275,9 @@ pub struct Preferences {
     /// 相邻候选项之间的间距，0–16pt；横排为列距，竖排为行距。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_item_spacing: Option<u8>,
+    /// 候选窗口严格按文字所需的宽度收紧，不垫出厂最小宽度（Windows `appearance.candidate_window_fit_content`，出厂关）。与皮肤包 `skin.toml` 的 `fit_content` 是或关系：任一为真即收紧。默认关，关着时不写进文档。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub candidate_window_fit_content: bool,
     #[serde(default = "default_candidate_font_family")]
     pub candidate_font_family: String,
     /// Optional leading face for the Windows candidate glyph fallback chain.
@@ -1834,8 +2015,12 @@ pub enum PreeditStyle {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocalModePreferences {
     pub unicode: bool,
+    /// Shift+T 日期时间快捷输入模式（Windows `utility.date_time_mode`，出厂开）。行内日期时间混入普通候选由 `date_time_inline` 单独开关。
     pub date_time: bool,
-    /// 日期时间混进普通候选时，第三位放一个「📅日期」入口，选中后候选窗换成这一组的全部格式（Windows `utility.date_time_menu`，出厂开）。依附 `date_time`；缺这个键的旧文档读作开。
+    /// 日期时间混进普通候选（对应 Windows `utility.date_time_candidates`）：全拼输入 `riqi`、`sj`、`xq`、`nongli` 时把当前日期、时间、星期或农历接在对应的词后面。与 `date_time`（T 模式）是两个独立开关；缺这个键的旧文档读作开——此前行内混入由 `date_time` 一并控制且默认开，保持同样的有效行为，开着时不写进文档。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub date_time_inline: bool,
+    /// 日期时间混进普通候选时，第三位放一个「📅日期」入口，选中后候选窗换成这一组的全部格式（Windows `utility.date_time_menu`，出厂开）。依附 `date_time_inline`；缺这个键的旧文档读作开。
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub date_time_menu: bool,
     pub quick_phrase: bool,
@@ -1872,6 +2057,7 @@ impl Default for LocalModePreferences {
         Self {
             unicode: true,
             date_time: true,
+            date_time_inline: true,
             date_time_menu: true,
             quick_phrase: true,
             emoji: true,
@@ -2339,7 +2525,7 @@ pub struct NavigationPreferences {
     pub mouse_wheel: bool,
     #[serde(alias = "candidate_arrow_navigation")]
     pub arrows: bool,
-    /// 不带修饰键的左右方向键在横排候选窗里移动候选高亮（左是上一个、右是下一个）。高亮在首选时 ← 照旧编辑输入串，→ 在光标没到输入串末尾时照旧往末尾移，到了末尾才选下一个；高亮不在首选时左右键只移动候选。桌面候选窗竖排（`candidate_layout`）时左右键与候选方向垂直，只编辑输入串；触屏的候选栏总是横排。与 `arrows` 各自独立，默认开启。
+    /// 不带修饰键的左右方向键在横排候选窗里移动候选高亮（左是上一个、右是下一个）。高亮在首选时 ← 照旧编辑输入串，→ 在光标没到输入串末尾时照旧往末尾移，到了末尾才选下一个；高亮不在首选时左右键只移动候选。桌面候选窗竖排（`candidate_layout`）时左右键与候选方向垂直，只编辑输入串；触屏的候选栏总是横排。与 `arrows` 各自独立，默认开启（Windows `general.candidate_horizontal_arrow_navigation` 出厂为关，默认值差异已记录在案，是否对齐留待产品决策）。
     ///
     /// 判断放在 `input-runtime` 里而不是每个宿主各写一遍：宿主只把左右键当普通光标命令发下去，端点判断和高亮移动跟着 ↑/↓ 的那段代码一起走。
     #[serde(default = "enabled_by_default")]
@@ -2649,6 +2835,7 @@ fn default_doubao_auth_mode() -> String {
 impl Default for Preferences {
     fn default() -> Self {
         Self {
+            candidate_window_fit_content: false,
             default_ime_mode: DefaultImeMode::default(),
             ime_mode_scope: ImeModeScope::default(),
             app_input_mode_rules: BTreeMap::new(),
@@ -2701,6 +2888,7 @@ impl Default for Preferences {
             touch_number_keypad_order: NumberKeypadOrder::default(),
             touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout::default(),
             touch_shuangpin_key_hints: false,
+            touch_spelling_position: TouchSpellingPosition::default(),
             touch_quick_punctuation_symbols: default_touch_quick_symbols(),
             touch_toolbar: TouchToolbarPreferences::default(),
             harmony_toolbar: HarmonyToolbarPreferences::default(),
@@ -3035,6 +3223,7 @@ pub struct HelpcodePreferences {
     /// Linux 的辅助码前导键；空串保留 Shift 加字母。
     #[serde(default)]
     pub trigger_key: String,
+    /// Windows `shuangpin_helpcode`/`quanpin_helpcode` 出厂关、门禁 pin 出厂开，本仓沿用开；缺这个键的旧文档读作开。
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     pub schema: HelpcodeSchema,

@@ -133,6 +133,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeVoiceEntry imeVoiceEntry;
     ImeKeyFeedback imeKeyFeedback;
     ImeDebugOverlay imeDebugOverlay;
+    private final ImeOperationNotice operationNotice = new ImeOperationNotice(this);
     ImeTextEditPanel imeTextEditPanel;
     ImeCalculator imeCalculator;
     ImeEmailSuffixes imeEmailSuffixes;
@@ -284,8 +285,8 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean candidateHorizontal = true;
     int candidateFontSize = 16;
     int candidatePreeditFontSize = 16;
-    /** 拼音显示在候选栏还是输入框；共享偏好缺失或非法时沿用输入框。 */
-    private String candidatePreeditStyle = CandidatePreeditStylePolicy.EMPTY;
+    /** 拼音显示在候选栏还是输入框（`touch_spelling_position`）；共享偏好缺失或非法时沿用输入框。 */
+    private String spellingPosition = CandidatePreeditStylePolicy.EDITOR;
     CandidateAppearance.Palette candidateAppearance =
         CandidateAppearance.fromSkin(KeyboardSkin.system(false));
     int touchKeySpacingTenths = KeyboardSpacingPolicy.DEFAULT_KEY_SPACING_TENTHS;
@@ -594,6 +595,10 @@ public final class MSIMEInputService extends InputMethodService {
         }
         Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
     }
+
+    long beginClipboardPhraseNotice() { return operationNotice.begin(); }
+
+    void showClipboardPhraseNotice(long request, String text) { operationNotice.show(request, text); }
 
     private long deviceInfoCopyGeneration;
 
@@ -957,8 +962,8 @@ public final class MSIMEInputService extends InputMethodService {
         applyClipboardPreference(preferences, source);
         applyChineseOutputPreference(preferences);
         applyCandidateGlossPreference(preferences);
-        candidatePreeditStyle = CandidatePreeditStylePolicy.normalize(
-            InputViewValuePolicy.textOr(preferences, "candidate_preedit_style", null));
+        spellingPosition = CandidatePreeditStylePolicy.normalize(
+            InputViewValuePolicy.textOr(preferences, "touch_spelling_position", null));
         applyEnglishSuggestionsPreference(preferences);
         applyCandidateTranslationPreference(preferences);
         applyWubiCodeHintPreference(preferences);
@@ -1731,6 +1736,9 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
+        // 反馈必须在第一下按键前生效，不能被延迟刷新的组字保护跳过。
+        loadFeedbackPreferences();
+        refreshLocalSettings();
         if (info != null) automaticNumberRow.enterEditor(info.inputType, info.packageName);
         if (inlineAutofill != null) inlineAutofill.showInput();
         Telemetry.inputViewShown(this);
@@ -1761,7 +1769,6 @@ public final class MSIMEInputService extends InputMethodService {
                     effectiveInfo.inputType, effectiveInfo.imeOptions);
             }
             markPrivateSession();
-            loadFeedbackPreferences();
             refreshLocalSettings();
             refreshPreferencesOnInputView();
             updateAutomaticCapitalization();
@@ -1773,6 +1780,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInput() {
+        operationNotice.cancel();
         if (inlineAutofill != null) inlineAutofill.finishInput();
         imeDebugOverlay.recordEvent(DiagnosticEventKind.IME_FINISH);
         cancelPendingCompositionMarkerLoss();
@@ -1808,6 +1816,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInputView(boolean finishingInput) {
+        operationNotice.cancel();
         if (inlineAutofill != null) inlineAutofill.finishInput();
         imePanels.dismissClipboardPreview();
         flushKeyPresses();
@@ -1862,6 +1871,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onConfigurationChanged(Configuration configuration) {
+        operationNotice.cancel();
         super.onConfigurationChanged(configuration);
         boolean attached = hardwareKeyboardAttached(configuration);
         hardwareKeyboardMode = HardwareKeyboardModePolicy.afterConfiguration(
@@ -1929,6 +1939,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onDestroy() {
+        operationNotice.cancel();
         voiceActivityGeneration++;
         getContentResolver().unregisterContentObserver(inputMethodWatcher);
         if (inlineAutofill != null) inlineAutofill.finishInput();
@@ -2758,7 +2769,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousClipboard = clipboardHistoryEnabled;
         boolean previousTraditional = traditionalChineseOutput;
         boolean previousCandidateGloss = candidateEnglishGloss;
-        String previousCandidatePreeditStyle = candidatePreeditStyle;
+        String previousSpellingPosition = spellingPosition;
         boolean previousCandidateTranslations = candidateTranslationsEnabled;
         boolean previousCandidateTranslationAccount = candidateTranslationAccount;
         CandidateTranslationRoute previousCandidateTranslationRoute = candidateTranslationRoute;
@@ -2792,7 +2803,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || previousClipboard != clipboardHistoryEnabled
                 || previousTraditional != traditionalChineseOutput
                 || previousCandidateGloss != candidateEnglishGloss
-                || !previousCandidatePreeditStyle.equals(candidatePreeditStyle)
+                || !previousSpellingPosition.equals(spellingPosition)
                 || previousCandidateTranslations != candidateTranslationsEnabled
                 || previousCandidateTranslationAccount != candidateTranslationAccount
                 || !previousCandidateTranslationRoute.equals(candidateTranslationRoute)
@@ -2855,8 +2866,8 @@ public final class MSIMEInputService extends InputMethodService {
                 || !previousAiAssistant.toString().equals(nextAiAssistant.toString());
         boolean nextTraditional = preferences.optBoolean("traditional_chinese_output", false);
         boolean nextCandidateGloss = preferences.optBoolean("candidate_english_gloss", true);
-        String nextCandidatePreeditStyle = CandidatePreeditStylePolicy.normalize(
-            InputViewValuePolicy.textOr(preferences, "candidate_preedit_style", null));
+        String nextSpellingPosition = CandidatePreeditStylePolicy.normalize(
+            InputViewValuePolicy.textOr(preferences, "touch_spelling_position", null));
         boolean nextCandidateTranslations = preferences.optBoolean("candidate_translations", true);
         boolean nextCandidateTranslationAccount = candidateTranslationAccountFrom(preferences);
         CandidateTranslationRoute nextCandidateTranslationRoute = candidateTranslationRouteFrom(preferences);
@@ -2909,7 +2920,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateHorizontal = nextHorizontal;
         candidateFontSize = nextFontSize;
         candidatePreeditFontSize = nextPreeditFontSize;
-        candidatePreeditStyle = nextCandidatePreeditStyle;
+        spellingPosition = nextSpellingPosition;
         touchKeySpacingTenths = nextKeySpacing;
         touchRowSpacingTenths = nextRowSpacing;
         touchKeyboardHeightAdjustment = nextHeightAdjustment;
@@ -3081,7 +3092,7 @@ public final class MSIMEInputService extends InputMethodService {
             && CandidatePreeditStylePolicy.writesSpelling(nextViewScheme)
             && "none".equals(InputViewValuePolicy.textOr(next, "local_mode", "none"));
         boolean spelling = spellingScheme && !CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(
-            candidatePreeditStyle);
+            spellingPosition);
         String typed = spellingScheme
             ? spelling
                 ? drawn
@@ -3102,7 +3113,7 @@ public final class MSIMEInputService extends InputMethodService {
                 next, "nine_key", false) || fourteenKeyGrid || shuangpinGrid,
                 ZhuyinInputPolicy.active(nextViewScheme, nextDedicatedEnglish))) {
             composing = drawn && spellingScheme && spelling && !fourteenKeyGrid
-                && !CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(candidatePreeditStyle)
+                && !CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(spellingPosition)
                 ? PhrasePreeditPolicy.composing(phrasePrefix, CandidatePreeditStylePolicy.inlineSpelling(true,
                     InputViewValuePolicy.textOr(next, "nine_key_reading", ""), preedit, editingText))
                 : "";
@@ -3226,8 +3237,17 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             englishSuggestionWorker.execute(() -> {
                 try {
-                    EnglishSuggestionModel.Result result = EnglishSuggestionModel.decode(
+                    EnglishSuggestionModel.Result suggestions = EnglishSuggestionModel.decode(
                         NativeClient.englishCorrections(prefix, resources));
+                    if (prefix.chars().allMatch(TextPolicy::isAsciiLetter)) {
+                        try {
+                            suggestions = EnglishSuggestionModel.withCompletions(suggestions,
+                                EnglishSuggestionModel.decode(NativeClient.englishCompletions(prefix, resources)));
+                        } catch (Exception | LinkageError ignored) {
+                            // 补全不可用时保留原文与纠错，空格提交仍只查询唯一纠错。
+                        }
+                    }
+                    EnglishSuggestionModel.Result result = suggestions;
                     main.post(() -> applyEnglishSuggestions(epoch, prefix, result));
                 } catch (Exception | LinkageError ignored) {
                     // Completion failures are optional display state and never block input.
@@ -5441,6 +5461,10 @@ public final class MSIMEInputService extends InputMethodService {
         button.setText(label);
         button.setContentDescription("按键 " + description);
         imeStyler.styleButton(button, false);
+        button.setOnTouchListener((view, event) -> {
+            imeLetterRows.updateKeyPreview(button, event);
+            return false;
+        });
         return bindCountedAction(button, action);
     }
 
@@ -8659,6 +8683,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public View onCreateInputView() {
+        operationNotice.cancel();
         imePanels.dismissClipboardPreview();
         cancelInputViewRefresh();
         deactivateHandwriting();
@@ -9875,7 +9900,7 @@ public final class MSIMEInputService extends InputMethodService {
             boolean spellingInEditor = view != null && connection != null && !editorCompositionSuppressed
                 && !composingText(view, editingText, true).isEmpty();
             localModeTitle = CandidatePreeditStylePolicy.composedText(CandidatePreeditStylePolicy.style(
-                candidatePreeditStyle, InputViewValuePolicy.scheme(view, -1), spellingInEditor),
+                spellingPosition, InputViewValuePolicy.scheme(view, -1), spellingInEditor),
                 localModeTitle, localModeName);
             boolean idleTitle = idle && editingText.isEmpty();
             // 新设计去掉了空闲时的品牌药丸：空闲时读音行整行隐藏，品牌标在工具栏最左。

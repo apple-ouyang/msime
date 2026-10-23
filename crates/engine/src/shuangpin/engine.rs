@@ -52,12 +52,12 @@ fn direct_helpcode_paths(
         typed: &str,
         position: usize,
         profile: &ShuangpinProfile,
-        slash: bool,
-        uppercase: bool,
+        endings: (bool, bool),
         path: &mut Vec<DirectSpelling>,
         paths: &mut Vec<Vec<DirectSpelling>>,
         remaining: &mut usize,
     ) {
+        let (slash, uppercase) = endings;
         if paths.len() >= 64 || *remaining == 0 {
             return;
         }
@@ -79,14 +79,20 @@ fn direct_helpcode_paths(
         if cvt_single_sp_to_pinyin(code_text, profile).is_empty() {
             return;
         }
-        let mut visit_at = |spelling: DirectSpelling,
-                            path: &mut Vec<DirectSpelling>,
-                            paths: &mut Vec<Vec<DirectSpelling>>,
-                            remaining: &mut usize| {
+        let visit_at = |spelling: DirectSpelling,
+                        path: &mut Vec<DirectSpelling>,
+                        paths: &mut Vec<Vec<DirectSpelling>>,
+                        remaining: &mut usize| {
             let end = spelling.end;
             path.push(spelling);
             visit(
-                typed, end, profile, slash, uppercase, path, paths, remaining,
+                typed,
+                end,
+                profile,
+                (slash, uppercase),
+                path,
+                paths,
+                remaining,
             );
             path.pop();
         };
@@ -178,8 +184,7 @@ fn direct_helpcode_paths(
             typed,
             0,
             profile,
-            slash,
-            uppercase,
+            (slash, uppercase),
             &mut Vec::new(),
             &mut paths,
             &mut 512,
@@ -192,9 +197,10 @@ fn direct_helpcode_paths(
 pub(crate) fn direct_helpcodes_own_capitals(
     typed: &str,
     profile: &ShuangpinProfile,
+    slash: bool,
     uppercase: bool,
 ) -> bool {
-    direct_helpcode_paths(typed, profile, false, uppercase)
+    direct_helpcode_paths(typed, profile, slash, uppercase)
         .iter()
         .any(|path| {
             let mut start = 0;

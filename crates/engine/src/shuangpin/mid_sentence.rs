@@ -95,7 +95,7 @@ fn end_block_end(text: &[u8], first: usize, mut codes: usize) -> usize {
 /// 当前这一节已有的键数 `chunk_length` 是偶数且至少两个时，这个位置上的大写字母开一段
 /// （`StartsUppercaseBlock`）。
 fn starts_uppercase_block(ch: u8, chunk_length: usize) -> bool {
-    is_ascii_upper(ch) && chunk_length >= 2 && chunk_length % 2 == 0
+    is_ascii_upper(ch) && chunk_length >= 2 && chunk_length.is_multiple_of(2)
 }
 
 /// `text[first]` 是大写段的第一码，返回这一段结束的位置（`UppercaseBlockEnd`）。
@@ -161,7 +161,7 @@ pub fn chunk_start(text: &[u8], triggers: UppercaseTriggers) -> usize {
 /// 音节（`AcceptsMarker`）。
 pub fn accepts_marker(text: &[u8], triggers: UppercaseTriggers) -> bool {
     let chunk_length = text.len() - chunk_start(text, triggers);
-    chunk_length >= 2 && chunk_length % 2 == 0
+    chunk_length >= 2 && chunk_length.is_multiple_of(2)
 }
 
 /// 光标停在 `text[caret]` 时能否插入一个反引号：光标前按 `accepts_marker` 判断；光标后紧跟的
@@ -196,7 +196,7 @@ pub fn accepts_second_code_at(text: &[u8], caret: usize, triggers: UppercaseTrig
 }
 
 /// 微软/搜狗/紫光双拼的 `;` 是 `ing` 韵母，光标前这一节是奇数键时它是编码键。大写触发开着、或
-/// 串里有末尾段时，段不算这一节的键；都没有时保持原来只看最后一个 `'` 之后的规则
+/// 串里有句中或末尾段时，段不算这一节的键；都没有时保持原来只看最后一个 `'` 之后的规则
 /// （`AcceptsSemicolonFinalAt`）。
 pub fn accepts_semicolon_final_at(text: &[u8], caret: usize, triggers: UppercaseTriggers) -> bool {
     if caret > text.len() {
@@ -207,7 +207,7 @@ pub fn accepts_semicolon_final_at(text: &[u8], caret: usize, triggers: Uppercase
         if scan {
             break;
         }
-        scan = byte == END_HELPCODE_MARKER;
+        scan = byte == END_HELPCODE_MARKER || byte == MID_SENTENCE_MARKER;
     }
     let start = if scan {
         chunk_start(&text[..caret], triggers)
