@@ -42,6 +42,8 @@ Status: implemented
 
 本地完整 quick 通过；原生 CTest 的 `toggle-hotkeys`、`toggle-hotkeys-layout`、`toggle-hotkey-event` 和 `shortcut-toggle-hotkeys` 四项通过。尚未声称真机 Dvorak 输入源或已安装产品验收。
 
+首轮集成 CI 的 iOS、macOS、共享设置、Linux 与 Windows 构建通过；仓库契约因 Windows 设置说明契约过时失败，脚本插件因作者 SDK 缺少 `GRID_LIMIT = 11` 失败。两项基线缺陷分别由 #9389 和 #9399 修复并合入 `develop`，本 PR 不重复携带它们的补丁；合并仍需等待包含当前基线的最新一轮 CI 全部通过或按范围跳过。
+
 ## Consequences
 
 Dvorak 下默认 `Ctrl+Period` 会跟随句号字符，原先物理句号位置改为按该位置的布局字符解释。这是统一认键所需的行为变化，不能声称仅修了错误提示。非拉丁字符回退与无字符合成事件需要独立回归；不以英文 QWERTY 上的成功替代布局用例。
