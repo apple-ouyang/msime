@@ -3,6 +3,7 @@ use msime_client_providers::ai::{
     endpoint,
     provider_catalog::{provider_update, AiProviderFields, PROVIDERS},
 };
+use std::collections::BTreeMap;
 
 fn current(provider: &str, endpoint: &str, model: &str) -> AiProviderFields {
     AiProviderFields {
@@ -10,6 +11,8 @@ fn current(provider: &str, endpoint: &str, model: &str) -> AiProviderFields {
         provider: provider.into(),
         endpoint: endpoint.into(),
         model: model.into(),
+        endpoints: BTreeMap::new(),
+        models: BTreeMap::new(),
     }
 }
 
@@ -60,17 +63,59 @@ fn selecting_the_initial_provider_fills_the_mobile_empty_defaults() {
 }
 
 #[test]
+fn custom_endpoint_and_model_return_through_the_slots() {
+    // A8：切走时自定义值进原提供方的槽位，切回来按槽位回填；默认值不落槽位。
+    let custom = current(
+        "deepseek",
+        "https://llm.internal.example/v1/chat/completions",
+        "my-model",
+    );
+    let openai = PROVIDERS.iter().find(|entry| entry.id == "openai").unwrap();
+    let patch = provider_update("openai", &custom).unwrap();
+    assert_eq!(patch.endpoint, openai.endpoint);
+    assert_eq!(patch.model, openai.model);
+    assert_eq!(
+        patch.endpoints.get("deepseek").map(String::as_str),
+        Some("https://llm.internal.example/v1/chat/completions")
+    );
+    assert_eq!(
+        patch.models.get("deepseek").map(String::as_str),
+        Some("my-model")
+    );
+    let back = provider_update("deepseek", &patch).unwrap();
+    assert_eq!(
+        back.endpoint,
+        "https://llm.internal.example/v1/chat/completions"
+    );
+    assert_eq!(back.model, "my-model");
+    // 目录默认值不写槽位。
+    let plain = provider_update("kimi", &back).unwrap();
+    assert!(!plain.endpoints.contains_key("openai"));
+}
+
+#[test]
 fn custom_endpoint_and_model_survive_switches_including_custom_provider() {
     let original = current(
         "deepseek",
-        "http://127.0.0.1:1234/v1/chat/completions",
+        "https://llm.example.com/v1/chat/completions",
         "synthetic-model",
     );
     for next in PROVIDERS {
+        // 切去别的提供方：现值进 deepseek 的槽位，新提供方用自己的默认值；切回来原样返回。
         let patch = provider_update(next.id, &original).unwrap();
-        assert_eq!(patch.endpoint, original.endpoint);
-        assert_eq!(patch.model, original.model);
-        assert!(patch.enabled);
+        assert_eq!(
+            patch.endpoints.get("deepseek").map(String::as_str),
+            Some(original.endpoint.as_str())
+        );
+        assert_eq!(
+            patch.models.get("deepseek").map(String::as_str),
+            Some(original.model.as_str())
+        );
+        let back = provider_update("deepseek", &patch).unwrap();
+        assert_eq!(back.endpoint, original.endpoint);
+        assert_eq!(back.model, original.model);
+        // custom 中间态的 enabled 本来就假（它的默认端点为空）；恢复的地址合法时 enabled 照中间态保持。
+        assert_eq!(back.enabled, patch.enabled);
     }
 }
 
@@ -80,20 +125,31 @@ fn endpoint_and_model_are_replaced_independently() {
         .iter()
         .find(|entry| entry.id == "deepseek")
         .unwrap();
+    // 接口地址是默认值、模型是自定义：只有模型进槽位，两项都按新提供方回填。
     let patch = provider_update(
         "openai",
         &current("deepseek", deepseek.endpoint, "synthetic-model"),
     )
     .unwrap();
     assert_eq!(patch.endpoint, "https://api.openai.com/v1/chat/completions");
-    assert_eq!(patch.model, "synthetic-model");
+    assert_eq!(patch.model, "gpt-4.1-mini");
+    assert_eq!(
+        patch.models.get("deepseek").map(String::as_str),
+        Some("synthetic-model")
+    );
+    assert!(!patch.endpoints.contains_key("deepseek"));
     let patch = provider_update(
         "openai",
         &current("deepseek", "https://fixture.invalid/v1", deepseek.model),
     )
     .unwrap();
-    assert_eq!(patch.endpoint, "https://fixture.invalid/v1");
+    assert_eq!(patch.endpoint, "https://api.openai.com/v1/chat/completions");
     assert_eq!(patch.model, "gpt-4.1-mini");
+    assert_eq!(
+        patch.endpoints.get("deepseek").map(String::as_str),
+        Some("https://fixture.invalid/v1")
+    );
+    assert!(!patch.models.contains_key("deepseek"));
 }
 
 #[test]
@@ -106,10 +162,16 @@ fn switches_do_not_enable_a_disabled_assistant_or_keep_an_unsafe_endpoint_enable
         "file:///fixture",
         "https://fixture.invalid/v1#fragment",
     ] {
+        // 不合规的地址留在 custom 的槽位里：切去 openai 用它的默认值，切回 custom 仍恢复这个地址并保持禁用。
         let patch =
             provider_update("openai", &current("custom", endpoint, "synthetic-model")).unwrap();
-        assert_eq!(patch.endpoint, endpoint);
-        assert!(!patch.enabled);
+        assert_eq!(
+            patch.endpoints.get("custom").map(String::as_str),
+            Some(endpoint)
+        );
+        let back = provider_update("custom", &patch).unwrap();
+        assert_eq!(back.endpoint, endpoint);
+        assert!(!back.enabled);
     }
 }
 

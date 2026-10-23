@@ -1220,6 +1220,7 @@ fn disabled_shift_shortcuts_leave_every_capital_available_for_pinyin() {
                 options.local_modes = crate::types::LocalModeOptions {
                     unicode: false,
                     date_time: false,
+                    date_time_inline: false,
                     quick_phrase: false,
                     emoji: false,
                     kaomoji: false,
@@ -4868,10 +4869,16 @@ fn date_time_keywords_add_rows_after_their_word() {
     let fixture = Fixture::new(INLINE_DATE_TIME_FIXTURE);
     let mut session = fixture.session();
     TestClock::install(&mut session);
-    let date = ["日期", "2026年8月9日", "2026-08-09", "2026年8月9日 星期日"];
+    let date = [
+        "日期",
+        "2026年8月9日",
+        "📅日期",
+        "2026-08-09",
+        "2026年8月9日 星期日",
+    ];
     for keyword in ["riqi", "ri'qi"] {
         type_text(&mut session, keyword);
-        assert_eq!(words(&session)[..4], date, "{keyword}");
+        assert_eq!(words(&session)[..5], date, "{keyword}");
         let snapshot = session.snapshot();
         assert_eq!(snapshot.candidates[1].source, CandidateSource::Generated);
         assert_eq!(snapshot.candidates[1].pinyin, keyword);
@@ -4883,15 +4890,21 @@ fn date_time_keywords_add_rows_after_their_word() {
     let sj = words(&session);
     let at = sj.iter().position(|word| word == "时间").expect("时间");
     assert_eq!(sj[..at], ["手机"]);
-    assert_eq!(sj[at + 1..at + 4], ["14:30", "14:30:00", "下午2:30"]);
+    assert_eq!(
+        sj[at + 1..at + 5],
+        ["14:30", "🕒时间", "14:30:00", "下午2:30"]
+    );
     session.command(Command::Cancel);
 
     type_text(&mut session, "xingqi");
-    assert_eq!(words(&session)[..3], ["星期", "星期日", "周日"]);
+    assert_eq!(words(&session)[..4], ["星期", "星期日", "📅星期", "周日"]);
     session.command(Command::Cancel);
 
     type_text(&mut session, "nongli");
-    assert_eq!(words(&session)[..2], ["农历", "丙午年六月二十七日"]);
+    assert_eq!(
+        words(&session)[..3],
+        ["农历", "丙午年六月二十七日", "📅日期"]
+    );
     session.command(Command::Cancel);
 
     // 不是关键词的组字、关键词的一部分都不加。
@@ -4906,6 +4919,41 @@ fn date_time_keywords_add_rows_after_their_word() {
         );
         session.command(Command::Cancel);
     }
+}
+
+/// `utility.date_time_candidates`：行内日期时间混入与 T 模式是两个开关。混入关着时关键词只出它本来的词，T 模式仍照常；T 模式关着而混入开着时日期行照出。
+#[test]
+fn inline_date_time_is_a_separate_switch_from_the_mode() {
+    let fixture = Fixture::new(INLINE_DATE_TIME_FIXTURE);
+    let mut session = fixture.session_with(|options| options.local_modes.date_time_inline = false);
+    TestClock::install(&mut session);
+    type_text(&mut session, "riqi");
+    assert!(
+        !words(&session)
+            .iter()
+            .any(|word| word.contains("2026") || word.contains("14:30") || word.starts_with("📅")),
+        "{:?}",
+        words(&session)
+    );
+    session.command(Command::Cancel);
+
+    let mut session = fixture.session_with(|options| {
+        options.local_modes.date_time = false;
+        options.local_modes.date_time_inline = true;
+    });
+    TestClock::install(&mut session);
+    type_text(&mut session, "riqi");
+    assert_eq!(
+        words(&session)[..5],
+        [
+            "日期",
+            "2026年8月9日",
+            "📅日期",
+            "2026-08-09",
+            "2026年8月9日 星期日"
+        ]
+    );
+    session.command(Command::Cancel);
 }
 
 /// 选中日期行上屏它的文字并结束组字；它不是拼音读出的词，打开学习时也不写进词库和日志。
@@ -4928,7 +4976,70 @@ fn a_date_time_row_commits_without_learning() {
     assert_eq!(count(&fixture.main_db(), "SELECT count(*) FROM tbl_2_r"), 1);
 }
 
-/// 词库里没有锚定词时什么都不加；关掉日期时间模式（T 模式）时 26 键、九宫格都不加。
+/// `utility.date_time_menu`：「📅日期」入口跟在第一条行内日期行后面（锚定词在首位时是第三位），选中它不上屏、候选窗换成这一组的全部格式；再选一条格式上屏并结束组字；其他键先换回原来的候选再照常处理。
+#[test]
+fn date_time_menu_opens_the_full_format_list() {
+    let fixture = Fixture::new(INLINE_DATE_TIME_FIXTURE);
+    let mut session = fixture.session();
+    TestClock::install(&mut session);
+    type_text(&mut session, "riqi");
+    let first = words(&session);
+    assert_eq!(first[2], "📅日期", "{first:?}");
+    let menu = &session.snapshot().candidates[2];
+    assert_eq!(menu.source, CandidateSource::Generated);
+    assert_eq!(menu.pinyin, "menu:riqi");
+
+    // 选中入口：不上屏，候选窗换成 T 模式的整组格式，组字原样留着。
+    let result = session.select(2);
+    assert!(result.handled);
+    assert!(result.commit.is_none());
+    let page = words(&session);
+    assert_eq!(page.len(), 17, "{page:?}");
+    assert_eq!(page[0], "2026年8月9日");
+    assert_eq!(page[16], "丙午年六月二十七日");
+    assert!(!session.snapshot().preedit.is_empty());
+
+    // 页里选一条格式：照常上屏并结束组字。
+    assert_eq!(session.select(1).commit.as_deref(), Some("2026-08-09"));
+    assert!(session.snapshot().preedit.is_empty());
+
+    // 非选词键先换回原来的候选再照常处理：退格删掉最后一个字母，候选跟着变。
+    type_text(&mut session, "riqi");
+    session.select(2);
+    assert_eq!(words(&session).len(), 17);
+    assert!(session.command(Command::Backspace).handled);
+    let after = words(&session);
+    assert!(
+        !after.contains(&"丙午年六月二十七日".to_owned()),
+        "{after:?}"
+    );
+    assert!(!after.contains(&"📅日期".to_owned()), "{after:?}");
+    session.command(Command::Cancel);
+
+    // 星期、时间的入口文案与参考一致；锚定词不在首位时入口仍在第一条行内行后面。
+    type_text(&mut session, "sj");
+    let sj = words(&session);
+    let at = sj.iter().position(|word| word == "时间").expect("时间");
+    assert_eq!(sj[at + 2], "🕒时间", "{sj:?}");
+    session.command(Command::Cancel);
+    type_text(&mut session, "xingqi");
+    assert_eq!(words(&session)[2], "📅星期");
+    session.command(Command::Cancel);
+    type_text(&mut session, "nongli");
+    assert_eq!(words(&session)[2], "📅日期");
+    session.command(Command::Cancel);
+
+    // 关掉开关时只有行内日期行，没有入口。
+    let mut session = fixture.session_with(|options| options.local_modes.date_time_menu = false);
+    TestClock::install(&mut session);
+    type_text(&mut session, "riqi");
+    assert_eq!(
+        words(&session)[..4],
+        ["日期", "2026年8月9日", "2026-08-09", "2026年8月9日 星期日"]
+    );
+}
+
+/// 词库里没有锚定词时什么都不加；关掉行内日期时间混入（`date_time_inline`）时 26 键、九宫格都不加。
 #[test]
 fn date_time_rows_need_their_word_and_the_date_time_switch() {
     let fixture = Fixture::new(&INLINE_DATE_TIME_FIXTURE.replace(
@@ -4941,7 +5052,7 @@ fn date_time_rows_need_their_word_and_the_date_time_switch() {
     assert!(!words(&session).contains(&"星期日".to_owned()));
     session.command(Command::Cancel);
 
-    let mut session = fixture.session_with(|options| options.local_modes.date_time = false);
+    let mut session = fixture.session_with(|options| options.local_modes.date_time_inline = false);
     TestClock::install(&mut session);
     type_text(&mut session, "riqi");
     assert_eq!(words(&session)[..1], ["日期"]);
@@ -9174,6 +9285,106 @@ INSERT INTO quick_parases VALUES('dh','电话',20);",
     assert!(!words(&session).contains(&"电话".to_owned()));
 }
 
+/// `quick_phrase_frequency` 开着（`mixed_input.quick_phrase_frequency`，Windows `utility.quick_phrase_frequency`）：选中组内快捷短语让整组按调频规则前移，越过它选普通候选让整组后退一格。
+#[test]
+fn quick_phrase_frequency_moves_the_group_on_selection() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
+INSERT INTO tbl_2_n VALUES('ni''hao', 'nh', '你好', 200);\
+INSERT INTO tbl_2_n VALUES('ni''hao', 'nh', '拟好', 100);\
+INSERT INTO tbl_2_n VALUES('ni''hao', 'nh', '逆好', 90);\
+INSERT INTO tbl_2_n VALUES('ni''hao', 'nh', '泥号', 80);\
+INSERT INTO tbl_2_n VALUES('ni''hao', 'nh', '溺号', 70);\
+INSERT INTO tbl_2_n VALUES('ni''hao', 'nh', '腻号', 60);\
+CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO quick_parases VALUES('nihao','号码一',10);\
+INSERT INTO quick_parases VALUES('nihao','号码二',20);",
+    );
+    let mut session = fixture.session_with(|options| {
+        options.quick_phrase_candidates = true;
+        options.quick_phrase_frequency = true;
+        options.frequency = FrequencyAdjustmentOptions {
+            mode: FrequencyAdjustmentMode::Promote,
+            trigger_count: 1,
+            linear_step: 1,
+        };
+        options.first_page_rows = 10;
+        options.personal_context = false;
+    });
+    let group_at = |session: &Session| {
+        session
+            .snapshot()
+            .candidates
+            .iter()
+            .position(|item| item.word == "号码一")
+            .expect("quick phrase group")
+    };
+    type_text(&mut session, "nihao");
+    let before = group_at(&session);
+    assert_eq!(before, 7, "整组追加在普通候选之后（组内按权重排序）");
+
+    // 选中组内一条：整组按调频规则前移（Promote 把组的位置拉到第四格），选中的这条升到同码最高权重、排到组首。
+    assert_eq!(session.select(before).commit.as_deref(), Some("号码一"));
+    type_text(&mut session, "nihao");
+    let promoted = group_at(&session);
+    assert_eq!(promoted, 4, "整组前移后落在第五格");
+    assert_eq!(
+        words(&session)[promoted..promoted + 2],
+        ["号码一", "号码二"],
+        "整组一起挪"
+    );
+
+    // 越过整组选排在后面的普通候选：整组后退一格。
+    session.select(7);
+    type_text(&mut session, "nihao");
+    assert_eq!(group_at(&session), 5, "越过组选普通候选后整组后退一格");
+
+    // 再越过一次：组退到末尾，再往后没有普通候选可越。
+    session.select(7);
+    type_text(&mut session, "nihao");
+    assert_eq!(group_at(&session), 6, "整组退到末尾");
+    assert_eq!(words(&session)[6..], ["号码一", "号码二"]);
+}
+
+/// `quick_phrase_frequency` 关着时，整组固定在普通候选末尾：选中短语、越过它选普通候选，位置都不变。
+#[test]
+fn the_group_stays_at_the_end_when_quick_phrase_frequency_is_off() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
+INSERT INTO tbl_2_n VALUES('ni''hao', 'nh', '你好', 200);\
+INSERT INTO tbl_2_n VALUES('ni''hao', 'nh', '拟好', 100);\
+CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO quick_parases VALUES('nihao','号码一',10);",
+    );
+    let mut session = fixture.session_with(|options| {
+        options.quick_phrase_candidates = true;
+        options.quick_phrase_frequency = false;
+        options.frequency = FrequencyAdjustmentOptions {
+            mode: FrequencyAdjustmentMode::Promote,
+            trigger_count: 1,
+            linear_step: 1,
+        };
+        options.personal_context = false;
+    });
+    let group_at = |session: &Session| {
+        session
+            .snapshot()
+            .candidates
+            .iter()
+            .position(|item| item.word == "号码一")
+            .expect("quick phrase group")
+    };
+    type_text(&mut session, "nihao");
+    let position = group_at(&session);
+    assert_eq!(session.select(position).commit.as_deref(), Some("号码一"));
+    type_text(&mut session, "nihao");
+    assert_eq!(group_at(&session), position, "关掉调频后选中短语不挪组");
+    let last = session.snapshot().candidates.len() - 1;
+    session.select(last);
+    type_text(&mut session, "nihao");
+    assert_eq!(group_at(&session), position, "关掉调频后越过组不挪组");
+}
+
 /// 五笔四码唯一时，同编码的快捷短语追加在后面也不妨碍自动上屏，提交的仍是五笔那一行。
 #[test]
 fn a_quick_phrase_with_the_same_key_keeps_the_wubi_unique_four_code() {
@@ -10878,6 +11089,8 @@ fn a_zero_first_page_rows_reads_as_one_row() {
 const CORNER_HOLLOW: crate::punctuation::PunctuationMarks = crate::punctuation::PunctuationMarks {
     quotes: crate::punctuation::QuoteMarks::Corner,
     brackets: crate::punctuation::BracketMarks::Hollow,
+    enumeration_comma_backslash: true,
+    enumeration_comma_slash: false,
 };
 
 #[test]
@@ -11421,4 +11634,24 @@ fn custom_helpcode_trigger_preserves_microsoft_final_and_other_input_modes() {
     type_text(&mut session, "/");
     session.character(b';', false);
     assert!(session.input.helpcode_entry.is_none());
+}
+
+// 顿号开关不能抢占词首的命令模式；组字和裸前缀提交仍按相同的标点表出字。
+#[test]
+fn enumeration_comma_respects_command_prefix_and_composition() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.local_modes.command = true;
+        options.punctuation_marks.enumeration_comma_slash = true;
+    });
+    session.character(b'/', false);
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::Command);
+    assert_eq!(session.punctuation(b',').commit.as_deref(), Some("、，"));
+    type_text(&mut session, "nihao");
+    assert_eq!(session.punctuation(b'/').commit.as_deref(), Some("你好、"));
+    let mut disabled = fixture.session_with(|options| {
+        options.local_modes.command = false;
+        options.punctuation_marks.enumeration_comma_slash = true;
+    });
+    assert_eq!(disabled.punctuation(b'/').commit.as_deref(), Some("、"));
 }

@@ -13,10 +13,13 @@ const OWNER_LABELS: Record<string, string> = {
   toggle_english_candidates: "中英切换（英文候选模式）",
   toggle_full_width: "全角 / 半角切换",
   toggle_punctuation: "中英文标点切换",
+  switch_language_shift: "Shift+Space 中英文切换",
   switch_language_ctrl_space: "Ctrl+Space 中英文切换",
   switch_language_ctrl_alt_space: "Ctrl+Alt+Space 中英文切换",
   toggle_character_set_ctrl_shift_f: "Ctrl+Shift+F 简繁切换",
   toggle_japanese_ctrl_shift_j: "Ctrl+Shift+J 中日切换",
+  toggle_fullwidth_option_shift_h: "Option+Shift+H 全角 / 半角切换",
+  macos_screen_keyboard: "屏幕键盘快捷键",
   voice_hotkey: "语音输入快捷键",
   macos_maintenance: "macOS 维护快捷键",
 };
@@ -61,6 +64,7 @@ export function ToggleHotkeysSection({
       chord,
       keybindings: { ...keybindings } as Record<string, unknown>,
       voice_ctrl_f9: voiceCtrlF9,
+      physical_recording: true,
     });
     if (result.ok) {
       setErrors((current) => ({ ...current, [field]: undefined }));
@@ -73,7 +77,8 @@ export function ToggleHotkeysSection({
     <GroupList title="切换热键">
       <SettingsRowStack role="group" aria-label="切换热键">
         <SettingsGroupNote>
-          点击后按下新的组合键完成重绑，Esc 取消，Backspace / Delete 解绑；写法与冲突判定与保存时相同。
+          点击后按下新的组合键完成重绑，Esc 取消，Backspace / Delete
+          解绑；写法与冲突判定与保存时相同。
         </SettingsGroupNote>
         {ROWS.map(({ field, title }) => (
           <Row key={field} title={title}>

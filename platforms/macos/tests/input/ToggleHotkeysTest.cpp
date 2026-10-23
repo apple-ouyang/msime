@@ -29,7 +29,7 @@ static std::string Chords(const char *keybindingsJson) {
 }
 
 int main() {
-    // 规范名解码：字母按布局字母认，数字、功能键和具名键按 ANSI keyCode。
+    // 规范名解码保留 ANSI 位置；匹配时可打印主键使用无修饰布局字符。
     {
         const ToggleChord e = msime::mac::ToggleChordForKeyName("KeyE", true, false, true, false);
         assert(e.bound && e.keyCode == 0 && e.letter == 'e' && e.control && e.shift && !e.option && !e.command);
@@ -60,7 +60,7 @@ int main() {
         const ToggleChord eng = msime::mac::FactoryEnglishCandidatesToggleChord();
         assert(msime::mac::ToggleChordMatches(eng, 14, 'e', true, false, true, false));
         assert(msime::mac::ToggleChordMatches(eng, 2, 'e', true, false, true, false)); // Dvorak 的 E
-        assert(!msime::mac::ToggleChordMatches(eng, 14, '\0', true, false, true, false));
+        assert(msime::mac::ToggleChordMatches(eng, 14, '\0', true, false, true, false));
         assert(!msime::mac::ToggleChordMatches(eng, 14, 'e', true, false, false, false));
         // 不绑定的 chord 什么都不认。
         assert(!msime::mac::ToggleChordMatches(msime::mac::UnboundToggleChord(), 47, '\0', true, false, false, false));

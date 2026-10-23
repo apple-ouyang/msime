@@ -9,7 +9,7 @@ use crate::types::{
     CandidateSource, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentOptions,
     FuzzyPinyinOptions, LocalInputMode, LocalModeOptions, MentionEntry, MixedExpressiveOptions,
     PluginCommand, QuickPhraseEntry, SchemeSet, SchemeType, SentenceAssociationOptions,
-    ShuangpinCustomTable, ShuangpinProfileKind, WordItem, WubiInputOptions,
+    ShuangpinCustomTable, ShuangpinHelpcodeModes, ShuangpinProfileKind, WordItem, WubiInputOptions,
     DEFAULT_FIRST_PAGE_ROWS,
 };
 use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle};
@@ -48,6 +48,8 @@ pub struct SessionOptions {
     /// `autocorrect_type` bits; 0 keeps the user's spelling. Either of transposition and neighbor also enables missing and extra letters, and on inputs of three or more complete syllables offers a sentence that reads one syllable as a typo. Committing the raw letters while a correction is offered turns correction off for that exact input.
     pub autocorrect_types: u32,
     pub helpcode: bool,
+    /// 双拼辅助码的触发方式（Windows `[helpcode]` 组的双拼专属键）；只在双拼方案下生效。
+    pub shuangpin_helpcode_modes: ShuangpinHelpcodeModes,
     pub chinese_punctuation: bool,
     pub paired_punctuation: bool,
     /// 0 follows the mode, 1 forces Chinese, 2 forces ASCII.
@@ -86,6 +88,8 @@ pub struct SessionOptions {
     pub quick_phrase_table: Vec<QuickPhraseEntry>,
     /// 普通候选是否追加编码匹配的快捷短语。仅 macOS 桌面宿主打开；其他宿主保留独立 K 模式。
     pub quick_phrase_candidates: bool,
+    /// 快捷短语参与调频：追加进普通候选的整组短语有自己的槽位（`quick_phrase_slots` 日志表），越过它选普通候选让整组后退（最多退到首页末位），选中组内短语让整组前移。关掉时组固定追加在末尾，槽位记录保留但不读。
+    pub quick_phrase_frequency: bool,
     /// 宿主会把候选转成繁体输出：拆字（`C`）行按转换后的字形去重，免得一屏出现两个相同的繁体字。
     pub chaizi_traditional_output: bool,
 }
@@ -112,6 +116,7 @@ impl SessionOptions {
             helpcode_fallback_resources: None,
             autocorrect_types: 0,
             helpcode: true,
+            shuangpin_helpcode_modes: ShuangpinHelpcodeModes::default(),
             chinese_punctuation: true,
             paired_punctuation: true,
             punctuation_lock: 0,
@@ -136,6 +141,7 @@ impl SessionOptions {
             mention_entries: Vec::new(),
             quick_phrase_table: Vec::new(),
             quick_phrase_candidates: false,
+            quick_phrase_frequency: true,
             chaizi_traditional_output: false,
         }
     }

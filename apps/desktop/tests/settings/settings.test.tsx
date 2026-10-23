@@ -45,6 +45,7 @@ import {
 } from "@msime/ui";
 import { describeInstallerTrust } from "../../../../packages/ui/src/settings/update-manifest";
 import { defaultFloatingToolbar } from "../../../../packages/ui/src/settings/floating-toolbar-defaults";
+import { defaultShuangpinHelpcodeModes } from "../../../../packages/ui/src/settings/helpcode-preferences";
 import { answerConfirm } from "../support/confirm";
 
 afterEach(cleanup);
@@ -1429,6 +1430,8 @@ test("mobile AI settings expose the Apple provider catalog and preserve custom e
     "qwen",
     "kimi",
     "zhipu",
+    "minimax",
+    "volcengine",
     "siliconflow",
     "groq",
     "openrouter",
@@ -1449,14 +1452,20 @@ test("mobile AI settings expose the Apple provider catalog and preserve custom e
     endpoint: "https://api.anthropic.com/v1/chat/completions",
     model: "claude-sonnet-4-6",
   });
-  expect(
-    aiProviderUpdate("openai", {
-      ...base,
-      endpoint: "https://private.invalid/v1/chat/completions",
-      model: "private-model",
-    }),
-  ).toMatchObject({
+  // 自定义值进 deepseek 的槽位，新提供方用自己的默认值；切回来原样返回。
+  const patched = aiProviderUpdate("openai", {
+    ...base,
+    endpoint: "https://private.invalid/v1/chat/completions",
+    model: "private-model",
+  });
+  expect(patched).toMatchObject({
     provider: "openai",
+    endpoint: "https://api.openai.com/v1/chat/completions",
+    model: "gpt-4.1-mini",
+    endpoints: { deepseek: "https://private.invalid/v1/chat/completions" },
+    models: { deepseek: "private-model" },
+  });
+  expect(aiProviderUpdate("deepseek", { ...base, ...patched })).toMatchObject({
     endpoint: "https://private.invalid/v1/chat/completions",
     model: "private-model",
   });
@@ -2022,7 +2031,12 @@ test("helpcode schemes save independently and retain disabled selections", async
   expect(client.save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
     quanpin_helpcode: { enabled: false, schema: "xiaohe", show_in_candidate_window: false },
-    shuangpin_helpcode: { enabled: true, schema: "wubi86", show_in_candidate_window: true },
+    shuangpin_helpcode: {
+      enabled: true,
+      schema: "wubi86",
+      show_in_candidate_window: true,
+      modes: defaultShuangpinHelpcodeModes,
+    },
   });
 });
 

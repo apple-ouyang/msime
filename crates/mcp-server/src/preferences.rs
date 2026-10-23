@@ -430,6 +430,8 @@ pub struct PreferencesView {
     pub toggle_full_width: String,
     /// 中英文标点切换热键（如 `Ctrl+Period`）；空串表示不绑定。
     pub toggle_punctuation: String,
+    /// Vim 模式应用名单（macOS）：名单里的前台应用收到无修饰 Esc 时，输入法同时切到英文。标识口径同 `app_input_mode_rules`。
+    pub vim_mode_apps: Vec<String>,
     /// The width of the ASCII letters, digits and punctuation the input method outputs.
     pub character_width: Width,
     /// Type Chinese punctuation in Chinese mode.
@@ -506,6 +508,7 @@ impl From<&PreferencesSnapshot> for PreferencesView {
             toggle_english_candidates: preferences.keybindings.toggle_english_candidates.clone(),
             toggle_full_width: preferences.keybindings.toggle_full_width.clone(),
             toggle_punctuation: preferences.keybindings.toggle_punctuation.clone(),
+            vim_mode_apps: preferences.vim_mode_apps.clone(),
             character_width: preferences.character_width.into(),
             chinese_punctuation: preferences.chinese_punctuation,
             smart_punctuation: preferences.smart_punctuation,
@@ -576,6 +579,8 @@ pub struct PreferencesChange {
     pub toggle_full_width: Option<String>,
     /// 中英文标点切换热键，规则同上。
     pub toggle_punctuation: Option<String>,
+    /// 整张替换 Vim 模式应用名单，`[]` 清空。条数与标识口径同 `app_input_mode_rules`。
+    pub vim_mode_apps: Option<Vec<String>>,
     pub character_width: Option<Width>,
     pub chinese_punctuation: Option<bool>,
     pub smart_punctuation: Option<bool>,
@@ -632,6 +637,7 @@ impl PreferencesChange {
             && self.toggle_english_candidates.is_none()
             && self.toggle_full_width.is_none()
             && self.toggle_punctuation.is_none()
+            && self.vim_mode_apps.is_none()
             && self.character_width.is_none()
             && self.chinese_punctuation.is_none()
             && self.smart_punctuation.is_none()
@@ -741,6 +747,9 @@ impl PreferencesChange {
         }
         if let Some(chord) = &self.toggle_punctuation {
             preferences.keybindings.toggle_punctuation = chord.clone();
+        }
+        if let Some(apps) = &self.vim_mode_apps {
+            preferences.vim_mode_apps = apps.clone();
         }
         if let Some(width) = self.character_width {
             preferences.character_width = width.into();
@@ -1650,6 +1659,47 @@ mod tests {
         let cleared = update(directory.path(), &options, Edition::full(), &cleared).unwrap();
         assert!(cleared.app_input_mode_rules.is_empty());
         assert_eq!(cleared.shuangpin_keymap_hint, None);
+    }
+
+    /// Vim 模式名单与应用例外同一份读写通路：整张替换、`[]` 清空、非法标识拒存。
+    #[test]
+    fn vim_mode_apps_are_set_cleared_and_invalid_entries_refused() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = directory.path().join("runtime-options.json");
+        std::fs::write(&options, br#"{"api_version":1}"#).unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let before = load(directory.path(), Edition::full()).unwrap();
+        assert!(before.vim_mode_apps.is_empty());
+
+        let set: PreferencesChange = serde_json::from_value(json!({
+            "expected_revision": before.revision,
+            "vim_mode_apps": ["com.apple.Terminal", "nvim.exe"],
+        }))
+        .unwrap();
+        assert!(!set.is_empty());
+        let updated = update(directory.path(), &options, Edition::full(), &set).unwrap();
+        assert_eq!(updated.vim_mode_apps, ["com.apple.Terminal", "nvim.exe"]);
+        assert_eq!(
+            store.load().unwrap().preferences.vim_mode_apps,
+            ["com.apple.Terminal", "nvim.exe"]
+        );
+
+        // 与 valid_vim_mode_apps 同一口径：只差大小写的两条命中同一个应用，存储层拒绝，原名单不变。
+        let duplicate: PreferencesChange = serde_json::from_value(json!({
+            "expected_revision": updated.revision,
+            "vim_mode_apps": ["Code.exe", "code.exe"],
+        }))
+        .unwrap();
+        assert!(update(directory.path(), &options, Edition::full(), &duplicate).is_err());
+        assert_eq!(store.load().unwrap().preferences.vim_mode_apps.len(), 2);
+
+        let cleared: PreferencesChange = serde_json::from_value(json!({
+            "expected_revision": updated.revision,
+            "vim_mode_apps": [],
+        }))
+        .unwrap();
+        let cleared = update(directory.path(), &options, Edition::full(), &cleared).unwrap();
+        assert!(cleared.vim_mode_apps.is_empty());
     }
 
     /// AI 助手只能关不能开，关掉时接口地址、模型和密钥原样留着，用户在设置里重新打开就能接着用。

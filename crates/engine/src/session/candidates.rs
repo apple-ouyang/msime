@@ -108,10 +108,19 @@ impl InputSession {
             clone_candidate_rows(self.engine.candidates(), &mut decoded);
             // 快捷短语的独立开关同时约束普通候选入口，联系人在最终混排后单独加入。
             if self.quick_phrase_candidates && self.local_mode_options.quick_phrase {
-                self.queries.append_quick_phrase_candidates(
-                    self.engine.request().raw_input.as_str(),
-                    &mut decoded,
-                );
+                let code = self.engine.request().raw_input.clone();
+                // 调频开着时整组按学下来的槽位放；没有记录（或调频关掉）时照旧追加在末尾。
+                let slot = (self.quick_phrase_frequency
+                    && self.frequency.mode != FrequencyAdjustmentMode::Disabled)
+                    .then(|| {
+                        crate::user_dictionary::ranking::quick_phrase_slot(
+                            self.journal_path(),
+                            &code,
+                        )
+                    })
+                    .flatten();
+                self.queries
+                    .insert_quick_phrase_candidates(&code, &mut decoded, slot);
             }
         }
         self.personal_reranked = false;
@@ -416,7 +425,7 @@ impl InputSession {
     /// 0 clears.
     pub(super) fn set_candidate_position(&mut self, index: usize, position: i32) -> KeyResult {
         // 改字的候选是光标处一段的替换，不是这串拼音的候选，不能固定、置顶或删除。
-        if self.conversion.is_some() {
+        if self.conversion.is_some() || self.date_time_menu_page.is_some() {
             return KeyResult::unhandled();
         }
         if !(0..=5).contains(&position) {
@@ -454,7 +463,8 @@ impl InputSession {
     }
 
     pub(super) fn pin_candidate(&mut self, index: usize) -> KeyResult {
-        if self.conversion.is_some() {
+        // 「📅日期」页里的行按日期格式索引，pin 会落到真实列表里同下标的另一行。
+        if self.conversion.is_some() || self.date_time_menu_page.is_some() {
             return KeyResult::unhandled();
         }
         let Some(index) = self.ranking_index(index) else {
@@ -496,7 +506,7 @@ impl InputSession {
     }
 
     pub(super) fn remove_candidate(&mut self, index: usize) -> KeyResult {
-        if self.conversion.is_some() {
+        if self.conversion.is_some() || self.date_time_menu_page.is_some() {
             return KeyResult::unhandled();
         }
         let Some(selected) = self.candidates().get(index) else {
@@ -682,9 +692,9 @@ impl InputSession {
         mixed
     }
 
-    /// 全拼组字正好是 `riqi`、`sj` 这类关键词时，把当前日期、时间、星期或农历接在对应的词后面（#5952）。跟日期时间模式（T 模式）同一个开关；光标前缀解码、只出单字、专用英文和本地模式里不加。
+    /// 全拼组字正好是 `riqi`、`sj` 这类关键词时，把当前日期、时间、星期或农历接在对应的词后面（#5952）。与日期时间模式（T 模式）是两个开关：这里只看 `date_time_inline`；光标前缀解码、只出单字、专用英文和本地模式里不加。
     fn insert_inline_date_time(&self, items: &mut Vec<WordItem>) {
-        if !self.local_mode_options.date_time
+        if !self.local_mode_options.date_time_inline
             || self.prefix_active
             || self.single_character_only
             || self.dedicated_english
@@ -694,14 +704,15 @@ impl InputSession {
             return;
         }
         let raw = self.engine.request().raw_input.as_str();
-        let Some((anchor, kind)) = inline_date_time_keyword(|keyword| {
+        let Some((keyword, anchor, kind)) = inline_date_time_keyword(|keyword| {
             raw.bytes()
                 .filter(|&byte| byte != b'\'')
                 .eq(keyword.bytes())
         }) else {
             return;
         };
-        insert_inline_date_time(items, anchor, kind, raw, || self.local_now());
+        let menu = self.local_mode_options.date_time_menu.then_some(keyword);
+        insert_inline_date_time(items, anchor, kind, raw, || self.local_now(), menu);
     }
 }
 

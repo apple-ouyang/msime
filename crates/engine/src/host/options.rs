@@ -15,8 +15,8 @@ use crate::types::{
     autocorrect_type, fuzzy_rule, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentMode,
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, LocalModeOptions, MentionEntry,
     MixedExpressiveOptions, PluginCommand, QuickPhraseEntry, SchemeSet, SchemeType,
-    SentenceAssociationOptions, ShuangpinCustomTable, ShuangpinProfileKind, WubiInputOptions,
-    WubiProfileKind, DEFAULT_FIRST_PAGE_ROWS,
+    SentenceAssociationOptions, ShuangpinCustomTable, ShuangpinHelpcodeModes, ShuangpinProfileKind,
+    WubiInputOptions, WubiProfileKind, DEFAULT_FIRST_PAGE_ROWS,
 };
 use crate::user_dictionary::generation::{merge_downloaded_wubi, prepare_runtime_paths_for};
 use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle};
@@ -81,6 +81,8 @@ pub struct EngineOptions {
     pub helpcode: bool,
     /// Display only: filtering stays on while annotations are hidden.
     pub show_helpcode: bool,
+    /// 双拼辅助码的触发方式（`SessionOptions::shuangpin_helpcode_modes`）；宿主按偏好 `shuangpin_helpcode.modes` 填，其它方案给默认值也不会被读。
+    pub shuangpin_helpcode_modes: ShuangpinHelpcodeModes,
     pub helpcode_schema: String,
     /// 辅助码前导标点；None 保留现有 Shift 加字母。
     pub helpcode_trigger_key: Option<u8>,
@@ -95,6 +97,10 @@ pub struct EngineOptions {
     pub corner_quotes: bool,
     /// 中文标点下 `[` `]` 出空心〖〗（`BracketMarks::Hollow`），否则是实心【】。
     pub hollow_brackets: bool,
+    /// 中文标点下 `\` 键出顿号「、」（契约 `enumerationComma` 段，宿主已按偏好解析）。默认开。
+    pub enumeration_comma_backslash: bool,
+    /// 中文标点下 `/` 键出顿号「、」。默认关：词首的 `/` 是命令模式触发键，命令模式优先。
+    pub enumeration_comma_slash: bool,
     pub frequency_mode: String,
     pub frequency_trigger_count: u8,
     pub frequency_linear_step: u8,
@@ -107,7 +113,12 @@ pub struct EngineOptions {
     /// 日文混输（实验，`SessionOptions::japanese_mixing`）。宿主只在会话带日文、日文模型在场时打开它。
     pub mixed_japanese: bool,
     pub local_unicode: bool,
+    /// Shift+T 日期时间快捷输入模式（`LocalModeOptions::date_time`）。行内日期时间混入普通候选由 `local_date_time_inline` 单独开关。
     pub local_date_time: bool,
+    /// 行内日期时间混入普通候选（`LocalModeOptions::date_time_inline`）。
+    pub local_date_time_inline: bool,
+    /// 「📅日期」入口（`LocalModeOptions::date_time_menu`），依附 `local_date_time_inline`。
+    pub local_date_time_menu: bool,
     pub local_quick_phrase: bool,
     pub local_emoji: bool,
     pub local_kaomoji: bool,
@@ -138,6 +149,8 @@ pub struct EngineOptions {
     pub quick_phrase_table: Vec<QuickPhraseEntry>,
     /// 普通候选是否追加编码匹配的快捷短语。仅 macOS 桌面宿主打开。
     pub quick_phrase_candidates: bool,
+    /// 快捷短语参与调频（`SessionOptions::quick_phrase_frequency`）。
+    pub quick_phrase_frequency: bool,
     pub sentence_association: SentenceAssociationOptions,
     pub rescoring_context: String,
     /// Ask for every whole-sentence reading; the runtime reorders and crops them.
@@ -210,6 +223,7 @@ pub fn prepare_options_for(
         wubi_profile: WubiProfileKind::Wubi86 as u8,
         helpcode: true,
         show_helpcode: true,
+        shuangpin_helpcode_modes: ShuangpinHelpcodeModes::default(),
         helpcode_schema: "ziranma".to_owned(),
         helpcode_trigger_key: None,
         helpcode_table: None,
@@ -219,6 +233,8 @@ pub fn prepare_options_for(
         punctuation_lock: 0,
         corner_quotes: false,
         hollow_brackets: false,
+        enumeration_comma_backslash: true,
+        enumeration_comma_slash: false,
         frequency_mode: FrequencyAdjustmentMode::Promote.name().to_owned(),
         frequency_trigger_count: 1,
         frequency_linear_step: 1,
@@ -230,6 +246,8 @@ pub fn prepare_options_for(
         mixed_japanese: false,
         local_unicode: true,
         local_date_time: true,
+        local_date_time_inline: true,
+        local_date_time_menu: true,
         local_quick_phrase: true,
         local_emoji: true,
         local_kaomoji: true,
@@ -248,6 +266,7 @@ pub fn prepare_options_for(
         mention_entries: Vec::new(),
         quick_phrase_table: Vec::new(),
         quick_phrase_candidates: false,
+        quick_phrase_frequency: true,
         sentence_association: SentenceAssociationOptions::default(),
         rescoring_context: String::new(),
         sentence_alternatives: false,
@@ -333,9 +352,12 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         } else {
             BracketMarks::Solid
         },
+        enumeration_comma_backslash: options.enumeration_comma_backslash,
+        enumeration_comma_slash: options.enumeration_comma_slash,
     };
     session.helpcode = options.helpcode;
     session.helpcode_trigger_key = options.helpcode_trigger_key;
+    session.shuangpin_helpcode_modes = options.shuangpin_helpcode_modes;
     session.helpcode_schema = options.helpcode_schema.clone();
     session.helpcode_table = options.helpcode_table.clone();
     session.helpcode_fallback_resources = options
@@ -360,6 +382,8 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     session.local_modes = LocalModeOptions {
         unicode: options.local_unicode,
         date_time: options.local_date_time,
+        date_time_inline: options.local_date_time_inline,
+        date_time_menu: options.local_date_time_menu,
         quick_phrase: options.local_quick_phrase,
         emoji: options.local_emoji,
         kaomoji: options.local_kaomoji,
@@ -379,6 +403,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     session.mention_entries = options.mention_entries.clone();
     session.quick_phrase_table = options.quick_phrase_table.clone();
     session.quick_phrase_candidates = options.quick_phrase_candidates;
+    session.quick_phrase_frequency = options.quick_phrase_frequency;
     session.sentence_alternatives = options.sentence_alternatives;
     session.sentence_association = options.sentence_association.clone();
     session.first_page_rows = options.first_page_rows;

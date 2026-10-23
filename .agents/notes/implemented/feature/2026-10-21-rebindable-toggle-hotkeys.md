@@ -2,6 +2,8 @@
 
 Status: implemented
 
+2026-10-23：macOS 的可打印主键统一按无修饰布局字符认，录入时转换物理 DOM code，相关决定由[布局键身份修复](../bug-fix/2026-10-23-toggle-hotkey-layout-identity.md)部分取代；既有布局跟随语义和共享 chord 格式继续沿用。
+
 ## Problem
 
 旧版 Windows 正式版（v0.11.1，`metasequoiaime/msime-windows` @ `dd018f79`）有三个可重绑的输入状态切换热键，工厂值在 `installer/default_config/config.default.toml:427-429`，定义来自 `engine/contracts/input_state_shortcuts.h:21-23`：

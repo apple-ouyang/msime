@@ -1242,6 +1242,9 @@ struct CheckToggleHotkeyRequest {
     /// `voice_input.hotkey_ctrl_f9`；缺省按占用处理，与偏好默认值一致。
     #[serde(default = "voice_hotkey_ctrl_f9_default")]
     voice_ctrl_f9: bool,
+    /// 只有页面录键传物理 DOM code；手工规范名与 MCP 不重译。
+    #[serde(default)]
+    physical_recording: bool,
 }
 
 fn voice_hotkey_ctrl_f9_default() -> bool {
@@ -1266,13 +1269,46 @@ struct CheckToggleHotkeyResult {
 /// `SettingsClient.checkToggleHotkey`：录键写入前的试写校验，与保存时 `Preferences::validate`
 /// 走同一张占用表和同一个 `conflicts_with`，不落盘。解析与冲突判定只在 Rust 一侧。
 #[tauri::command]
-fn check_toggle_hotkey(request: CheckToggleHotkeyRequest) -> CheckToggleHotkeyResult {
+async fn check_toggle_hotkey(
+    app: tauri::AppHandle,
+    request: CheckToggleHotkeyRequest,
+) -> CheckToggleHotkeyResult {
     use msime_client_core::preferences::ToggleHotkeyRejection;
-    match request.keybindings.check_toggle_hotkey(
-        request.field,
-        &request.chord,
-        request.voice_ctrl_f9,
-    ) {
+    let chord = request.chord;
+    #[cfg(target_os = "macos")]
+    let chord = if request.physical_recording {
+        let (send, received) = std::sync::mpsc::sync_channel(1);
+        let dispatched = app.run_on_main_thread(move || {
+            let _ = send.send(msime_host_macos::normalize_recorded_toggle_chord(&chord));
+        });
+        let normalized = if dispatched.is_ok() {
+            tauri::async_runtime::spawn_blocking(move || received.recv())
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .and_then(Result::ok)
+        } else {
+            None
+        };
+        let Some(chord) = normalized else {
+            return CheckToggleHotkeyResult {
+                ok: false,
+                chord: None,
+                kind: Some("invalid"),
+                owner: None,
+                detail: Some("keyboard layout translation unavailable".into()),
+            };
+        };
+        chord
+    } else {
+        chord
+    };
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, request.physical_recording);
+    match request
+        .keybindings
+        .check_toggle_hotkey(request.field, &chord, request.voice_ctrl_f9)
+    {
         Ok(chord) => CheckToggleHotkeyResult {
             ok: true,
             chord: Some(chord),
@@ -1499,6 +1535,7 @@ impl From<PreferencesError> for CommandError {
                 PreferencesError::InvalidPlugins => "plugins_invalid",
                 PreferencesError::InvalidGameCompatibility => "game_compatibility_invalid",
                 PreferencesError::InvalidAppInputModeRules => "app_input_mode_rules_invalid",
+                PreferencesError::InvalidVimModeApps => "vim_mode_apps_invalid",
                 PreferencesError::InvalidCloudClipboardRelay => "cloud_clipboard_relay_invalid",
                 PreferencesError::UnsupportedFormat | PreferencesError::Json(_) => "format",
                 _ => "storage",

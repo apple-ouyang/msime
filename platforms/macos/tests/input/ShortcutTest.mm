@@ -600,16 +600,87 @@ static void TestKeyLatencyIsLoggedWithoutTheKey() {
 - (void)terminateCurrentInputMethod { ++self.terminationCalls; }
 @end
 
+// 布局字符由夹具注入，避免测试依赖开发机的当前输入源。
+@interface ShortcutLayoutEvent : NSEvent
+@property(nonatomic, strong) NSEvent *baseEvent;
+@property(nonatomic, copy) NSString *layoutCharacters;
+@end
+@implementation ShortcutLayoutEvent
+- (NSEventType)type { return self.baseEvent.type; }
+- (unsigned short)keyCode { return self.baseEvent.keyCode; }
+- (NSEventModifierFlags)modifierFlags { return self.baseEvent.modifierFlags; }
+- (NSString *)characters { return self.baseEvent.characters; }
+- (NSString *)charactersIgnoringModifiers { return self.baseEvent.charactersIgnoringModifiers; }
+- (BOOL)isARepeat { return self.baseEvent.isARepeat; }
+- (NSTimeInterval)timestamp { return self.baseEvent.timestamp; }
+- (CGEventRef)CGEvent { return self.baseEvent.CGEvent; }
+- (NSString *)charactersByApplyingModifiers:(NSEventModifierFlags)modifiers {
+    assert(modifiers == 0);
+    return self.layoutCharacters;
+}
+@end
+
+static NSEvent *WithLayoutCharacters(NSEvent *base, NSString *characters) {
+    ShortcutLayoutEvent *event = [ShortcutLayoutEvent new];
+    event.baseEvent = base;
+    event.layoutCharacters = characters;
+    return event;
+}
+
 static NSEvent *ModeKey(unsigned short code, NSEventModifierFlags flags, BOOL repeat) {
     // 字母键带上它在美式布局上打出的字母，和真实事件一样：字母快捷键按这个字符认键。
     const char letter = msime::mac::PhysicalAnsiLetter(code);
     NSString *characters = code == 49 ? @" " : letter ? [NSString stringWithFormat:@"%c", letter] : @"a";
-    return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:repeat keyCode:code];
+    NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:repeat keyCode:code];
+    NSString *unmodified = @"";
+    for (const auto &entry : msime::mac::detail::kToggleChordKeyCodes)
+        if (entry.keyCode == code && entry.character) unmodified = [NSString stringWithFormat:@"%c", entry.character];
+    return WithLayoutCharacters(event, unmodified);
+}
+
+@interface VimModeClient : ShortcutClient
+@property(nonatomic, copy) NSString *bundleIdentifier;
+@end
+@implementation VimModeClient
+@end
+
+// 经真实事件路由核对：空闲 Esc 交给应用并切英文，组字中的第一次 Esc 只取消。
+static void TestVimModeEscapeRouting(void) {
+    for (NSUInteger scenario = 0; scenario < 8; ++scenario) {
+        NSString *suite = [@"msime.vim-mode." stringByAppendingString:NSUUID.UUID.UUIDString];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+        [appearance applySharedInputPreferences:@{@"vim_mode_apps": @[@"org.example.Editor"]}];
+        ModeController *controller = [ModeController alloc];
+        VimModeClient *client = [VimModeClient new];
+        client.bundleIdentifier = scenario == 1 ? @"org.example.Other" : @"ORG.EXAMPLE.EDITOR";
+        ShortcutSession *session = [ShortcutSession new];
+        NSDictionary *empty = @{@"editing_text": @"", @"candidates": @[]};
+        session.nextTransition = @{@"handled": @NO, @"view": empty};
+        [controller setValue:appearance forKey:@"appearance"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:session forKey:@"session"];
+        [controller setValue:scenario == 7 ? @{@"editing_text": @"ni", @"candidates": @[]} : empty forKey:@"view"];
+        appearance.englishMode = NO;
+        const NSEventModifierFlags flags[] = {0, 0, NSEventModifierFlagShift,
+            NSEventModifierFlagControl, NSEventModifierFlagOption, NSEventModifierFlagCommand, 0, 0};
+        if (scenario == 7) session.cancelTransition = @{@"handled": @YES, @"view": empty};
+        const BOOL handled = [controller handleEvent:ModeKey(53, flags[scenario], scenario == 6) client:client];
+        assert(appearance.englishMode == (scenario == 0));
+        if (scenario == 0) assert(!handled && client.committed.length == 0);
+        if (scenario == 7) {
+            assert(handled);
+            session.cancelTransition = nil;
+            assert(![controller handleEvent:ModeKey(53, 0, NO) client:client]);
+            assert(appearance.englishMode);
+        }
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
+    }
 }
 
 // 非美式键盘布局上的按键：`code` 是物理位置，`characters` 是当前布局在这个键上打出的字符。
 static NSEvent *LayoutKey(unsigned short code, NSString *characters, NSEventModifierFlags flags) {
-    return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:NO keyCode:code];
+    return WithLayoutCharacters([NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:NO keyCode:code], characters);
 }
 
 // 字母快捷键按当前键盘布局在这个键上打出的字母认键（#5552）。
@@ -2095,6 +2166,15 @@ static void TestToggleHotkeyRebinding(void) {
     assert(appearance.runtimeFullWidthInput == width && session.widthCalls == wcalls);
     assert([controller handleEvent:ModeKey(4, NSEventModifierFlagOption | NSEventModifierFlagShift, NO) client:client]);
     assert(appearance.runtimeFullWidthInput != width && session.widthCalls > wcalls);
+    // Dvorak：句号位输出 v 时只触发 KeyV，E 位输出句号时只触发 Period。
+    [appearance applySharedInputPreferences:@{@"keybindings":@{
+        @"toggle_punctuation":@"Ctrl+Period", @"toggle_english_candidates":@"Ctrl+KeyV"}}];
+    calls = session.punctuationCalls;
+    NSUInteger englishCalls = session.englishCandidateCalls;
+    assert([controller handleEvent:LayoutKey(47, @"v", ctrl) client:client]);
+    assert(session.punctuationCalls == calls && session.englishCandidateCalls == englishCalls + 1);
+    assert([controller handleEvent:LayoutKey(14, @".", ctrl) client:client]);
+    assert(session.punctuationCalls == calls + 1 && session.englishCandidateCalls == englishCalls + 1);
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
@@ -8244,7 +8324,27 @@ static void TestAiCandidateEngineDelivery() {
     assert(!bridgeError);
     assert([descriptor[@"timeout_ms"] isEqual:@8000]);
     assert([descriptor[@"headers"][@"Authorization"] isEqual:@"Bearer synthetic-secret"]);
+    // 标签是 deepseek、接口地址在别家：厂商字段不外发。
+    assert(descriptor[@"body"][@"thinking"] == nil);
+    // 真实 DeepSeek 地址：默认档写 disabled；开 high 档写 enabled 加 reasoning_effort，预算放大到 30 秒。
+    descriptor = [MSIMEClientSession aiHTTPRequest:@{
+        @"config":@{@"enabled":@YES, @"provider":@"deepseek",
+            @"endpoint":@"https://api.deepseek.com/chat/completions", @"model":@"synthetic",
+            @"tokens":@{@"https://api.deepseek.com:443":@"synthetic-secret"}, @"candidate_limit":@3},
+        @"input":@{@"segmented_pinyin":@[@"ni"], @"context":@"", @"candidate_limit":@3}} error:&bridgeError];
+    assert(descriptor && !bridgeError);
     assert([descriptor[@"body"][@"thinking"][@"type"] isEqual:@"disabled"]);
+    assert([descriptor[@"timeout_ms"] isEqual:@8000]);
+    descriptor = [MSIMEClientSession aiHTTPRequest:@{
+        @"config":@{@"enabled":@YES, @"provider":@"deepseek", @"thinking":@"high",
+            @"endpoint":@"https://api.deepseek.com/chat/completions", @"model":@"synthetic",
+            @"tokens":@{@"https://api.deepseek.com:443":@"synthetic-secret"}, @"candidate_limit":@3},
+        @"input":@{@"segmented_pinyin":@[@"ni"], @"context":@"", @"candidate_limit":@3}} error:&bridgeError];
+    assert(descriptor && !bridgeError);
+    assert([descriptor[@"body"][@"thinking"][@"type"] isEqual:@"enabled"]);
+    assert([descriptor[@"body"][@"reasoning_effort"] isEqual:@"high"]);
+    assert([descriptor[@"body"][@"max_tokens"] isEqual:@8192]);
+    assert([descriptor[@"timeout_ms"] isEqual:@30000]);
     NSData *response = [NSJSONSerialization dataWithJSONObject:@{@"choices":@[@{@"message":@{@"content":
         @"{\"candidates\":[{\"text\":\"合成候选甲\"},{\"text\":\"合成候选乙\"}]}"}}]} options:0 error:nil];
     NSArray *parsed = [MSIMEClientSession parseAIResponse:response limit:3 error:&bridgeError];
@@ -11131,6 +11231,10 @@ int main(int argc, char **argv) {
             TestToggleHotkeyRebinding();
             return 0;
         }
+        if (argc == 2 && std::string(argv[1]) == "--vim-mode") {
+            TestVimModeEscapeRouting();
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--glass-visual") {
             TestGlassInputModeHUD(YES);
             return 0;
@@ -12975,6 +13079,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestMixedInputPreferences(); }
         @autoreleasepool { TestCharacterSetShortcut(); }
         @autoreleasepool { TestToggleHotkeyRebinding(); }
+        @autoreleasepool { TestVimModeEscapeRouting(); }
         @autoreleasepool { TestDedicatedEnglish(appearance); }
         @autoreleasepool { TestConsecutiveUppercaseGoesToTheClient(appearance); }
         @autoreleasepool { TestSystemInputModeReport(appearance); }

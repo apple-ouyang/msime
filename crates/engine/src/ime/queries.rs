@@ -119,8 +119,13 @@ impl CandidateQueries {
         self.quick_phrase_table = usable_quick_phrase_table(table);
     }
 
-    /// 普通组字的编码恰好是某条快捷短语的编码时，把短语追加到候选末尾；普通候选的顺序和来源保持不变。只认整个编码，不按前缀匹配（见 [`query_exact_quick_phrases`]）。
-    pub fn append_quick_phrase_candidates(&self, code: &str, candidates: &mut Vec<WordItem>) {
+    /// 普通组字的编码恰好是某条快捷短语的编码时，把短语并进候选：`slot` 为 `None` 时追加在末尾（`quick_phrase_frequency` 关着或还没有学习记录的默认落位）；`Some(n)` 时插在第 n 个计位候选之后（`quick_phrase_slots` 学下来的位置）。只认整个编码，不按前缀匹配（见 [`query_exact_quick_phrases`]）。
+    pub fn insert_quick_phrase_candidates(
+        &self,
+        code: &str,
+        candidates: &mut Vec<WordItem>,
+        slot: Option<usize>,
+    ) {
         if code.is_empty() || !code.bytes().all(|byte| byte.is_ascii_lowercase()) {
             return;
         }
@@ -129,14 +134,32 @@ impl CandidateQueries {
             &self.paths.dictionary(assets::MAIN_DICTIONARY),
             &self.quick_phrase_table,
         );
-        for candidate in merged.candidates {
-            if !candidates
+        let phrases: Vec<WordItem> = merged
+            .candidates
+            .into_iter()
+            .filter(|candidate| {
+                !candidates
+                    .iter()
+                    .any(|existing| existing.word == candidate.word)
+            })
+            .collect();
+        let Some(slot) = slot else {
+            candidates.extend(phrases);
+            return;
+        };
+        // slot 是「组前面有几个计位候选」：0 放最前，n 放第 n 个之后，超出放回末尾。
+        let index = if slot == 0 {
+            0
+        } else {
+            candidates
                 .iter()
-                .any(|existing| existing.word == candidate.word)
-            {
-                candidates.push(candidate);
-            }
-        }
+                .enumerate()
+                .filter(|(_, item)| counts_toward_quick_phrase_slot(item))
+                .nth(slot - 1)
+                .map(|(index, _)| index + 1)
+                .unwrap_or(candidates.len())
+        };
+        candidates.splice(index..index, phrases);
     }
 
     /// Keeps the entries `@` mode can use and drops the rest.
@@ -419,6 +442,27 @@ impl CandidateQueries {
             japanese,
         )
     }
+}
+
+/// 槽位计数的普通候选（`counts_toward_quick_phrase_slot`，quick_phrase_query.cpp:123-143）：固定位置的行、快捷短语自己和混输/在线/插件/联系人行都不算。
+pub(crate) fn counts_toward_quick_phrase_slot(item: &WordItem) -> bool {
+    if item.fixed_position > 0 {
+        return false;
+    }
+    !matches!(
+        item.source,
+        CandidateSource::QuickPhrase
+            | CandidateSource::CloudSuggestion
+            | CandidateSource::CloudPending
+            | CandidateSource::AiSuggestion
+            | CandidateSource::AiPending
+            | CandidateSource::EnglishDictionary
+            | CandidateSource::Emoji
+            | CandidateSource::Kaomoji
+            | CandidateSource::MixedJapanese
+            | CandidateSource::Plugin
+            | CandidateSource::Contact
+    )
 }
 
 /// 输入能不能整段切成完整音节。全拼看严格的完整音节（不认纠错和别名），双拼看是不是每两键一个音节；其余方案不让英文、日文领先，按完整算。

@@ -84,6 +84,23 @@ test("Esc 取消录制不写入", async () => {
   expect(check).not.toHaveBeenCalled();
 });
 
+test("物理录键请求布局归一并显示宿主返回的主键", async () => {
+  const check = vi.fn(async () => ok("Ctrl+Alt+Period"));
+  await openShortcuts({ checkToggleHotkey: check });
+  const button = screen.getByText("中英文标点切换").closest("div")!.querySelector("button")!;
+  fireEvent.click(button);
+  // Dvorak 物理 E 键输出句号，Option 修改后的字符不能作为绑定身份。
+  fireEvent.keyDown(button, { code: "KeyE", key: "…", ctrlKey: true, altKey: true });
+  await act(async () => {});
+  expect(check).toHaveBeenCalledWith(
+    expect.objectContaining({
+      chord: "Ctrl+Alt+KeyE",
+      physical_recording: true,
+    }),
+  );
+  expect(screen.getByText("Ctrl+Alt+Period")).toBeTruthy();
+});
+
 test("Backspace 解绑并把行显示成未绑定", async () => {
   const save = vi.fn(async (_revision: number, preferences: Snapshot["preferences"]) => ({
     ...initial,
@@ -100,14 +117,12 @@ test("Backspace 解绑并把行显示成未绑定", async () => {
 });
 
 test("宿主报冲突时行内指出冲突项且不写入", async () => {
-  const check = vi.fn(
-    async (): Promise<ToggleHotkeyCheckResult> => ({
-      ok: false,
-      kind: "conflict",
-      owner: "toggle_full_width",
-      chord: "Ctrl+Shift+Space",
-    }),
-  );
+  const check = vi.fn(async (): Promise<ToggleHotkeyCheckResult> => ({
+    ok: false,
+    kind: "conflict",
+    owner: "toggle_full_width",
+    chord: "Ctrl+Shift+Space",
+  }));
   await openShortcuts({ checkToggleHotkey: check });
   const row = screen.getByText("中英文标点切换").closest("div")!;
   const button = row.querySelector("button")!;
@@ -118,13 +133,11 @@ test("宿主报冲突时行内指出冲突项且不写入", async () => {
 });
 
 test("宿主报非法写法时行内报错且不写入", async () => {
-  const check = vi.fn(
-    async (): Promise<ToggleHotkeyCheckResult> => ({
-      ok: false,
-      kind: "invalid",
-      detail: "key chord has no main key",
-    }),
-  );
+  const check = vi.fn(async (): Promise<ToggleHotkeyCheckResult> => ({
+    ok: false,
+    kind: "invalid",
+    detail: "key chord has no main key",
+  }));
   await openShortcuts({ checkToggleHotkey: check });
   const row = screen.getByText("中英文标点切换").closest("div")!;
   const button = row.querySelector("button")!;

@@ -62,15 +62,26 @@ test("换服务读取独立默认模型并保留自定义值与未知服务回�
     provider: "synthetic-ai",
     endpoint: "https://ai.example.invalid/chat/completions",
     model: "默认𠮷",
+    endpoints: {},
+    models: {},
   });
   const custom = {
     provider: "custom",
     endpoint: "https://custom.example.invalid/v1",
     model: "synthetic-custom-model",
   };
-  expect(updateAiProvider("synthetic-ai", custom, AI_PROVIDER_OPTIONS)).toEqual({
-    ...custom,
+  // 自定义值写回 custom 的槽位，新提供方用自己的默认值；切回来原样返回。
+  const patched = updateAiProvider("synthetic-ai", custom, AI_PROVIDER_OPTIONS);
+  expect(patched).toEqual({
     provider: "synthetic-ai",
+    endpoint: "https://ai.example.invalid/chat/completions",
+    model: "默认𠮷",
+    endpoints: { custom: "https://custom.example.invalid/v1" },
+    models: { custom: "synthetic-custom-model" },
+  });
+  expect(updateAiProvider("custom", { ...custom, ...patched }, AI_PROVIDER_OPTIONS)).toMatchObject({
+    endpoint: "https://custom.example.invalid/v1",
+    model: "synthetic-custom-model",
   });
   expect(
     updateAiProvider(
@@ -78,5 +89,5 @@ test("换服务读取独立默认模型并保留自定义值与未知服务回�
       { provider: "synthetic-ai", endpoint: "", model: "" },
       AI_PROVIDER_OPTIONS,
     ),
-  ).toEqual({ provider: "custom", endpoint: "", model: "" });
+  ).toEqual({ provider: "custom", endpoint: "", model: "", endpoints: {}, models: {} });
 });

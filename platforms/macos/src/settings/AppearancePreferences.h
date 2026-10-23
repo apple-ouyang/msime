@@ -83,6 +83,8 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic) NSInteger candidateOpacityPercent;
 @property(nonatomic, copy) NSNumber *candidateCornerRadius;
 @property(nonatomic, copy) NSNumber *candidatePadding;
+/// 共享偏好 `candidate_window_fit_content`：候选窗严格按文字宽度收紧，与皮肤 `fit_content` 是或关系；缺省为关。
+@property(nonatomic, readonly) BOOL candidateWindowFitContent;
 - (msime::mac::CandidateWindowStyle)candidateWindowStyle;
 /// -resolvedSkinForDark: with -candidateWindowStyle laid over it, which is what the candidate window draws. The floating toolbar and the colour wells read the skin as resolved.
 - (msime::mac::ResolvedSkin)candidateWindowSkinForDark:(BOOL)dark;
@@ -119,6 +121,8 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic, copy) NSString *defaultImeMode;
 @property(nonatomic, copy) NSString *imeModeScope;
 - (void)activateInputModeForApplication:(NSString *)identifier;
+/// Vim 模式（共享偏好 `vim_mode_apps`）：这个 bundle id 的前台应用是否把无修饰 Esc 搭车切英文。
+- (BOOL)vimModeEnabledForApplication:(NSString *)identifier;
 - (void)lockActiveInputMode;
 - (void)resetRememberedInputModes;
 @property(nonatomic) BOOL inputModeShortcut;

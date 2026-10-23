@@ -43,11 +43,15 @@ public final class AiProviderSettings {
         return List.copyOf(result);
     }
 
-    /** 只传公开字段，并在完整核对补丁后更新文档；凭据槽和提示词保持原值。 */
+    /** 只传公开字段，并在完整核对补丁后更新文档；凭据槽和提示词保持原值。接口地址/模型的每提供方槽位随补丁写回文档。 */
     public static void switchProvider(JSONObject ai, String provider) throws JSONException {
         JSONObject current = new JSONObject().put("enabled", ai.optBoolean("enabled", false));
         for (String key : new String[] {"provider", "endpoint", "model"})
             current.put(key, JsonPolicy.strictStringOrEmpty(ai.opt(key)));
+        for (String key : new String[] {"endpoints", "models"}) {
+            Object slots = ai.opt(key);
+            current.put(key, slots instanceof JSONObject ? slots : new JSONObject());
+        }
         JSONObject request = new JSONObject().put("provider", provider).put("current", current);
         JSONObject patch;
         try {
@@ -56,10 +60,13 @@ public final class AiProviderSettings {
                     || !(patch.opt("enabled") instanceof Boolean)) throw invalid();
             text(patch, "endpoint");
             text(patch, "model");
+            if (!(patch.opt("endpoints") instanceof JSONObject) || !(patch.opt("models") instanceof JSONObject))
+                throw invalid();
         } catch (IllegalArgumentException | LinkageError error) {
             throw invalid();
         }
-        for (String key : new String[] {"enabled", "provider", "endpoint", "model"}) ai.put(key, patch.get(key));
+        for (String key : new String[] {"enabled", "provider", "endpoint", "model", "endpoints", "models"})
+            ai.put(key, patch.get(key));
     }
 
     public static List<String> fetchModels(String endpoint, String token) throws JSONException {

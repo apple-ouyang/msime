@@ -1893,7 +1893,7 @@ export {
   type AiProviderOption,
   type AiProviderCatalogEntry,
 } from "./settings/ai-provider-options";
-export { aiProviderUpdate } from "./settings/ai-provider-update";
+export { aiProviderUpdate, aiEndpointUpdate, aiModelUpdate } from "./settings/ai-provider-update";
 
 export type {
   DictionaryClient,

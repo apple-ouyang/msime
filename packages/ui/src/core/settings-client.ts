@@ -94,9 +94,7 @@ export interface SettingsClient {
   /** 内置双拼方案的键位表，编辑自定义方案时从它开始。 */
   builtinShuangpinTable?: (name: BuiltinShuangpinProfile) => Promise<ShuangpinCustomProfile | null>;
   /** 录键写入前的试写校验：把 `chord` 作为 `field` 的绑定问宿主，通过回规范写法；不通过给 `invalid`（写法不是合法组合键）或 `conflict`（与 `owner` 占用项相同）。与保存时的 `Preferences::validate` 走同一张占用表，不落盘；只有声明 `host.toggle_hotkey_chords` 的宿主提供。 */
-  checkToggleHotkey?: (
-    request: ToggleHotkeyCheckRequest,
-  ) => Promise<ToggleHotkeyCheckResult>;
+  checkToggleHotkey?: (request: ToggleHotkeyCheckRequest) => Promise<ToggleHotkeyCheckResult>;
   /** 九键双拼的内置表与用户表校验，复用引擎的无状态布局接口。 */
   nineKeyShuangpinLayout?: NineKeyShuangpinLayoutReader;
   readSkinImage?: SkinImageReader;
@@ -249,6 +247,8 @@ export interface ToggleHotkeyCheckRequest {
   chord: string;
   keybindings: Record<string, unknown>;
   voice_ctrl_f9: boolean;
+  /** 录键传物理 DOM code，由宿主按当前布局归一；手工规范键名默认不重译。 */
+  physical_recording?: boolean;
 }
 
 export type ToggleHotkeyCheckResult =

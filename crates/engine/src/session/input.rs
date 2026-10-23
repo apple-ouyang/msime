@@ -33,8 +33,8 @@ use crate::time::Instant;
 use crate::types::{
     CandidateSource, Command, CommandTableEntry, EnglishInputOptions, FirstPageRows,
     FrequencyAdjustmentOptions, KeyResult, LocalInputMode, LocalModeOptions, MentionEntry,
-    MixedExpressiveOptions, PluginCommand, QuickPhraseEntry, SchemeKey, SchemeType, WordItem,
-    WubiInputOptions,
+    MixedExpressiveOptions, PluginCommand, QuickPhraseEntry, SchemeKey, SchemeType,
+    ShuangpinHelpcodeModes, WordItem, WubiInputOptions,
 };
 use crate::user_dictionary::ngram_store::PersonalNgramStore;
 use crate::user_dictionary::removal::learn_entered_english_word;
@@ -61,6 +61,10 @@ pub(super) struct InputSession {
     pub engine: ImeSession,
     pub queries: CandidateQueries,
     pub quick_phrase_candidates: bool,
+    /// 快捷短语参与调频（`SessionOptions::quick_phrase_frequency`）：追加进普通候选的整组短语有槽位，越过它选普通候选让整组后退、选中组内短语让整组前移。
+    pub quick_phrase_frequency: bool,
+    /// 宿主的每页候选数（`SessionOptions::first_page_rows`），0 归一成 1；快捷短语组调频的后退封顶（首页末位）用它算。
+    pub first_page_rows: usize,
     pub clock: Clock,
     pub profile: &'static ShuangpinProfile,
     pub caret: Option<usize>,
@@ -121,6 +125,8 @@ pub(super) struct InputSession {
     pub canonical_phrase_engine: Option<QuanpinEngine>,
     /// 整句改字（`conversion`）进行中时的状态；改字期间候选是光标处那一段的字和词。
     pub conversion: Option<ConversionEdit>,
+    /// 「📅日期」页：选中混输里的入口后，候选窗换成这一组的全部格式（`EnterDateTimeCandidatePage`）。组字和 `mixed_candidates` 原样留着，任何非选词键把 `candidates()` 视图还回去。
+    pub date_time_menu_page: Option<Vec<WordItem>>,
 }
 
 impl InputSession {
@@ -159,6 +165,8 @@ impl InputSession {
         let mut session = Self {
             queries: CandidateQueries::new(&paths, profile),
             quick_phrase_candidates: options.quick_phrase_candidates,
+            quick_phrase_frequency: options.quick_phrase_frequency,
+            first_page_rows: FirstPageRows::new(options.first_page_rows).get(),
             engine,
             clock: Clock::default(),
             profile,
@@ -196,6 +204,7 @@ impl InputSession {
             local_candidates: Vec::new(),
             uppercase_passthrough: false,
             plugin_rows: None,
+            date_time_menu_page: None,
             online_requests: OnlineRequestGuard::new(),
             // 宿主创建会话后显式打开；测试和嵌入式引擎默认保持离线。
             cloud_candidates_enabled: false,
@@ -223,6 +232,7 @@ impl InputSession {
             .set_fuzzy_pinyin_options(options.fuzzy_pinyin);
         session.set_quanpin_helpcode_enabled(options.helpcode);
         session.set_shuangpin_helpcode_enabled(options.helpcode);
+        session.set_shuangpin_helpcode_modes(options.shuangpin_helpcode_modes);
         if !is_supported_helpcode_schema(&options.helpcode_schema)
             || !frequency_options_valid(options.frequency)
             || !english_options_valid(options.english)
@@ -283,6 +293,7 @@ impl InputSession {
 
     /// input_session.cpp:88-245: caret insertion, dedicated English, local modes and their Shift entries, the acceptance gate, then the scheme. Handled iff the preedit changed.
     pub fn handle_character(&mut self, value: u8, shift_only: bool) -> KeyResult {
+        self.exit_date_time_menu();
         let result = self
             .helpcode_character(value)
             .unwrap_or_else(|| self.dispatch_character(value, shift_only));
@@ -844,6 +855,10 @@ impl InputSession {
 
     /// input_session.cpp:294-406.
     pub fn handle_command(&mut self, command: Command) -> KeyResult {
+        // 「📅日期」页上只有 CommitCandidate（空格）算选词：选中页里的一条格式上屏；其余命令都先换回原来那一屏再照常处理。
+        if command != Command::CommitCandidate {
+            self.exit_date_time_menu();
+        }
         if let Some(result) = self.helpcode_command(command) {
             return result;
         }
@@ -978,6 +993,7 @@ impl InputSession {
 
     /// `Session::conversion_left_from`。
     pub fn conversion_left_from(&mut self, index: usize) -> KeyResult {
+        self.exit_date_time_menu();
         self.helpcode_entry = None;
         if self.conversion.is_none() && self.has_composition() {
             if let Some(result) = self.move_conversion_from(Command::ConversionLeft, index) {
@@ -1054,6 +1070,7 @@ impl InputSession {
 
     /// 组字接收的符号先回到字符入口；`/` 和 `@` 仅经字符入口开启模式，避免 runtime 结束组字后的空状态被误当成空闲输入。
     pub fn handle_punctuation(&mut self, value: u8) -> KeyResult {
+        self.exit_date_time_menu();
         if let Some(result) = self.helpcode_character(value) {
             return result;
         }
@@ -1406,6 +1423,10 @@ impl InputSession {
         if self.local_mode != LocalInputMode::None {
             return &self.local_candidates;
         }
+        // 「📅日期」页盖在普通混排列表上：组字不变，这一屏只是换了个视图。
+        if let Some(page) = &self.date_time_menu_page {
+            return page;
+        }
         // Fixed positions are always on through `Session`, so the merged list is the displayed one in the reference too (input_session.cpp:765-771); a caret prefix feeds it as well.
         &self.mixed_candidates
     }
@@ -1498,11 +1519,33 @@ impl InputSession {
 
     /// 首页行数只决定词库要不要并入补全词；宿主改每页候选数时不必重建会话，跟着改一下即可。
     pub fn set_first_page_rows(&mut self, rows: FirstPageRows) {
+        self.first_page_rows = rows.get();
         self.engine.set_first_page_rows(rows);
+    }
+
+    /// 「📅日期」入口打开换页：候选窗换成 `query_date_time` 的整组格式（T 模式同一份），组字不动。查不到格式时不动候选窗。
+    pub(super) fn enter_date_time_menu(&mut self, keyword: &str) {
+        let items = crate::local::date_time::query_date_time(keyword, &self.local_now());
+        if !items.is_empty() {
+            self.date_time_menu_page = Some(items);
+        }
+    }
+
+    /// 「📅日期」页开着时收到的任何非选词动作都先把候选换回原来那一屏（`ExitCandidateSubPage`）。
+    pub(super) fn exit_date_time_menu(&mut self) {
+        self.date_time_menu_page = None;
+    }
+
+    /// `index` 处是「📅日期」入口时给出它记住的关键词。
+    pub(super) fn date_time_menu_keyword_at(&self, index: usize) -> Option<String> {
+        let item = self.candidates().get(index)?;
+        crate::local::date_time::is_date_time_menu_item(item)
+            .then(|| crate::local::date_time::date_time_menu_keyword(item).to_owned())
     }
 
     /// Clears caret, phrase progress, pending sequence, local mode, dedicated preedit and caches; returns from temporary Japanese.
     pub fn reset_composition(&mut self) {
+        self.date_time_menu_page = None;
         self.helpcode_entry = None;
         self.caret = None;
         self.conversion = None;
@@ -1567,6 +1610,7 @@ impl InputSession {
 
     /// input_session_composition.cpp:379-385. While a caret prefix is decoded the prefix list is the one on screen, so it is the one widened; the reference's caret-prefix overlay widened only the hidden whole-input list and reported growth the host could not see.
     pub(super) fn expand_initial_candidates(&mut self) -> bool {
+        self.exit_date_time_menu();
         if self.conversion.is_some() {
             return false;
         }
@@ -1759,6 +1803,13 @@ impl InputSession {
         self.engine.set_shuangpin_helpcode_enabled(enabled);
         self.recompute_candidates();
         self.invalidate_online_requests();
+    }
+
+    /// 双拼辅助码的触发方式（`SessionOptions::shuangpin_helpcode_modes`）。
+    fn set_shuangpin_helpcode_modes(&mut self, modes: ShuangpinHelpcodeModes) {
+        self.engine.set_shuangpin_helpcode_modes(modes);
+        self.recompute_candidates();
+        self.online_requests.invalidate();
     }
 
     fn set_local_mode_options(&mut self, options: LocalModeOptions) {

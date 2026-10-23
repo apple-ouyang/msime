@@ -4,10 +4,13 @@
 int main()
 {
     using namespace metasequoia::punctuation_contract;
-    if (version != 3 || simple.size() != 15 || alternating.size() != 4 || corner_quotes.size() != 4 ||
-        hollow_brackets.size() != 2)
+    if (version != 4 || simple.size() != 15 || alternating.size() != 4 || corner_quotes.size() != 4 ||
+        hollow_brackets.size() != 2 || enumeration_comma.size() != 2)
         return 1;
     if (!is_supported(',') || !is_supported('"') || !is_supported('<') || !is_supported('_') || is_supported('a'))
+        return 1;
+    // 第 4 版：`/` 只在 enumerationComma 段里，它的无条件映射由偏好开关决定，is_supported 与 simple 都不含它。
+    if (is_supported('/') || simple_output('/') != nullptr)
         return 1;
     const auto *yen = simple_output('$');
     if (!yen || std::string_view(yen) != "￥" || simple_output('a') != nullptr)
@@ -41,6 +44,13 @@ int main()
     for (const auto &mapping : hollow_brackets)
         if (!simple_output(mapping.input))
             return 1;
+    // 顿号键：`\` 同时在 simple（无条件）和 enumerationComma（可抑制）里，`/` 只在 enumerationComma 里。
+    const auto *comma_backslash = enumeration_comma_output('\\');
+    const auto *comma_slash = enumeration_comma_output('/');
+    if (!comma_backslash || std::string_view(comma_backslash) != "、" || !comma_slash ||
+        std::string_view(comma_slash) != "、" || enumeration_comma_output('a') != nullptr ||
+        std::string_view(simple_output('\\')) != "、")
+        return 1;
     if (nested_opening_input != '<' || nested_closing_input != '>' || std::string_view(nested_opening_inner) != "〈")
         return 1;
     std::cout << "Punctuation contract passed\n";

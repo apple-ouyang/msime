@@ -32,6 +32,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                 model: ai.model.clone(),
                 endpoint: ai.endpoint.clone(),
                 candidate_limit: host_ai_candidate_limit(ai.candidate_limit),
+                thinking: ai.thinking.clone(),
                 prompt_id: ai.prompt_id.clone(),
                 prompt_custom_1: ai.prompt_custom_1.clone(),
                 prompt_custom_2: ai.prompt_custom_2.clone(),
@@ -55,6 +56,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             &options.resources,
         );
         let edition = options.edition();
+        let quick_phrase_candidates_requested = options.quick_phrase_candidates.unwrap_or(false);
         let mut options = options.into_engine_options();
         let plugin_tables = plugin_tables::PluginTables::stamp(
             plugin_roots.installed.as_deref(),
@@ -123,6 +125,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         runtime.set_wubi_auto_commit_unique(applied.wubi_auto_commit_unique);
         runtime.set_wubi_fifth_code_top_commit(applied.wubi_fifth_code_top_commit);
         runtime.set_wubi_candidate_selection(applied.wubi_candidate_selection.clone());
+        runtime.set_second_third_candidate(applied.second_third_candidate);
         runtime.set_punctuation_marks(msime_client_core::punctuation::punctuation_marks(&applied));
         runtime.set_reranker(keyboard_reranker(&options, sentence_model_path.as_deref()));
 
@@ -153,6 +156,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                 HostSession {
                     runtime,
                     options,
+                    quick_phrase_candidates_requested,
                     edition,
                     applied,
                     requested: None,

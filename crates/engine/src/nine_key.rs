@@ -56,6 +56,8 @@ const SEED_TAIL_LIMIT: usize = 3;
 /// 有种子时，数字至少这么长才把按音节频度留的切分截到 `SEEDED_PATH_LIMIT` 条：长串的好切分主要靠种子补，频度切分截短省下的查询抵掉种子的开销；短串（词级输入）照旧留满 `PATH_LIMIT` 条。
 const SEEDED_TRUNCATE_DIGITS: usize = 12;
 const SEEDED_PATH_LIMIT: usize = 24;
+/// 每次刷新真正拿去查词库的切分条数。切分搜索本身每个位置仍留 `PATH_LIMIT` 条，这里只截最后物化的路径：每条路径都要查一遍候选、合并整句，一次刷新的耗时大致随条数增长。从 48 降到 24，`ninekey_latency` 整轮执行的指令数少约 31%；`convert_eval` 九键常用词首选 57.5% → 57.1%、前五 85.2% → 84.7%，九键长句首选不变、前五 65.4% → 64.2%，14 键常用词首选 66.0% → 65.8%、长句不变；先锁定首音节再打余下数字时，1500 个多音节词里正确词进前九的从 1448 个变为 1446 个。搜索宽度一起降到 24 时这几组数字完全相同，指令数也一样，所以只截查询这一步。有种子的长串原本截到的 `SEEDED_PATH_LIMIT` 与它相等，那一步现在不再多截。
+const QUERY_PATH_LIMIT: usize = 24;
 /// 音节频度取这个音节权重最高的几个单字之和，见 `SyllablePrior`。
 const PRIOR_CHAR_LIMIT: usize = 3;
 // 少量查询键直接扫描已有切分路径，避免刷新时为临时哈希表分配堆内存。
@@ -1285,7 +1287,7 @@ impl NineKeySession {
                 remaining,
                 splits,
                 prior,
-                PATH_LIMIT,
+                QUERY_PATH_LIMIT,
                 &mut self.path_scratch,
                 &mut alternatives,
             );
@@ -1575,10 +1577,11 @@ impl NineKeySession {
             .filter(|_| initial.is_none() && !filtering)
         {
             let digits = self.digits.as_str();
-            if let Some((anchor, kind)) =
+            if let Some((_keyword, anchor, kind)) =
                 inline_date_time_keyword(|keyword| keyword_spells_digits(grid, keyword, digits))
             {
-                insert_inline_date_time(&mut candidates, anchor, kind, digits, || clock());
+                // 九键不给「📅日期」入口：换页交互只在 26 键会话实现。
+                insert_inline_date_time(&mut candidates, anchor, kind, digits, || clock(), None);
             }
         }
         positions::apply_fixed_positions(
@@ -2096,17 +2099,14 @@ impl NineKeySession {
         let capacity = prefixes.len().saturating_mul(ENGLISH_LIMIT);
         let mut words = Vec::new();
         for prefix in prefixes {
-            for word in english.query_keypad_prefix(
+            english.append_keypad_prefix(
                 &prefix,
                 &self.english_pattern,
                 digits.len(),
                 ENGLISH_LIMIT,
-            ) {
-                if words.capacity() == 0 {
-                    words.reserve_exact(capacity);
-                }
-                words.push(word);
-            }
+                &mut words,
+                capacity,
+            );
         }
         deduplicate_english_words(&mut words);
         rank_english(&mut words, digits.len());
@@ -8122,3 +8122,7 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
         assert!(!shuangpin_word_spells(table, "zhong'guo", "81464"));
     }
 }
+
+#[cfg(test)]
+#[path = "nine_key/english_page_append_tests.rs"]
+mod english_page_append_tests;

@@ -5,6 +5,7 @@ use thiserror::Error;
 use crate::preferences::AI_PROVIDERS;
 
 pub mod endpoint;
+pub mod jev;
 pub mod provider_catalog;
 pub mod settings;
 
@@ -78,13 +79,86 @@ pub trait AiSuggestor {
     fn suggest(&self, request: &AiSuggestionRequest) -> Result<AiSuggestionResponse, AiError>;
 }
 
+/// DeepSeek 的思考强度档位：`low`/`high`/`max` 在请求体里写成 `reasoning_effort`。
+pub fn is_valid_thinking_level(level: &str) -> bool {
+    matches!(level, "disabled" | "low" | "high" | "max")
+}
+
+/// 应答服务的归属方：DeepSeek 的 `thinking.type`、SiliconFlow 的 `enable_thinking` 这类厂商字段必须按它判断而不是按设置页的服务商标签——一个槽位可以装任何 OpenAI 兼容地址，给不支持的服务发 `thinking.type` 会被整个拒绝（MiniMax 报 requires adaptive thinking）。
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum ChatVendor {
+    Other,
+    DeepSeek,
+    SiliconFlow,
+    Groq,
+    OpenAi,
+}
+
+/// scheme://[user[:pass]@]host[:port]/path 里只有主机说明厂商；子域名也算归属。
+fn vendor_from_chat_endpoint(endpoint: &str) -> ChatVendor {
+    let Some(rest) = endpoint.split_once("://").map(|(_, rest)| rest) else {
+        return ChatVendor::Other;
+    };
+    let authority = rest.split('/').next().unwrap_or_default();
+    let host_port = authority.rsplit('@').next().unwrap_or_default();
+    let host = host_port
+        .split(':')
+        .next()
+        .unwrap_or_default()
+        .to_lowercase();
+    let owned_by = |domain: &str| {
+        host == domain
+            || (host.len() > domain.len()
+                && host.ends_with(domain)
+                && host.as_bytes()[host.len() - domain.len() - 1] == b'.')
+    };
+    if owned_by("deepseek.com") {
+        ChatVendor::DeepSeek
+    } else if owned_by("siliconflow.cn") {
+        ChatVendor::SiliconFlow
+    } else if owned_by("groq.com") {
+        ChatVendor::Groq
+    } else if owned_by("openai.com") {
+        ChatVendor::OpenAi
+    } else {
+        ChatVendor::Other
+    }
+}
+
+/// 端点真正归属的厂商；标签说的和地址不一致时以地址为准。只有地址缺失才让标签说话——自定义槽位指着真实 DeepSeek 时 thinking 依然可用，标着 deepseek 却指向别家的槽位不会发出厂商字段。
+fn chat_vendor(provider: &str, endpoint: &str) -> ChatVendor {
+    let actual = vendor_from_chat_endpoint(endpoint);
+    if actual != ChatVendor::Other {
+        return actual;
+    }
+    if endpoint.contains("://") {
+        return ChatVendor::Other;
+    }
+    match provider {
+        "deepseek" => ChatVendor::DeepSeek,
+        "siliconflow" => ChatVendor::SiliconFlow,
+        "groq" => ChatVendor::Groq,
+        "openai" => ChatVendor::OpenAi,
+        _ => ChatVendor::Other,
+    }
+}
+
+/// DeepSeek 厂商且档位不是 disabled；其余一律不开发送思考。
+fn uses_deepseek_thinking(provider: &str, endpoint: &str, level: &str) -> bool {
+    chat_vendor(provider, endpoint) == ChatVendor::DeepSeek
+        && is_valid_thinking_level(level)
+        && level != "disabled"
+}
+
 /// Pure Windows-compatible non-streaming request body. The host owns endpoint,
 /// credentials, timeout and cancellation. Never log prompts or request contents.
 pub fn chat_completion_body(
     request: &AiSuggestionRequest,
     provider: &str,
+    endpoint: &str,
     model: &str,
     prompt: &str,
+    thinking: &str,
 ) -> Result<serde_json::Value, AiError> {
     request.validate()?;
     if !AI_PROVIDERS.contains(&provider)
@@ -105,13 +179,20 @@ pub fn chat_completion_body(
         request,
         output_format: "json",
     };
+    let uses_thinking = uses_deepseek_thinking(provider, endpoint, thinking);
     let mut body = serde_json::json!({
-        "model":model, "stream":false, "temperature":0.2, "max_tokens":512,
+        "model":model, "stream":false, "temperature":0.2,
+        // 思考 token 计入输出上限：开着思考还按 512 给会挤掉正文 JSON 的空间。
+        "max_tokens": if uses_thinking { 8192 } else { 512 },
         "response_format":{"type":"json_object"},
         "messages":[{"role":"system","content":prompt},
             {"role":"user","content":serde_json::to_string(&user).map_err(|_| AiError::InvalidConfiguration)?}]
     });
-    if provider == "deepseek" {
+    if uses_thinking {
+        body["thinking"] = serde_json::json!({"type":"enabled"});
+        body["reasoning_effort"] = serde_json::Value::String(thinking.to_owned());
+    } else if chat_vendor(provider, endpoint) == ChatVendor::DeepSeek {
+        // DeepSeek 的思考会给联想多出几百个推理 token、明显变慢；其他服务拿普通请求。
         body["thinking"] = serde_json::json!({"type":"disabled"});
     }
     Ok(body)
@@ -146,7 +227,15 @@ pub fn chat_completion_http_request(
     } else {
         prompt
     };
-    let body = chat_completion_body(request, &config.provider, &config.model, prompt)?;
+    let thinking = uses_deepseek_thinking(&config.provider, endpoint, &config.thinking);
+    let body = chat_completion_body(
+        request,
+        &config.provider,
+        endpoint,
+        &config.model,
+        prompt,
+        &config.thinking,
+    )?;
     if serde_json::to_vec(&body)
         .map_err(|_| AiError::InvalidConfiguration)?
         .len()
@@ -154,9 +243,10 @@ pub fn chat_completion_http_request(
     {
         return Err(AiError::InvalidConfiguration);
     }
+    // 开着思考的 DeepSeek 回复要等几十秒，8 秒的普通预算会把它全部判超时。
     Ok(Some(serde_json::json!({"url":endpoint,"method":"POST",
         "headers":headers,
-        "body":body,"timeout_ms":8000,"connect_timeout_ms":2500,"max_response_bytes":1048576})))
+        "body":body,"timeout_ms":if thinking {30000} else {8000},"connect_timeout_ms":2500,"max_response_bytes":1048576})))
 }
 
 /// 构造与候选请求相同的带凭据 Chat Completions 描述器。
@@ -333,9 +423,12 @@ fn legacy_provider_origin(provider: &str) -> Option<&'static str> {
         "qwen" => "https://dashscope.aliyuncs.com:443",
         "kimi" => "https://api.moonshot.cn:443",
         "zhipu" => "https://open.bigmodel.cn:443",
+        "minimax" => "https://api.minimax.cn:443",
+        "volcengine" => "https://ark.cn-beijing.volces.com:443",
         "siliconflow" => "https://api.siliconflow.cn:443",
         "groq" => "https://api.groq.com:443",
         "openrouter" => "https://openrouter.ai:443",
+        "jev" => "https://api.typesafe.ai:443",
         _ => return None,
     })
 }
@@ -559,6 +652,110 @@ mod tests {
         assert!(DEFAULT_CANDIDATE_PROMPT.contains("\"candidates\""));
     }
 
+    #[test]
+    fn deepseek_thinking_level_shapes_the_request() {
+        // 档位按接口地址的厂商判定（Windows 的 thinking.type/reasoning_effort/8192/30s 契约）：disabled 只写 type；开启写 enabled 加 reasoning_effort，并放大输出上限与请求预算。
+        let request = AiSuggestionRequest {
+            mode: AiInputMode::Pinyin,
+            input: String::new(),
+            segmented_pinyin: vec!["ni".into()],
+            context: String::new(),
+            candidate_limit: 3,
+        };
+        let config = |provider: &str, endpoint: &str, thinking: &str| {
+            let mut ai = crate::preferences::Preferences::default().ai_assistant;
+            ai.enabled = true;
+            ai.provider = provider.into();
+            ai.endpoint = endpoint.into();
+            ai.model = "deepseek-v4-flash".into();
+            ai.thinking = thinking.into();
+            ai.tokens
+                .insert("https://api.deepseek.com:443".into(), "t".into());
+            ai.tokens
+                .insert("https://synthetic.invalid:443".into(), "t".into());
+            ai
+        };
+        // disabled：只写 thinking.type，预算不变。
+        let descriptor = chat_completion_http_request(
+            &config(
+                "deepseek",
+                "https://api.deepseek.com/chat/completions",
+                "disabled",
+            ),
+            &request,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            descriptor["body"]["thinking"],
+            serde_json::json!({"type":"disabled"})
+        );
+        assert!(descriptor["body"].get("reasoning_effort").is_none());
+        assert_eq!(descriptor["body"]["max_tokens"], 512);
+        assert_eq!(descriptor["timeout_ms"], 8000);
+        // high：enabled 加 reasoning_effort，输出上限和超时放大。
+        let descriptor = chat_completion_http_request(
+            &config(
+                "deepseek",
+                "https://api.deepseek.com/chat/completions",
+                "high",
+            ),
+            &request,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            descriptor["body"]["thinking"],
+            serde_json::json!({"type":"enabled"})
+        );
+        assert_eq!(descriptor["body"]["reasoning_effort"], "high");
+        assert_eq!(descriptor["body"]["max_tokens"], 8192);
+        assert_eq!(descriptor["timeout_ms"], 30000);
+        // 目录外的档位按关闭处理。
+        let descriptor = chat_completion_http_request(
+            &config(
+                "deepseek",
+                "https://api.deepseek.com/chat/completions",
+                "medium",
+            ),
+            &request,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            descriptor["body"]["thinking"],
+            serde_json::json!({"type":"disabled"})
+        );
+        // 标签是 deepseek、接口地址在别家：厂商字段不外发。
+        let descriptor = chat_completion_http_request(
+            &config("deepseek", "https://synthetic.invalid/chat", "high"),
+            &request,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(descriptor["body"].get("thinking").is_none());
+        // 自定义标签指向真实 DeepSeek：按地址判定厂商。
+        let descriptor = chat_completion_http_request(
+            &config("custom", "https://api.deepseek.com/chat/completions", "low"),
+            &request,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            descriptor["body"]["thinking"],
+            serde_json::json!({"type":"enabled"})
+        );
+        assert_eq!(descriptor["body"]["reasoning_effort"], "low");
+        // 其他厂商不受影响。
+        let descriptor = chat_completion_http_request(
+            &config("openai", "https://synthetic.invalid/chat", "high"),
+            &request,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(descriptor["body"].get("thinking").is_none());
+    }
+
     struct Stub;
     impl AiSuggestor for Stub {
         fn suggest(&self, _: &AiSuggestionRequest) -> Result<AiSuggestionResponse, AiError> {
@@ -625,7 +822,7 @@ mod tests {
         assert_eq!(request.validate(), Err(AiError::ContextTooLarge));
         request.context.clear();
         assert_eq!(
-            chat_completion_body(&request, "openai", "model", "prompt\u{0}"),
+            chat_completion_body(&request, "openai", "", "model", "prompt\u{0}", ""),
             Err(AiError::InvalidConfiguration)
         );
     }
@@ -650,9 +847,15 @@ mod tests {
             candidate_limit: 3,
         };
         for provider in AI_PROVIDERS {
-            let body =
-                chat_completion_body(&request, provider, "synthetic-model", "synthetic\nprompt")
-                    .unwrap();
+            let body = chat_completion_body(
+                &request,
+                provider,
+                "",
+                "synthetic-model",
+                "synthetic\nprompt",
+                "",
+            )
+            .unwrap();
             assert_eq!(body["stream"], false);
             assert_eq!(body["temperature"], 0.2);
             assert_eq!(body["max_tokens"], 512);
@@ -670,7 +873,7 @@ mod tests {
         for (provider, model, prompt) in [("unknown", "model", "prompt"), ("openai", "", "prompt")]
         {
             assert_eq!(
-                chat_completion_body(&request, provider, model, prompt),
+                chat_completion_body(&request, provider, "", model, prompt, ""),
                 Err(AiError::InvalidConfiguration)
             );
         }
