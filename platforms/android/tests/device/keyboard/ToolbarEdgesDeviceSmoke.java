@@ -37,6 +37,12 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 attach.invoke(service, getTargetContext());
                 type.getMethod("onCreate").invoke(service);
                 type.getMethod("onCreateInputView").invoke(service);
+                Button undo = (Button) field(type, "undoShortcutButton").get(service);
+                Button redo = (Button) field(type, "redoShortcutButton").get(service);
+                check(!undo.isEnabled() && !redo.isEnabled(), "history controls enabled without editor");
+                Object historyToolbar = field(type, "imeToolbar").get(service);
+                method(historyToolbar.getClass(), "performHistory", boolean.class).invoke(historyToolbar, false);
+                method(historyToolbar.getClass(), "performHistory", boolean.class).invoke(historyToolbar, true);
                 Button more = (Button) field(type, "moreButton").get(service);
                 Button dismiss = (Button) field(type, "dismissShortcutButton").get(service);
                 HorizontalScrollView scroll = (HorizontalScrollView) field(type, "shortcutScroll").get(service);
@@ -157,6 +163,21 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             }
             check((Boolean) method(panels.getClass(), "clipboardPanelOpen").invoke(panels),
                 "visible clipboard surface is not reported open");
+            method(type, "render").invoke(service);
+            Object bottomBar = field(type, "imeBottomBar").get(service);
+            Button bottomClipboard = (Button) field(bottomBar.getClass(), "clipboardButton").get(bottomBar);
+            check(bottomClipboard.isSelected(), "clipboard bottom bar button is not selected while panel is open");
+            method(type, "closeClipboardHistory").invoke(service);
+            method(type, "render").invoke(service);
+            check(!bottomClipboard.isSelected(), "clipboard bottom bar button stayed selected after insertion closed panel");
+            method(panels.getClass(), "showClipboardHistory").invoke(panels);
+            method(type, "render").invoke(service);
+            check(bottomClipboard.isSelected(), "clipboard bottom bar button did not select after reopening panel");
+            check(bottomClipboard.performClick(), "clipboard bottom bar button did not handle the click");
+            check(surface.getVisibility() == View.GONE
+                    && !(Boolean) method(panels.getClass(), "clipboardPanelOpen").invoke(panels),
+                "clipboard bottom bar button did not close the visible panel");
+            check(!bottomClipboard.isSelected(), "clipboard bottom bar button stayed selected after closing panel");
             method(type, "closeClipboardHistory").invoke(service);
             check(surface.getVisibility() == View.GONE
                     && !(Boolean) method(panels.getClass(), "clipboardPanelOpen").invoke(panels),

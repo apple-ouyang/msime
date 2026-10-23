@@ -216,15 +216,10 @@ fn selected_translation_services(
         TranslationService::Custom
     } else if tencent.enabled {
         TranslationService::Tencent
-    } else if preferences.ai_assistant.enabled
-        && (msime_client_providers::ai::has_request_credential(&preferences.ai_assistant)
-            || session_ai_credential.is_some_and(|credential| {
-                credential.endpoint == preferences.ai_assistant.endpoint
-                    && msime_client_core::translation::usable_credential(&credential.token)
-            }))
-        && msime_client_core::preferences::AI_PROVIDERS
-            .contains(&preferences.ai_assistant.provider.as_str())
-    {
+    } else if preferences.translation_ai {
+        // 显式选择：AI 配置不可用时也保持选中（`ai_assistant` 一栏留空），不回退成
+        // 离线或其他服务，设置页才能照实提示「先去配 AI 辅助」；联想开关不参与判断，
+        // 与 Windows 的「只想用翻译、不开 AI 联想」一致。
         TranslationService::Ai
     } else {
         TranslationService::Off
@@ -254,22 +249,35 @@ fn selected_translation_services(
     .then(|| serde_json::to_value(&preferences.niutrans))
     .transpose()
     .map_err(|_| "invalid NiuTrans translation configuration")?;
-    let ai_assistant = (matches!(provider, TranslationService::Ai))
-        .then(|| {
-            let mut config = preferences.ai_assistant.clone();
-            if let Some(credential) = session_ai_credential {
-                if credential.endpoint == config.endpoint {
-                    if let Some(origin) =
-                        msime_client_providers::ai::endpoint::credential_origin(&config.endpoint)
-                    {
-                        config.tokens.insert(origin, credential.token.clone());
-                    }
+    let ai_assistant = (matches!(provider, TranslationService::Ai)
+        && msime_client_core::preferences::AI_PROVIDERS
+            .contains(&preferences.ai_assistant.provider.as_str())
+        && !preferences.ai_assistant.model.is_empty()
+        && msime_client_core::is_bounded_text(&preferences.ai_assistant.model, 256)
+        && msime_client_providers::ai::endpoint::is_allowed(&preferences.ai_assistant.endpoint)
+        && (msime_client_providers::ai::has_request_credential(&preferences.ai_assistant)
+            || session_ai_credential.is_some_and(|credential| {
+                credential.endpoint == preferences.ai_assistant.endpoint
+                    && msime_client_core::translation::usable_credential(&credential.token)
+            })))
+    .then(|| {
+        let mut config = preferences.ai_assistant.clone();
+        // 查询里的 enabled 表示「允许用这份配置发 AI 请求」：翻译服务由自己的选择授权，
+        // 与 AI 联想总开关无关；宿主和 `chat_translation_http_request` 都按它门禁。
+        config.enabled = true;
+        if let Some(credential) = session_ai_credential {
+            if credential.endpoint == config.endpoint {
+                if let Some(origin) =
+                    msime_client_providers::ai::endpoint::credential_origin(&config.endpoint)
+                {
+                    config.tokens.insert(origin, credential.token.clone());
                 }
             }
-            serde_json::to_value(config)
-        })
-        .transpose()
-        .map_err(|_| "invalid AI translation configuration")?;
+        }
+        serde_json::to_value(config)
+    })
+    .transpose()
+    .map_err(|_| "invalid AI translation configuration")?;
     Ok(TranslationServices {
         provider,
         translation_account,

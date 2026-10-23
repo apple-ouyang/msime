@@ -2,6 +2,7 @@ package app.msime.android.home;
 
 import app.msime.android.ClipboardExport;
 import app.msime.android.ClipboardHistoryPolicy;
+import app.msime.android.CandidatePreeditStylePolicy;
 
 import app.msime.android.DimensionPolicy;
 import app.msime.android.KeyboardFormFactorPolicy;
@@ -107,6 +108,11 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             : pair == null ? "当前方案只有一种键盘，在「输入」里换方案" : "本版本只有一种键盘";
         layout.nav("中文键盘", note, layoutLabel(current),
             pairOffered ? () -> pickLayout(current, pair) : null);
+        String spellingPosition = CandidatePreeditStylePolicy.normalize(
+            InputViewValuePolicy.textOr(preferences, "touch_spelling_position", null));
+        layout.nav("拼音显示位置", "全拼、双拼、五笔和粤拼可以把正在输入的拼音放在输入框或候选栏",
+            spellingPositionLabel(spellingPosition),
+            () -> pickSpellingPosition(spellingPosition));
         // 本版本没有任何其他语言键盘（五笔版、拼音版）时不列这一项。
         if (offersOtherLanguage(edition)) {
             layout.toggle("中英键轮换其他语言",
@@ -214,6 +220,7 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             checked -> saveLocalSetting(AndroidLocalSettings.SPACE_CURSOR, checked));
         gestures.toggle("长按空格语音输入", null, settings.bool(AndroidLocalSettings.SPACE_VOICE),
             checked -> saveLocalSetting(AndroidLocalSettings.SPACE_VOICE, checked));
+        gestures.note("空格键上滑后松手可复制当前输入框的全文，滑回可取消；复制预览遵守下方剪贴板设置。长按语音开始后，上滑仍用于取消语音。");
 
         JSONObject toolbar = preferences.optJSONObject("touch_toolbar");
         if (toolbar == null) toolbar = new JSONObject();
@@ -225,7 +232,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             hidden ? null : () -> new ToolbarOrderSheet(this, settings, this::reload).show());
         for (ToolbarOrderPolicy.Item button : toolbarOrder(settings)) {
             String member = button.preferenceKey;
-            GroupCard.Row row = bar.toggle(button.label, null, toolbarButton(toolbar, settings, member),
+            String description = button == ToolbarOrderPolicy.Item.UNDO || button == ToolbarOrderPolicy.Item.REDO
+                ? "由当前应用处理；部分输入框不支持，密码框不可用" : null;
+            GroupCard.Row row = bar.toggle(button.label, description, toolbarButton(toolbar, settings, member),
                 checked -> saveToolbar(member, checked));
             row.setEnabled(!hidden);
         }
@@ -253,9 +262,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         return ToolbarOrderPolicy.ordered(settings.text(AndroidLocalSettings.TOOLBAR_ORDER));
     }
 
-    /** 一个工具栏按钮开着没有：本地设置的看本地设置，其余看 `touch_toolbar`（缺键为开）。 */
+    /** 工具栏按钮是否开启：本地项读取本地设置，其余读取 `touch_toolbar`；撤销、重做缺键为关。 */
     private static boolean toolbarButton(JSONObject toolbar, AndroidLocalSettings.Snapshot settings, String member) {
-        return AndroidLocalSettings.specs().containsKey(member) ? settings.bool(member) : toolbar.optBoolean(member, true);
+        if (AndroidLocalSettings.specs().containsKey(member)) return settings.bool(member);
+        return toolbar.optBoolean(member, !member.equals("undo") && !member.equals("redo"));
     }
 
     /** 工具栏预览：用当前皮肤的底色和图标色，按开关列出会出现的按钮；隐藏时说明只剩候选条。 */
@@ -337,6 +347,20 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             case "fourteen_key" -> "14 键";
             default -> "26 键";
         };
+    }
+
+    private static String spellingPositionLabel(String value) {
+        return CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(value) ? "候选栏" : "输入框";
+    }
+
+    private void pickSpellingPosition(String current) {
+        boolean candidateBar = CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(current);
+        OptionSheet sheet = new OptionSheet(requireContext(), "拼音显示位置", null);
+        sheet.option("输入框", !candidateBar,
+            () -> savePreference("touch_spelling_position", CandidatePreeditStylePolicy.EDITOR));
+        sheet.option("候选栏", candidateBar,
+            () -> savePreference("touch_spelling_position", CandidatePreeditStylePolicy.CANDIDATE_BAR));
+        sheet.show();
     }
 
     /** 26 / 14 / 9 键是当前方案的那几个触屏方案（{@link #layoutPair}）；与输入页、引导页一样经 {@link SchemePreferences#withScheme} 一起写那几个键。 */

@@ -49,7 +49,9 @@ impl NineKeySession {
             syllables =
                 table.spellings_for(remaining, locked_length, splits.first().copied(), prior);
             syllables.retain(|syllable| starts_right(syllable));
-            let mut alternatives = table.split_paths(remaining, splits, prior);
+            // 与生产刷新同一个查询上限，对照只比较支配过滤本身。
+            let mut alternatives =
+                table.split_paths_limited(remaining, splits, prior, QUERY_PATH_LIMIT);
             alternatives.retain(|path| path.first().is_none_or(|piece| starts_right(piece)));
             if self.locked.is_empty() && splits.is_empty() && initial.is_none() {
                 if !self.sentence_seeds.is_empty() && remaining.len() >= SEEDED_TRUNCATE_DIGITS {
@@ -285,10 +287,10 @@ impl NineKeySession {
             .filter(|_| initial.is_none() && !filtering)
         {
             let digits = self.digits.as_str();
-            if let Some((anchor, kind)) =
+            if let Some((_keyword, anchor, kind)) =
                 inline_date_time_keyword(|keyword| keyword_spells_digits(grid, keyword, digits))
             {
-                insert_inline_date_time(&mut candidates, anchor, kind, digits, || clock());
+                insert_inline_date_time(&mut candidates, anchor, kind, digits, || clock(), None);
             }
         }
         positions::apply_fixed_positions(

@@ -2,12 +2,12 @@
   "by_syllables": {
     "10": {
       "cases": 9,
-      "found": 0.444,
-      "mrr": 0.275,
+      "found": 0.333,
+      "mrr": 0.238,
       "top1": 0.222,
       "top1_char_prefix": 0.444,
-      "top5": 0.333,
-      "top9": 0.444
+      "top5": 0.222,
+      "top9": 0.333
     },
     "11": {
       "cases": 9,
@@ -103,27 +103,27 @@
     },
     "statement": {
       "cases": 52,
-      "found": 0.731,
-      "mrr": 0.655,
+      "found": 0.712,
+      "mrr": 0.649,
       "top1": 0.635,
       "top1_char_prefix": 0.779,
-      "top5": 0.692,
-      "top9": 0.712
+      "top5": 0.673,
+      "top9": 0.692
     }
   },
   "cases": 81,
   "gold_source": {
     "database": 7,
-    "generated": 53
+    "generated": 52
   },
   "overall": {
     "cases": 81,
-    "found": 0.741,
-    "mrr": 0.638,
+    "found": 0.728,
+    "mrr": 0.634,
     "top1": 0.617,
     "top1_char_prefix": 0.775,
-    "top5": 0.654,
-    "top9": 0.716
+    "top5": 0.642,
+    "top9": 0.704
   },
   "sample_failures": [
     {
@@ -291,7 +291,7 @@
       "gold": "你们先吃我马上就过来",
       "id": "nk-063",
       "input": "nimenxianchiwomashangjiuguolai",
-      "rank": 3,
+      "rank": null,
       "top1": "你们小吃我马上就过来"
     },
     {

@@ -1320,6 +1320,8 @@ fn session_options(scheme: Scheme, paths: RuntimePaths) -> SessionOptions {
     options.local_modes = LocalModeOptions {
         unicode: false,
         date_time: false,
+        date_time_inline: false,
+        date_time_menu: false,
         quick_phrase: false,
         emoji: false,
         kaomoji: false,

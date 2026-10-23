@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -34,22 +35,35 @@ struct ProviderFields {
   std::wstring model;
 };
 
-// aiProviderUpdate（updateAiProvider）：换上新服务商；接口地址和模型为空（去掉首尾空白后）或还是原服务商的默认值时换成新服务商的默认值，否则是用户自己填的，保留。不认识的服务商按「自定义」处理。
-inline ProviderFields provider_update(std::wstring_view provider, ProviderFields const &current) {
+// aiProviderUpdate（updateAiProvider）：换上新服务商；先把原服务商的接口地址/模型写回槽位（与目录默认相同的值不存，删键表示回默认），再从新服务商的槽位回填，没有槽位用目录默认值。不认识的服务商按「自定义」处理。
+inline ProviderFields provider_update(std::wstring_view provider, ProviderFields const &current,
+                                      std::map<std::wstring, std::wstring> &endpoints,
+                                      std::map<std::wstring, std::wstring> &models) {
   auto const &table = providers();
   const auto *next = find_provider(provider);
   if (!next)
     next = &table.back();
   const auto *previous = find_provider(current.provider);
+  // 槽位只记自定义值（ai-provider-update.ts 的 storeSlot）：默认值升级后空槽自动跟上。
+  const auto store = [](std::map<std::wstring, std::wstring> &slots,
+                        std::wstring_view provider, std::wstring_view value,
+                        std::wstring_view fallback, bool has_fallback) {
+    if (!provider.empty() && !value.empty() && (!has_fallback || value != fallback))
+      slots[std::wstring(provider)] = std::wstring(value);
+    else
+      slots.erase(std::wstring(provider));
+  };
+  store(endpoints, current.provider, js_trim(current.endpoint),
+        previous ? previous->endpoint : std::wstring_view{}, previous != nullptr);
+  store(models, current.provider, js_trim(current.model),
+        previous ? previous->model : std::wstring_view{}, previous != nullptr);
   ProviderFields update;
   update.provider = std::wstring(next->id);
-  update.endpoint = js_trim(current.endpoint).empty() ||
-                            (previous && current.endpoint == previous->endpoint)
-                        ? std::wstring(next->endpoint)
-                        : current.endpoint;
-  update.model = js_trim(current.model).empty() || (previous && current.model == previous->model)
-                     ? std::wstring(next->model)
-                     : current.model;
+  const auto endpoint = endpoints.find(std::wstring(next->id));
+  update.endpoint =
+      endpoint == endpoints.end() ? std::wstring(next->endpoint) : endpoint->second;
+  const auto model = models.find(std::wstring(next->id));
+  update.model = model == models.end() ? std::wstring(next->model) : model->second;
   return update;
 }
 

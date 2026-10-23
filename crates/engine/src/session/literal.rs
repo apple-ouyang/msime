@@ -203,6 +203,7 @@ impl InputSession {
         }
         // 英文行保留词库身份，大小写只在快照和上屏副本中恢复。内部光标时不提供会整段结束组字的英文行。
         if end == raw.len()
+            && self.mixed_candidates_enabled
             && self.english_options.mixed_candidates
             && raw.len() >= self.english_options.minimum_prefix
             && raw.bytes().all(|byte| byte.is_ascii_alphabetic())

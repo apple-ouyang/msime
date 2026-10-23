@@ -1,6 +1,7 @@
 //! AI 设置的公开服务目录和切换规则；不做 I/O，不处理凭据。
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Serialize)]
 pub struct AiProviderPreset {
@@ -95,6 +96,24 @@ pub const PROVIDERS: &[AiProviderPreset] = &[
         desktop_only: false,
     },
     AiProviderPreset {
+        id: "minimax",
+        title: "MiniMax",
+        endpoint: "https://api.minimax.cn/v1/chat/completions",
+        model: "MiniMax-M3.1-Flash",
+        documentation: "https://platform.minimax.cn/docs/api-reference/text-chat-openai",
+        models: &["MiniMax-M3.1-Flash", "MiniMax-M3"],
+        desktop_only: false,
+    },
+    AiProviderPreset {
+        id: "volcengine",
+        title: "火山方舟 · 豆包",
+        endpoint: "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+        model: "doubao-seed-1.6-flash",
+        documentation: "https://ark.volcengine.com/region:cn-beijing/docs/chat-api",
+        models: &["doubao-seed-1.6-flash", "doubao-seed-1.6"],
+        desktop_only: false,
+    },
+    AiProviderPreset {
         id: "siliconflow",
         title: "硅基流动",
         endpoint: "https://api.siliconflow.cn/v1/chat/completions",
@@ -148,9 +167,14 @@ pub struct AiProviderFields {
     pub provider: String,
     pub endpoint: String,
     pub model: String,
+    /// 每个提供方记住的接口地址/模型槽位（与共享文档 `ai_assistant.endpoints`/`models` 同构），键为提供方 id；只存自定义值，缺键或空值表示用目录默认值。
+    #[serde(default)]
+    pub endpoints: BTreeMap<String, String>,
+    #[serde(default)]
+    pub models: BTreeMap<String, String>,
 }
 
-/// 只替换空值或原预设默认值；补丁不包含凭据、提示词或其他偏好。
+/// 换提供方：先把原提供方的接口地址/模型写回槽位，再从新提供方的槽位回填，没有槽位用目录默认值。补丁不包含凭据、提示词或其他偏好。
 pub fn provider_update(provider: &str, current: &AiProviderFields) -> Option<AiProviderFields> {
     let next = PROVIDERS.iter().find(|entry| entry.id == provider)?;
     if !crate::text::is_bounded_text(&current.provider, 64)
@@ -160,29 +184,50 @@ pub fn provider_update(provider: &str, current: &AiProviderFields) -> Option<AiP
         return None;
     }
     let previous = PROVIDERS.iter().find(|entry| entry.id == current.provider);
-    let endpoint = replace_default(
+    let mut endpoints = current.endpoints.clone();
+    let mut models = current.models.clone();
+    store_slot(
+        &mut endpoints,
+        &current.provider,
         &current.endpoint,
         previous.map(|entry| entry.endpoint),
-        next.endpoint,
     );
-    let model = replace_default(
+    store_slot(
+        &mut models,
+        &current.provider,
         &current.model,
         previous.map(|entry| entry.model),
-        next.model,
     );
+    let slot = |slots: &BTreeMap<String, String>| {
+        slots
+            .get(next.id)
+            .filter(|value| !value.is_empty())
+            .cloned()
+    };
+    let endpoint = slot(&endpoints).unwrap_or_else(|| next.endpoint.to_owned());
+    let model = slot(&models).unwrap_or_else(|| next.model.to_owned());
     Some(AiProviderFields {
         enabled: current.enabled && super::endpoint::validate(&endpoint).is_ok(),
         provider: next.id.to_owned(),
         endpoint,
         model,
+        endpoints,
+        models,
     })
 }
 
-fn replace_default(current: &str, previous: Option<&str>, next: &str) -> String {
-    if current.trim().is_empty() || previous == Some(current) {
-        next.to_owned()
+/// 槽位只记自定义值：与目录默认相同的值不存，默认值升级后空槽自动跟上（`ai-provider-update.ts` 的 `storeSlot`）。
+fn store_slot(
+    slots: &mut BTreeMap<String, String>,
+    provider: &str,
+    value: &str,
+    fallback: Option<&str>,
+) {
+    let value = value.trim();
+    if !provider.is_empty() && !value.is_empty() && fallback != Some(value) {
+        slots.insert(provider.to_owned(), value.to_owned());
     } else {
-        current.to_owned()
+        slots.remove(provider);
     }
 }
 

@@ -5382,7 +5382,8 @@ private:
   void number_select_row(StackPanel const &group, wchar_t glyph,
                          std::wstring const &title, std::wstring const &subtitle,
                          std::wstring key, std::vector<int> values,
-                         double fallback, std::wstring const &suffix) {
+                         double fallback, std::wstring const &suffix,
+                         bool enabled = true) {
     const auto current = static_cast<int>(std::lround(document_.Number(key, fallback)));
     if (std::find(values.begin(), values.end(), current) == values.end()) {
       values.push_back(current);
@@ -5398,7 +5399,7 @@ private:
                              change([&](PreferencesDocument &doc) {
                                doc.SetNumber(key, std::stod(value));
                              }, false);
-                           }));
+                           }, enabled));
   }
 
   void slider_row(StackPanel const &group, wchar_t glyph,
@@ -13629,12 +13630,19 @@ private:
       auto candidates = add_group(page, L"候选与联想");
       build_cloud_candidates(candidates);
       // 触发字符数固定为默认的 5，不再给出（HostCapabilities.mixed_input_minimum_prefix）：调低会让常见简拼被英文词抢走首选。
+      const bool mixed_enabled = document_.Boolean(L"mixed_input.enabled", true);
+      bool_row(candidates, 0xE774, L"候选混输", L"关闭后保留各项设置，再开启时恢复",
+               L"mixed_input.enabled", true, true);
       bool_row(candidates, 0xE774, L"中英混输", L"中文输入时在候选项中补充英文单词",
-               L"mixed_input.english", true, true);
+               L"mixed_input.english", true, true, mixed_enabled);
+      number_select_row(candidates, 0xE774, L"首页英文候选数",
+                        L"首页有空间时优先排列的英文候选数",
+                        L"mixed_input.first_page_count", {1, 2, 3}, 1, L"",
+                        mixed_enabled && document_.Boolean(L"mixed_input.english", true));
       // Windows 的 emoji 混输默认开（client-core 的 source_mixed_emoji_default），回退值与它一致；平时由出厂偏好兜底，读不到出厂偏好时才用到这里。
       bool_row(candidates, 0xE76E, L"emoji 混输",
                L"中文输入时在候选项中加入匹配的 emoji，紧跟在它描绘的那个词后面（如「美国」后面是 🇺🇸），对不上候选词的排在末尾",
-               L"mixed_input.emoji", true);
+               L"mixed_input.emoji", true, false, mixed_enabled);
       // 学习选词习惯决定「高级选项」里「拼音方案调频」组画不画，改它时重画这一页。
       bool_row(candidates, 0xE82D, L"学习选词习惯", L"根据选词调整候选顺序", L"learning",
                true, true);
@@ -13647,15 +13655,15 @@ private:
       // 符号混输是后加的可选键，默认开，文档里平时没有它，回退值必须是 true。
       bool_row(candidates_more, 0xE8EF, L"符号混输",
                L"打出符号的名称时在候选项中加入对应的符号，紧跟在那个词后面（如「正负」后面是 ±、「平方米」后面是 ㎡）；要打完整的名称才出现",
-               L"mixed_input.symbols", true);
+               L"mixed_input.symbols", true, false, mixed_enabled);
       bool_row(candidates_more, 0xE76E, L"颜文字混输",
                L"中文输入时在候选项中加入匹配的颜文字，紧跟在它描绘的那个词后面、排在同一个词的 emoji 之后，对不上候选词的排在末尾",
-               L"mixed_input.kaomoji", false);
+               L"mixed_input.kaomoji", false, false, mixed_enabled);
       // 不带临时日语的版本没有这项能力，host-api 也会把偏好固定为关。
       if constexpr (MSIME_EDITION_TEMPORARY_JAPANESE) {
         bool_row(candidates_more, 0xE76E, L"日文混输（实验）",
                  L"全拼、双拼里打出完整的日文罗马字时补充一个日文候选（如 ohayou → おはよう）；词典不在时不生效",
-                 L"mixed_input.japanese", false);
+                 L"mixed_input.japanese", false, false, mixed_enabled);
       }
       bool_row(candidates_more, 0xE8C1, L"只出单字",
                L"候选只列单个汉字，不出词组和整句；选一个字后接着拼下一个字",
@@ -14147,6 +14155,21 @@ private:
     if (document_.String(key, L"") == value)
       return;
     document_.SetString(key, value);
+    schedule_save();
+  }
+
+  // 编辑接口地址/模型时同步进当前服务商的槽位（共享设置页 ai-provider-update.ts 的 slotUpdate）：与目录默认相同的值删键回默认。
+  void write_ai_slot(std::wstring_view map, std::wstring const &value, bool endpoint_slot) {
+    const auto provider = document_.String(L"ai_assistant.provider", L"deepseek");
+    const auto *preset = ais::find_provider(provider);
+    const std::wstring fallback =
+        preset ? (endpoint_slot ? std::wstring(preset->endpoint) : std::wstring(preset->model))
+               : L"";
+    const auto trimmed = msime::settings::js_trim(value);
+    if (!provider.empty() && !trimmed.empty() && trimmed != fallback)
+      document_.SetEntry(map, provider, trimmed);
+    else
+      document_.RemoveEntry(map, provider);
     schedule_save();
   }
 
@@ -22731,6 +22754,7 @@ private:
         L"AI 接口地址", endpoint_text, false, L"https://example.com/v1/chat/completions", true,
         [this](std::wstring const &value) {
           write_credential(L"ai_assistant.endpoint", value);
+          write_ai_slot(L"ai_assistant.endpoints", value, true);
           ai_edited(true);
           sync_ai();
           return value.empty() || ai_endpoint(value).origin.has_value();
@@ -22767,11 +22791,13 @@ private:
           ai_change([&](PreferencesDocument &doc) {
             doc.SetString(L"ai_assistant.model", value);
           }, false);
+          write_ai_slot(L"ai_assistant.models", value, false);
         },
         [this](std::wstring const &name) {
           return credential_input(name, document_.String(L"ai_assistant.model", L""), false, L"",
                                   true, [this](std::wstring const &value) {
                                     write_credential(L"ai_assistant.model", value);
+                                    write_ai_slot(L"ai_assistant.models", value, false);
                                     ai_edited(false);
                                     sync_ai();
                                     return true;
@@ -22844,15 +22870,38 @@ private:
         });
   }
 
-  // 换服务商（aiProviderUpdate）：接口地址和模型为空或还是原服务商的默认值时换成新服务商的默认值，保存后重画整页。
+  // 换服务商（aiProviderUpdate）：旧服务商的接口地址/模型写回它的槽位，新服务商从槽位回填或取目录默认，保存后重画整页。
   void select_ai_provider(std::wstring const &value) {
     const ais::ProviderFields current{document_.String(L"ai_assistant.provider", L"deepseek"),
                                       document_.String(L"ai_assistant.endpoint", L""),
                                       document_.String(L"ai_assistant.model", L"")};
     if (value == current.provider)
       return;
-    const auto update = ais::provider_update(value, current);
     ai_change([&](PreferencesDocument &doc) {
+      const auto *next = ais::find_provider(value);
+      if (!next)
+        next = &ais::providers().back();
+      // 槽位只取切换双方需要的键：新服务商的槽位先读进 map 让 provider_update 回填，旧服务商的槽位由它改写后落回文档。
+      std::map<std::wstring, std::wstring> endpoints, models;
+      const auto endpoint_slot = doc.Entry(L"ai_assistant.endpoints", next->id, L"");
+      if (!endpoint_slot.empty())
+        endpoints.emplace(next->id, endpoint_slot);
+      const auto model_slot = doc.Entry(L"ai_assistant.models", next->id, L"");
+      if (!model_slot.empty())
+        models.emplace(next->id, model_slot);
+      const auto update = ais::provider_update(value, current, endpoints, models);
+      const auto write_slot = [&doc](std::wstring_view map, std::wstring_view provider,
+                                     const std::map<std::wstring, std::wstring> &slots) {
+        const auto slot = slots.find(std::wstring(provider));
+        if (slot != slots.end())
+          doc.SetEntry(map, provider, slot->second);
+        else
+          doc.RemoveEntry(map, provider);
+      };
+      if (!current.provider.empty()) {
+        write_slot(L"ai_assistant.endpoints", current.provider, endpoints);
+        write_slot(L"ai_assistant.models", current.provider, models);
+      }
       doc.SetString(L"ai_assistant.provider", update.provider);
       doc.SetString(L"ai_assistant.endpoint", update.endpoint);
       doc.SetString(L"ai_assistant.model", update.model);

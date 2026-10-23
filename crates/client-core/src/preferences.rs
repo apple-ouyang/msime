@@ -102,6 +102,17 @@ pub enum TwentySixKeyNumberLayout {
     NineKey,
 }
 
+/// 触屏键盘把正在拼写的内容（全拼、双拼、五笔、粤拼）放在哪里。桌面宿主原样保留、不使用：桌面候选窗画不画拼音行归 `candidate_preedit_style`，它的默认值是画，拿它当触屏的位置开关会让触屏默认把拼写挪出输入框。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchSpellingPosition {
+    /// 作为组字写进输入框，候选栏不再重复画它。
+    #[default]
+    Editor,
+    /// 只画在候选栏上，不写进输入框。
+    CandidateBar,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchSkinKeyShape {
@@ -671,19 +682,32 @@ pub enum AppInputModeRule {
 pub const MAX_APP_INPUT_MODE_RULES: usize = 32;
 pub const MAX_APP_INPUT_MODE_RULE_ID_BYTES: usize = 64;
 
-/// 应用标识：macOS 是 bundle id，Windows 是进程的可执行文件基名（如 `code.exe`，设置页写入前转成小写），Linux 是输入法框架报告的程序名（如 `firefox`）。非空、不超过 `MAX_APP_INPUT_MODE_RULE_ID_BYTES` 字节，不含控制字符和路径分隔符，两侧没有空白；整张表按 ASCII 不分大小写地不重复，因为 Windows 按这个规则比较进程名，只差大小写的两条会让同一个进程拿到两种模式。
+/// 应用标识：macOS 是 bundle id，Windows 是进程的可执行文件基名（如 `code.exe`，设置页写入前转成小写），Linux 是输入法框架报告的程序名（如 `firefox`）。非空、不超过 `MAX_APP_INPUT_MODE_RULE_ID_BYTES` 字节，不含控制字符和路径分隔符，两侧没有空白。
+fn valid_app_list_identifier(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= MAX_APP_INPUT_MODE_RULE_ID_BYTES
+        && id.trim() == id
+        && !id
+            .chars()
+            .any(|character| character.is_control() || matches!(character, '\\' | '/'))
+}
+
+/// 整张表按 ASCII 不分大小写地不重复，因为 Windows 按这个规则比较进程名，只差大小写的两条会让同一个进程拿到两种模式。
 fn valid_app_input_mode_rules(rules: &BTreeMap<String, AppInputModeRule>) -> bool {
     let mut seen = BTreeSet::new();
     rules.len() <= MAX_APP_INPUT_MODE_RULES
-        && rules.keys().all(|id| {
-            !id.is_empty()
-                && id.len() <= MAX_APP_INPUT_MODE_RULE_ID_BYTES
-                && id.trim() == id.as_str()
-                && !id
-                    .chars()
-                    .any(|character| character.is_control() || matches!(character, '\\' | '/'))
-                && seen.insert(id.to_ascii_lowercase())
-        })
+        && rules
+            .keys()
+            .all(|id| valid_app_list_identifier(id) && seen.insert(id.to_ascii_lowercase()))
+}
+
+/// `vim_mode_apps` 的名单：与应用例外同一口径、同一档上限。标识认法相同，只差大小写的两条会命中同一个应用。
+fn valid_vim_mode_apps(apps: &[String]) -> bool {
+    let mut seen = BTreeSet::new();
+    apps.len() <= MAX_APP_INPUT_MODE_RULES
+        && apps
+            .iter()
+            .all(|id| valid_app_list_identifier(id) && seen.insert(id.to_ascii_lowercase()))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -837,7 +861,7 @@ pub enum GrammarModel {
 }
 
 /// Candidate sentence-association sources. The dictionary lattice keeps its historical default; neural rerankers are opt-in because they add model work while typing or settling.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SentenceAssociationPreferences {
     #[serde(default = "enabled_by_default")]
@@ -853,6 +877,51 @@ pub struct SentenceAssociationPreferences {
     /// 选中但还没下载时等于 `None`（逐字节退回无模型基线）。
     #[serde(default)]
     pub grammar_model: GrammarModel,
+    /// 搭配项标定系数（log10 域）：0 = 关闭加成。与 Windows `[association]`
+    /// `sentence_collocation_weight` 同名同出厂值；不进设置页，只在
+    /// preferences.json 里手调，等于出厂值时不写进文档。键缺失、类型不符或
+    /// 非有限值时回出厂值（见 `deserialize_sentence_collocation_weight`）。
+    #[serde(
+        deserialize_with = "deserialize_sentence_collocation_weight",
+        skip_serializing_if = "is_default_sentence_collocation_weight"
+    )]
+    pub sentence_collocation_weight: f64,
+    /// 搭配上下文与词的码点长度上限/下限，对应 Windows `sentence_collocation_max_length`
+    /// / `sentence_collocation_min_length`；取值口径与写入约定同 `sentence_collocation_weight`。
+    #[serde(
+        deserialize_with = "deserialize_sentence_collocation_max_length",
+        skip_serializing_if = "is_default_sentence_collocation_max_length"
+    )]
+    pub sentence_collocation_max_length: i32,
+    #[serde(
+        deserialize_with = "deserialize_sentence_collocation_min_length",
+        skip_serializing_if = "is_default_sentence_collocation_min_length"
+    )]
+    pub sentence_collocation_min_length: i32,
+    /// 命中搭配的惩罚，对应 Windows `sentence_collocation_penalty`。
+    #[serde(
+        deserialize_with = "deserialize_sentence_collocation_penalty",
+        skip_serializing_if = "is_default_sentence_collocation_penalty"
+    )]
+    pub sentence_collocation_penalty: f64,
+    /// 全部窗口未命中时的常数分，对应 Windows `sentence_collocation_non_penalty`。
+    #[serde(
+        deserialize_with = "deserialize_sentence_collocation_non_penalty",
+        skip_serializing_if = "is_default_sentence_collocation_non_penalty"
+    )]
+    pub sentence_collocation_non_penalty: f64,
+    /// 搭配长度低于下限时的弱命中惩罚，对应 Windows `sentence_collocation_weak_penalty`。
+    #[serde(
+        deserialize_with = "deserialize_sentence_collocation_weak_penalty",
+        skip_serializing_if = "is_default_sentence_collocation_weak_penalty"
+    )]
+    pub sentence_collocation_weak_penalty: f64,
+    /// 句尾词的「词+$」项惩罚，对应 Windows `sentence_collocation_rear_penalty`。
+    #[serde(
+        deserialize_with = "deserialize_sentence_collocation_rear_penalty",
+        skip_serializing_if = "is_default_sentence_collocation_rear_penalty"
+    )]
+    pub sentence_collocation_rear_penalty: f64,
 }
 
 impl Default for SentenceAssociationPreferences {
@@ -863,8 +932,127 @@ impl Default for SentenceAssociationPreferences {
             neural_keyboard: false,
             show_next_on_duplicate: false,
             grammar_model: GrammarModel::None,
+            sentence_collocation_weight: SENTENCE_COLLOCATION_WEIGHT_DEFAULT,
+            sentence_collocation_max_length: SENTENCE_COLLOCATION_MAX_LENGTH_DEFAULT,
+            sentence_collocation_min_length: SENTENCE_COLLOCATION_MIN_LENGTH_DEFAULT,
+            sentence_collocation_penalty: SENTENCE_COLLOCATION_PENALTY_DEFAULT,
+            sentence_collocation_non_penalty: SENTENCE_COLLOCATION_NON_PENALTY_DEFAULT,
+            sentence_collocation_weak_penalty: SENTENCE_COLLOCATION_WEAK_PENALTY_DEFAULT,
+            sentence_collocation_rear_penalty: SENTENCE_COLLOCATION_REAR_PENALTY_DEFAULT,
         }
     }
+}
+
+/// octagram 搭配调参系数的出厂值：与 Windows `installer/default_config/config.default.toml`
+/// 的 `[association]` 键和 `engine` 的 `GramConfig::default()` 逐项一致（万象现行
+/// 6/2/-14/-6/-100/-18，weight 1.0）。
+const SENTENCE_COLLOCATION_WEIGHT_DEFAULT: f64 = 1.0;
+const SENTENCE_COLLOCATION_MAX_LENGTH_DEFAULT: i32 = 6;
+const SENTENCE_COLLOCATION_MIN_LENGTH_DEFAULT: i32 = 2;
+const SENTENCE_COLLOCATION_PENALTY_DEFAULT: f64 = -14.0;
+const SENTENCE_COLLOCATION_NON_PENALTY_DEFAULT: f64 = -6.0;
+const SENTENCE_COLLOCATION_WEAK_PENALTY_DEFAULT: f64 = -100.0;
+const SENTENCE_COLLOCATION_REAR_PENALTY_DEFAULT: f64 = -18.0;
+
+/// 搭配调参系数的容错读取，与 Windows `value_or(出厂值)` 同口径：键缺失走
+/// `#[serde(default)]`（即 `Default` 里的出厂值），类型不符、超出目标范围或
+/// 非有限值回出厂值，文档其余字段照常生效——单个手误不该让整份偏好不可读。
+/// JSON 里 `1e400` 能解析出 `inf`，不挡会把非有限分带进词格打分。
+fn tuned_collocation_f64<'de, D>(deserializer: D, default: f64) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(serde_json::Value::deserialize(deserializer)?
+        .as_f64()
+        .filter(|value| value.is_finite())
+        .unwrap_or(default))
+}
+
+fn tuned_collocation_i32<'de, D>(deserializer: D, default: i32) -> Result<i32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(serde_json::Value::deserialize(deserializer)?
+        .as_i64()
+        .and_then(|value| i32::try_from(value).ok())
+        .unwrap_or(default))
+}
+
+fn deserialize_sentence_collocation_weight<'de, D>(d: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    tuned_collocation_f64(d, SENTENCE_COLLOCATION_WEIGHT_DEFAULT)
+}
+
+fn deserialize_sentence_collocation_max_length<'de, D>(d: D) -> Result<i32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    tuned_collocation_i32(d, SENTENCE_COLLOCATION_MAX_LENGTH_DEFAULT)
+}
+
+fn deserialize_sentence_collocation_min_length<'de, D>(d: D) -> Result<i32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    tuned_collocation_i32(d, SENTENCE_COLLOCATION_MIN_LENGTH_DEFAULT)
+}
+
+fn deserialize_sentence_collocation_penalty<'de, D>(d: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    tuned_collocation_f64(d, SENTENCE_COLLOCATION_PENALTY_DEFAULT)
+}
+
+fn deserialize_sentence_collocation_non_penalty<'de, D>(d: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    tuned_collocation_f64(d, SENTENCE_COLLOCATION_NON_PENALTY_DEFAULT)
+}
+
+fn deserialize_sentence_collocation_weak_penalty<'de, D>(d: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    tuned_collocation_f64(d, SENTENCE_COLLOCATION_WEAK_PENALTY_DEFAULT)
+}
+
+fn deserialize_sentence_collocation_rear_penalty<'de, D>(d: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    tuned_collocation_f64(d, SENTENCE_COLLOCATION_REAR_PENALTY_DEFAULT)
+}
+
+fn is_default_sentence_collocation_weight(value: &f64) -> bool {
+    *value == SENTENCE_COLLOCATION_WEIGHT_DEFAULT
+}
+
+fn is_default_sentence_collocation_max_length(value: &i32) -> bool {
+    *value == SENTENCE_COLLOCATION_MAX_LENGTH_DEFAULT
+}
+
+fn is_default_sentence_collocation_min_length(value: &i32) -> bool {
+    *value == SENTENCE_COLLOCATION_MIN_LENGTH_DEFAULT
+}
+
+fn is_default_sentence_collocation_penalty(value: &f64) -> bool {
+    *value == SENTENCE_COLLOCATION_PENALTY_DEFAULT
+}
+
+fn is_default_sentence_collocation_non_penalty(value: &f64) -> bool {
+    *value == SENTENCE_COLLOCATION_NON_PENALTY_DEFAULT
+}
+
+fn is_default_sentence_collocation_weak_penalty(value: &f64) -> bool {
+    *value == SENTENCE_COLLOCATION_WEAK_PENALTY_DEFAULT
+}
+
+fn is_default_sentence_collocation_rear_penalty(value: &f64) -> bool {
+    *value == SENTENCE_COLLOCATION_REAR_PENALTY_DEFAULT
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -876,6 +1064,9 @@ pub struct Preferences {
     /// 应用例外：切到这些应用时从固定的中文或英文开始，优先于按应用记忆、全局状态和 `default_ime_mode`，在全局作用域下同样生效；用户在应用里手动切换后，本次停留期间让位，离开再回来重新生效。macOS 按 bundle id、Windows 按进程基名、Linux 按输入法框架报告的程序名查找。没有规则时不写进文档，没有这个键的旧版本照样能读。
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub app_input_mode_rules: BTreeMap<String, AppInputModeRule>,
+    /// Vim 模式：名单命中的前台应用里，交给应用的无修饰 Esc 同时把水杉切到英文，Vim 用户可以立刻输入 `hjkl`；组字开着时 Esc 仍只取消组字。标识口径与 `app_input_mode_rules` 相同（macOS 按 bundle id，Windows 按进程基名）。没有名单时不写进文档，没有这个键的旧版本照样能读。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub vim_mode_apps: Vec<String>,
     #[serde(default)]
     pub voice_input: VoiceInputPreferences,
     #[serde(default)]
@@ -1005,6 +1196,9 @@ pub struct Preferences {
     /// 触屏 26 键双拼时在字母键底部画当前方案的声母/韵母提示，读屏也读它。默认关；全拼、独立英文和本地模式本来就不画，不受它影响。桌面宿主原样保留、不使用。
     #[serde(default = "disabled_by_default")]
     pub touch_shuangpin_key_hints: bool,
+    /// 触屏键盘的拼写写进输入框还是只画在候选栏；缺这个键的旧文档读作输入框。
+    #[serde(default)]
+    pub touch_spelling_position: TouchSpellingPosition,
     /// 中文触屏键盘的快捷符号，单个字素、去重，最多十二项；宿主只负责显示与提交。
     #[serde(default = "default_touch_quick_symbols")]
     pub touch_quick_punctuation_symbols: Vec<String>,
@@ -1081,6 +1275,9 @@ pub struct Preferences {
     /// 相邻候选项之间的间距，0–16pt；横排为列距，竖排为行距。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_item_spacing: Option<u8>,
+    /// 候选窗口严格按文字所需的宽度收紧，不垫出厂最小宽度（Windows `appearance.candidate_window_fit_content`，出厂关）。与皮肤包 `skin.toml` 的 `fit_content` 是或关系：任一为真即收紧。默认关，关着时不写进文档。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub candidate_window_fit_content: bool,
     #[serde(default = "default_candidate_font_family")]
     pub candidate_font_family: String,
     /// Optional leading face for the Windows candidate glyph fallback chain.
@@ -1149,6 +1346,12 @@ pub struct Preferences {
     /// 中文标点下方头括号键的样式（W#24）。等于默认值（实心）时不写进文档。
     #[serde(default, skip_serializing_if = "BracketStyle::is_default")]
     pub bracket_style: BracketStyle,
+    /// 顿号自定义：中文标点下 `\` 键输出顿号「、」（Windows v0.11.1 `input.enumeration_comma_backslash`）。默认开，等于默认值时不写进文档。两个顿号键都关掉时按「`\` 开」读，归一在 `crate::punctuation::punctuation_marks`。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub enumeration_comma_backslash: bool,
+    /// 顿号自定义：中文标点下 `/` 键输出顿号「、」。默认关：新架构的 `/` 在词首是命令模式触发键，现有用户的 `/` 从来不出顿号，和 Windows 升级用户（旧配置没有这个键时并成 `false`）一致；打开后词首仍打开命令模式，其余位置出顿号。等于默认值时不写进文档。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub enumeration_comma_slash: bool,
     #[serde(default)]
     pub navigation: NavigationPreferences,
     #[serde(default)]
@@ -1256,6 +1459,9 @@ pub struct Preferences {
     /// 候选翻译服务选的是水杉账号时为真，候选词会发到 `https://api.msime.app/v1/translate`。新装和缺字段时都是关闭，必须由用户显式选择。
     #[serde(default)]
     pub translation_account: bool,
+    /// 候选翻译服务选的是 AI 辅助时为真，复用 `ai_assistant` 的服务商、接口地址、Token 与模型做候选词翻译；不要求 `ai_assistant.enabled`，只想用翻译、不开 AI 联想也能生效。与 `translation_account` 一样必须由用户显式选择。
+    #[serde(default)]
+    pub translation_ai: bool,
     /// 向 `https://api.msime.app/v1/telemetry/events` 发送匿名使用报告（每日活跃、会话结束、崩溃摘要；见 `telemetry` 和 PRIVACY.md）。默认开启；关闭后停止全部上报并清空本地队列。读取方把缺失的键当作开启。
     #[serde(default = "enabled_by_default")]
     pub usage_reporting: bool,
@@ -1322,6 +1528,9 @@ pub struct VoiceInputPreferences {
     pub polish_provider: String,
     #[serde(default)]
     pub polish_token: String,
+    /// DeepSeek 润色的思考强度：disabled | low | high | max，仅接口地址属于 DeepSeek 时生效；请求体按档写 `thinking.type` 与 `reasoning_effort`（shared/voice 的 polish_cloud_text）。
+    #[serde(default = "default_thinking_level")]
+    pub polish_thinking: String,
     /// One polish token per provider id, for the same reason as `asr_tokens`.
     #[serde(default)]
     pub polish_tokens: BTreeMap<String, String>,
@@ -1399,6 +1608,7 @@ impl Default for VoiceInputPreferences {
             polish_text: source_voice_default(),
             polish_provider: polish.provider.into(),
             polish_token: String::new(),
+            polish_thinking: "disabled".into(),
             polish_tokens: BTreeMap::new(),
             polish_endpoint: polish.endpoint.into(),
             polish_model: polish.model.into(),
@@ -1436,6 +1646,14 @@ pub struct AiAssistantPreferences {
     pub tokens: BTreeMap<String, String>,
     #[serde(default)]
     pub endpoint: String,
+    /// 每个提供方记住的接口地址与模型，键为提供方 id；槽位只存自定义值，空槽或缺键表示用目录默认值。设置页切提供方时按槽位回填 endpoint/model，自定义过的值不会随切换丢失（Windows `endpoint_*`/`model_*` 槽的对应物）。
+    #[serde(default)]
+    pub endpoints: BTreeMap<String, String>,
+    #[serde(default)]
+    pub models: BTreeMap<String, String>,
+    /// DeepSeek 的思考强度：disabled | low | high | max，仅接口地址属于 DeepSeek 时生效；请求体按档写 `thinking.type` 与 `reasoning_effort`（client-providers 的 `chat_completion_body`）。
+    #[serde(default = "default_thinking_level")]
+    pub thinking: String,
     #[serde(default = "default_ai_candidate_limit")]
     pub candidate_limit: u8,
     #[serde(default)]
@@ -1490,6 +1708,11 @@ fn default_ai_candidate_limit() -> u8 {
     3
 }
 
+/// `ai_assistant.thinking` 与 `voice_input.polish_thinking` 共同的出厂档位。
+fn default_thinking_level() -> String {
+    "disabled".into()
+}
+
 /// Kept equal to `AiAssistantPreferences::default().provider`.
 fn default_ai_provider() -> String {
     "deepseek".into()
@@ -1509,6 +1732,9 @@ impl Default for AiAssistantPreferences {
             token: String::new(),
             tokens: BTreeMap::new(),
             endpoint: endpoint.into(),
+            endpoints: BTreeMap::new(),
+            models: BTreeMap::new(),
+            thinking: "disabled".into(),
             candidate_limit: 3,
             prompt_id: "custom_1".into(),
             prompt_custom_1: String::new(),
@@ -1654,10 +1880,13 @@ fn default_toolbar_auto_hide_delay() -> u16 {
     5
 }
 
-/// Which optional buttons the touch keyboard's toolbar carries. The first three are the buttons the bar always had; the rest are tools that otherwise sit one tap deeper, in the keyboard's 更多 panel.
+/// 触屏工具栏的可选按钮；撤销和重做目前由 Android 宿主提供，其余宿主只保留设置。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TouchToolbarPreferences {
+    /// 由当前编辑器处理撤销、重做；默认隐藏，输入法不保存文本历史。
+    pub undo: bool,
+    pub redo: bool,
     pub layout: bool,
     pub emoji: bool,
     pub skin: bool,
@@ -1671,6 +1900,8 @@ pub struct TouchToolbarPreferences {
 impl Default for TouchToolbarPreferences {
     fn default() -> Self {
         Self {
+            undo: false,
+            redo: false,
             layout: true,
             emoji: true,
             skin: true,
@@ -1784,7 +2015,14 @@ pub enum PreeditStyle {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocalModePreferences {
     pub unicode: bool,
+    /// Shift+T 日期时间快捷输入模式（Windows `utility.date_time_mode`，出厂开）。行内日期时间混入普通候选由 `date_time_inline` 单独开关。
     pub date_time: bool,
+    /// 日期时间混进普通候选（对应 Windows `utility.date_time_candidates`）：全拼输入 `riqi`、`sj`、`xq`、`nongli` 时把当前日期、时间、星期或农历接在对应的词后面。与 `date_time`（T 模式）是两个独立开关；缺这个键的旧文档读作开——此前行内混入由 `date_time` 一并控制且默认开，保持同样的有效行为，开着时不写进文档。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub date_time_inline: bool,
+    /// 日期时间混进普通候选时，第三位放一个「📅日期」入口，选中后候选窗换成这一组的全部格式（Windows `utility.date_time_menu`，出厂开）。依附 `date_time_inline`；缺这个键的旧文档读作开。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub date_time_menu: bool,
     pub quick_phrase: bool,
     pub emoji: bool,
     pub kaomoji: bool,
@@ -1819,6 +2057,8 @@ impl Default for LocalModePreferences {
         Self {
             unicode: true,
             date_time: true,
+            date_time_inline: true,
+            date_time_menu: true,
             quick_phrase: true,
             emoji: true,
             kaomoji: true,
@@ -2059,6 +2299,12 @@ pub struct MixedInputPreferences {
     /// 打拼音出符号：全拼、双拼整段打出符号的名称时（`zhengfu`、`pingfangmi`），在候选里接着那个词给出符号（± ㎡）。后加的成员，所有宿主默认开；缺这个键的旧文档读作开，只有用户关掉时才写进文档（`"symbols": false`），开着时文档逐字节不变，旧版本和只写前四项的宿主都还能读。
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub symbols: bool,
+    /// 快捷短语混进普通候选（Windows `utility.quick_phrase_candidates`，出厂关）：普通组字的编码精确等于某条快捷短语的编码时，短语追加在普通候选之后。只对声明 `HostCapabilities::quick_phrase_candidates` 的宿主（macOS、Linux）生效，它们此前无条件混入，所以缺这个键的旧文档读作开；新装默认关，与 Windows 出厂一致，开着时不写进文档。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub quick_phrase: bool,
+    /// 快捷短语参与调频（Windows `utility.quick_phrase_frequency`，出厂开）：常越过整组快捷短语选别的候选时整组后退，最多退到首页末位；选中组内短语时整组前移。默认开，与 Windows 出厂一致；只在混输打开时起作用，缺这个键的旧文档读作开。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub quick_phrase_frequency: bool,
 }
 
 impl Default for MixedInputPreferences {
@@ -2072,6 +2318,8 @@ impl Default for MixedInputPreferences {
             kaomoji: false,
             japanese: false,
             symbols: true,
+            quick_phrase: false,
+            quick_phrase_frequency: true,
         }
     }
 }
@@ -2170,6 +2418,21 @@ pub struct SecondThirdCandidatePreferences {
 impl SecondThirdCandidatePreferences {
     fn is_default(&self) -> bool {
         *self == Self::default()
+    }
+
+    /// 这个键选当前页从零计数的第几个候选；关闭或不在键位表里时为 `None`。
+    /// 与 Windows `second_third_candidate_slot` 同一张表，键位枚举目前只有 `;`/`'` 一组。
+    pub fn slot(&self, value: u8) -> Option<usize> {
+        if !self.enabled {
+            return None;
+        }
+        match self.keys {
+            SecondThirdCandidateKeys::SemicolonQuote => match value {
+                b';' => Some(1),
+                b'\'' => Some(2),
+                _ => None,
+            },
+        }
     }
 }
 
@@ -2284,7 +2547,7 @@ pub struct NavigationPreferences {
     pub mouse_wheel: bool,
     #[serde(alias = "candidate_arrow_navigation")]
     pub arrows: bool,
-    /// 不带修饰键的左右方向键在横排候选窗里移动候选高亮（左是上一个、右是下一个）。高亮在首选时 ← 照旧编辑输入串，→ 在光标没到输入串末尾时照旧往末尾移，到了末尾才选下一个；高亮不在首选时左右键只移动候选。桌面候选窗竖排（`candidate_layout`）时左右键与候选方向垂直，只编辑输入串；触屏的候选栏总是横排。与 `arrows` 各自独立，默认开启。
+    /// 不带修饰键的左右方向键在横排候选窗里移动候选高亮（左是上一个、右是下一个）。高亮在首选时 ← 照旧编辑输入串，→ 在光标没到输入串末尾时照旧往末尾移，到了末尾才选下一个；高亮不在首选时左右键只移动候选。桌面候选窗竖排（`candidate_layout`）时左右键与候选方向垂直，只编辑输入串；触屏的候选栏总是横排。与 `arrows` 各自独立，默认开启（Windows `general.candidate_horizontal_arrow_navigation` 出厂为关，默认值差异已记录在案，是否对齐留待产品决策）。
     ///
     /// 判断放在 `input-runtime` 里而不是每个宿主各写一遍：宿主只把左右键当普通光标命令发下去，端点判断和高亮移动跟着 ↑/↓ 的那段代码一起走。
     #[serde(default = "enabled_by_default")]
@@ -2594,9 +2857,11 @@ fn default_doubao_auth_mode() -> String {
 impl Default for Preferences {
     fn default() -> Self {
         Self {
+            candidate_window_fit_content: false,
             default_ime_mode: DefaultImeMode::default(),
             ime_mode_scope: ImeModeScope::default(),
             app_input_mode_rules: BTreeMap::new(),
+            vim_mode_apps: Vec::new(),
             ai_assistant: AiAssistantPreferences::default(),
             sentence_association: SentenceAssociationPreferences::default(),
             custom_translation: CustomTranslationPreferences::default(),
@@ -2645,6 +2910,7 @@ impl Default for Preferences {
             touch_number_keypad_order: NumberKeypadOrder::default(),
             touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout::default(),
             touch_shuangpin_key_hints: false,
+            touch_spelling_position: TouchSpellingPosition::default(),
             touch_quick_punctuation_symbols: default_touch_quick_symbols(),
             touch_toolbar: TouchToolbarPreferences::default(),
             harmony_toolbar: HarmonyToolbarPreferences::default(),
@@ -2695,6 +2961,8 @@ impl Default for Preferences {
             caps_lock_ascii_punctuation: false,
             quote_style: QuoteStyle::Curly,
             bracket_style: BracketStyle::Solid,
+            enumeration_comma_backslash: true,
+            enumeration_comma_slash: false,
             navigation: NavigationPreferences::default(),
             keybindings: KeybindingPreferences::default(),
             word_character: WordCharacterPreferences::default(),
@@ -2728,6 +2996,7 @@ impl Default for Preferences {
             translation_target_language: TranslationTargetLanguage::default(),
             translation_secondary_language: None,
             translation_account: false,
+            translation_ai: false,
             usage_reporting: true,
         }
     }
@@ -2976,11 +3245,15 @@ pub struct HelpcodePreferences {
     /// Linux 的辅助码前导键；空串保留 Shift 加字母。
     #[serde(default)]
     pub trigger_key: String,
+    /// Windows `shuangpin_helpcode`/`quanpin_helpcode` 出厂关、门禁 pin 出厂开，本仓沿用开；缺这个键的旧文档读作开。
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     pub schema: HelpcodeSchema,
     #[serde(default = "enabled_by_default")]
     pub show_in_candidate_window: bool,
+    /// 双拼专属的辅助码触发方式，对应 Windows v0.11.1 `[helpcode]` 组里 `shuangpin_helpcode_direct` 起的十一枚键；`quanpin_helpcode` 不读这一段。等于默认值时不写进文档，旧文档缺这一段时按 [`ShuangpinHelpcodeModes::default`] 处理。
+    #[serde(default, skip_serializing_if = "ShuangpinHelpcodeModes::is_default")]
+    pub modes: ShuangpinHelpcodeModes,
 }
 
 impl Default for HelpcodePreferences {
@@ -2990,7 +3263,74 @@ impl Default for HelpcodePreferences {
             schema: HelpcodeSchema::default(),
             trigger_key: String::new(),
             show_in_candidate_window: true,
+            modes: ShuangpinHelpcodeModes::default(),
         }
+    }
+}
+
+/// 双拼辅助码的触发方式（Windows v0.11.1 `installer/default_config/config.default.toml` 的 `[helpcode]` 组）：末尾直接、末尾间接的三枚触发键、句中间接及它的三枚触发键、万象式直接及它的两枚四码结束标记。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ShuangpinHelpcodeModes {
+    /// 末尾直接（`shuangpin_helpcode_direct`）：完整音节基座后直接接辅码，`ulpbx` 是单码、`ulpbxY` 是双码；关闭后末尾裸字母不再当辅助码，只有触发键开启的段才认。
+    pub direct: bool,
+    /// 末尾间接触发键：反引号段（`shuangpin_helpcode_trigger_backtick`）。
+    pub trigger_backtick: bool,
+    /// 末尾间接触发键：分号段（`shuangpin_helpcode_trigger_semicolon`）。
+    pub trigger_semicolon: bool,
+    /// 末尾间接触发键：段首大写（`shuangpin_helpcode_trigger_uppercase`）。
+    pub trigger_uppercase: bool,
+    /// 句中（间接）辅助码总开关（`shuangpin_mid_sentence_helpcode`）：完整音节后敲触发键，后面的字母筛这个音节上的字。
+    pub mid_sentence: bool,
+    /// 句中触发键：反引号（`shuangpin_mid_sentence_helpcode_backtick`）。
+    pub mid_sentence_backtick: bool,
+    /// 句中触发键：分号（`shuangpin_mid_sentence_helpcode_semicolon`）。
+    pub mid_sentence_semicolon: bool,
+    /// 句中触发键：完整音节后的大写字母（`shuangpin_mid_sentence_helpcode_uppercase`）。
+    pub mid_sentence_uppercase: bool,
+    /// 句中（直接）「万象式」总开关（`shuangpin_direct_helpcode`）：逐音节解析，四码单独敲时直接定字。
+    pub direct_helpcode: bool,
+    /// 万象式四码句中用 `/` 结束（`shuangpin_direct_helpcode_slash`）。
+    pub direct_helpcode_slash: bool,
+    /// 万象式四码句中用第二位辅码大写结束（`shuangpin_direct_helpcode_uppercase`）。
+    pub direct_helpcode_uppercase: bool,
+}
+
+/// 默认值与 Windows v0.11.1 的出厂配置一致：末尾直接开、末尾间接的分号开，句中间接与万象式直接关。
+impl Default for ShuangpinHelpcodeModes {
+    fn default() -> Self {
+        Self {
+            direct: true,
+            trigger_backtick: false,
+            trigger_semicolon: true,
+            trigger_uppercase: false,
+            mid_sentence: false,
+            mid_sentence_backtick: true,
+            mid_sentence_semicolon: false,
+            mid_sentence_uppercase: false,
+            direct_helpcode: false,
+            direct_helpcode_slash: true,
+            direct_helpcode_uppercase: false,
+        }
+    }
+}
+
+impl ShuangpinHelpcodeModes {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// 写入端归一：句中间接开着时，同一枚触发键只能归句中、不再算末尾间接；`mid_sentence` 与 `direct_helpcode` 不能同时为真，都真时按万象式直接（句中让位）。
+    pub fn normalized(mut self) -> Self {
+        if self.direct_helpcode {
+            self.mid_sentence = false;
+        }
+        if self.mid_sentence {
+            self.trigger_backtick &= !self.mid_sentence_backtick;
+            self.trigger_semicolon &= !self.mid_sentence_semicolon;
+            self.trigger_uppercase &= !self.mid_sentence_uppercase;
+        }
+        self
     }
 }
 
@@ -3000,6 +3340,7 @@ fn default_quanpin_helpcode() -> HelpcodePreferences {
         schema: HelpcodeSchema::Ziranma,
         trigger_key: String::new(),
         show_in_candidate_window: false,
+        modes: ShuangpinHelpcodeModes::default(),
     }
 }
 
@@ -3052,11 +3393,12 @@ fn default_shuangpin_helpcode() -> HelpcodePreferences {
         schema: HelpcodeSchema::Lantian,
         trigger_key: String::new(),
         show_in_candidate_window: true,
+        modes: ShuangpinHelpcodeModes::default(),
     }
 }
 
 /// Persisted recognition provider identifiers. Hosts expose only the providers they implement: `system` is the platform speech adapter, not a cloud profile, and `local` is an installed on-device sherpa-onnx model directory named by `asr_model_path`, which needs a host built with the recognizer behind it.
-pub const ASR_PROVIDERS: [&str; 9] = [
+pub const ASR_PROVIDERS: [&str; 12] = [
     "doubao",
     "siliconflow",
     "openai",
@@ -3064,13 +3406,16 @@ pub const ASR_PROVIDERS: [&str; 9] = [
     "everyapi",
     "mistral",
     "bailian",
+    "zhipu",
+    "minimax",
+    "custom",
     "system",
     "local",
 ];
 /// OpenAI-compatible AI services exposed by the Apple settings surface and
 /// shared by every host. Providers that need special request fields are still
 /// handled in `ai.rs`; the rest use the common Chat Completions shape.
-pub const AI_PROVIDERS: [&str; 13] = [
+pub const AI_PROVIDERS: [&str; 15] = [
     "everyapi",
     "openai",
     "anthropic",
@@ -3079,14 +3424,30 @@ pub const AI_PROVIDERS: [&str; 13] = [
     "qwen",
     "kimi",
     "zhipu",
+    "minimax",
+    "volcengine",
     "siliconflow",
     "groq",
     "openrouter",
     "ollama",
     "custom",
 ];
-/// Polishing additionally supports DeepSeek, which offers no recognition.
-pub const POLISH_PROVIDERS: [&str; 5] = ["siliconflow", "openai", "deepseek", "groq", "doubao"];
+/// Polishing additionally supports DeepSeek, which offers no recognition, and
+/// accepts doubao plus legacy ids the catalog resolves without listing.
+pub const POLISH_PROVIDERS: [&str; 12] = [
+    "siliconflow",
+    "openai",
+    "deepseek",
+    "groq",
+    "doubao",
+    "minimax",
+    "kimi",
+    "zhipu",
+    "qwen",
+    "volcengine",
+    "openrouter",
+    "custom",
+];
 
 impl Preferences {
     pub fn active_helpcode(&self) -> HelpcodePreferences {
@@ -3095,6 +3456,7 @@ impl Preferences {
             InputScheme::Quanpin => self.quanpin_helpcode.clone(),
             _ => HelpcodePreferences {
                 enabled: false,
+                modes: ShuangpinHelpcodeModes::default(),
                 ..HelpcodePreferences::default()
             },
         }
@@ -3377,6 +3739,9 @@ impl Preferences {
         if !valid_app_input_mode_rules(&self.app_input_mode_rules) {
             return Err(PreferencesError::InvalidAppInputModeRules);
         }
+        if !valid_vim_mode_apps(&self.vim_mode_apps) {
+            return Err(PreferencesError::InvalidVimModeApps);
+        }
         if !self.cloud_clipboard_relay.validate() {
             return Err(PreferencesError::InvalidCloudClipboardRelay);
         }
@@ -3611,6 +3976,8 @@ pub enum PreferencesError {
     InvalidGameCompatibility,
     #[error("app input mode rules must use distinct application identifiers of at most 64 bytes without control characters or path separators, at most 32 in total")]
     InvalidAppInputModeRules,
+    #[error("vim mode app identifiers must be distinct of at most 64 bytes without control characters or path separators, at most 32 in total")]
+    InvalidVimModeApps,
     #[error("cloud clipboard relay needs an https address (http only for loopback) without query, fragment or credentials, and a token of 16-256 printable ASCII characters")]
     InvalidCloudClipboardRelay,
     #[error(
@@ -3921,6 +4288,8 @@ impl PreferencesStore {
         if current.preferences.smart_punctuation_migrated {
             preferences.smart_punctuation_migrated = true;
         }
+        // 双拼辅助码触发方式的互斥规则在写入端归一：末尾间接与句中间接的同一枚触发键只能归一边（句中开着时归句中），`mid_sentence` 与 `direct_helpcode` 同真时按万象式直接。
+        preferences.shuangpin_helpcode.modes = preferences.shuangpin_helpcode.modes.normalized();
         preferences.validate()?;
         // Hosts save whenever a setting might have changed, several processes and controllers at a time, and every reader reloads and reapplies the whole document when the revision moves. Writing the same settings again would cost an fsync under the exclusive lock and a reload everywhere for nothing, so an unchanged document keeps its revision. An existing file only: the first save still creates it.
         if current.revision > 0 && preferences == current.preferences {

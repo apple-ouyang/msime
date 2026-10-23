@@ -2,7 +2,7 @@
 
 ## 目录结构与验证入口
 
-Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`candidate`、`clipboard`、`core`、`dictionary`、`handwriting`、`keyboard`、`policy` 和 `voice`；JNI/C++ 适配位于 `native/`，资源位于 `res/`，按职责组织的回归位于 `tests/<feature>/`，设备脚本位于 `tests/device/`。发布的 APK 的设置界面是原生 Java：设置 App 的各页在 `home/`，另有 `settings/`、`account/`、`community/`、`statistics/` 下的页面；设置的校验、默认值与持久化应当经 JNI 调共享 Rust 层，不在 Java 里复制 Rust 业务（归属见[设置界面按平台归属](../../docs/ARCHITECTURE.md#设置界面按平台归属)）；现有代码还没有完全做到，例如 `voice/VoiceProviderPolicy.java` 仍持有凭据预检与状态文案。语音服务和豆包接口目录已由 `VoiceProviderCatalog` 读取共享 Rust，凭据换槽与换服务字段补丁由 `VoiceProviderSettings` 经 JNI 调用共享 `provider_settings`。语音接口地址提示经 `msime_client_voice_endpoint_issue` 复用运行时 URL 解析与移动宿主输入限制，JNI 失败时阻止保存。`packages/ui` 与 `apps/desktop/src-tauri/src/platform/android/` 的 React 设置只进不发布的 Tauri 合包，见下文「两个 APK 入口，不要选错」。
+Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`candidate`、`clipboard`、`core`、`dictionary`、`handwriting`、`keyboard`、`policy` 和 `voice`；JNI/C++ 适配位于 `native/`，资源位于 `res/`，按职责组织的回归位于 `tests/<feature>/`，设备脚本位于 `tests/device/`。发布的 APK 的设置界面是原生 Java：设置 App 的各页在 `home/`，另有 `settings/`、`account/`、`community/`、`statistics/` 下的页面；设置的校验、默认值与持久化应当经 JNI 调共享 Rust 层，不在 Java 里复制 Rust 业务（归属见[设置界面按平台归属](../../docs/ARCHITECTURE.md#设置界面按平台归属)）；现有代码还没有完全做到，`voice/VoiceProviderPolicy.java` 的凭据预检与状态文案已通过 `msime_client_voice_credential_issue`、`msime_client_mobile_voice_status` 读取共享规则。语音服务和豆包接口目录已由 `VoiceProviderCatalog` 读取共享 Rust，凭据换槽与换服务字段补丁由 `VoiceProviderSettings` 经 JNI 调用共享 `provider_settings`。语音接口地址提示经 `msime_client_voice_endpoint_issue` 复用运行时 URL 解析与移动宿主输入限制，JNI 失败时阻止保存。`packages/ui` 与 `apps/desktop/src-tauri/src/platform/android/` 的 React 设置只进不发布的 Tauri 合包，见下文「两个 APK 入口，不要选错」。
 
 验证分三层，各有对应入口：`check-host.sh` 做契约守卫与 JVM 冒烟（CI 的 `ci-platforms.yml` android job 跑的就是这条），`build-native.sh` + `verify-native.sh` 做 arm64-v8a（按需加 x86_64）的原生构建与导出校验（包括在线候选的五个 host 导出与五个 JNI 方法），`tests/device/smoke.sh` 在固定的 API 35 arm64 专用 AVD 上跑 instrumentation，覆盖原生输入、Tauri/IME 合包、共享设置、统计与手写流程。
 
@@ -11,6 +11,8 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 本目录的正式 Android applicationId 与原生类所在的 namespace 都是 `app.msime.android`。设备 smoke 使用独立的 `app.msime.android.test` instrumentation APK。
 
 英文 26 键长按显示大写、原角标、可用的字母上下标和对应拼音声调（`v` 对应 ü）；首排另有提示数字的上下标和财务数字，短按已有的小写不重复。O 保留「切换到拼音键盘」入口。菜单按键盘宽度排成最多五列，完整放在 IME 窗口内，避免 Android 9 裁剪；下滑符号保持原行为。字符表在 `EnglishLetterHoldPolicy`，设备专项复用 `LetterHintPunctuationDeviceSmoke` 的 `-e english-hold true` 参数，并由普通 `tests/device/smoke.sh` 执行。决定见[英文长按变体笔记](../../.agents/notes/implemented/feature/2026-10-21-android-english-letter-options.md)。
+
+普通英文候选保留原文和唯一纠错，并追加固定英文词库的前缀补全，例如输入 `eng` 可点选 `English`。空格和标点仍只自动采用纠错，补全需要手动点击。密码、网址、邮箱和禁止建议的输入框不显示这些候选。`EnglishCorrectionDeviceSmoke` 同时验证补全、当前词替换与既有纠错门禁；`-e prefix-completion true` 只跑补全专项。
 
 ## 产品版本
 
@@ -237,7 +239,7 @@ Android 14 起可以拿手写笔直接在应用的输入框上写字（#7080，�
 
 中文候选在支持个人词典管理的方案中提供与固定 Apple 来源一致的长按菜单顺序：优先显示、固定到首位、取消固定和删除词条；删除收进「删除词条…」的子菜单，点开当场展开「确认删除此词条」（与 iOS 的嵌套子菜单同款），不弹系统对话框，删除后只刷新候选列表、键盘保持打开。固定位置通过共享 host API 限制为 1–5，本界面固定到首位时只传入位置 1。候选身份仍由 Engine 返回的 session/generation/index 传入 JNI，generation 或候选身份过期后不会修改当前会话；五笔、日语和本地输入模式不展示管理菜单。
 
-候选 UI 现在消费共享的 `candidate_font_size`、`candidate_preedit_font_size`、`candidate_font_family`、`candidate_english_font`、`candidate_fallback_fonts` 和 `candidate_theme`；候选栏是键盘顶部的一条，按全局主题解析出的键盘调色板（以 `candidate_theme` 的明暗解析）渲染普通候选栏和展开面板，选中候选用强调色加粗，候选按钮、预编辑、页码和英文建议使用设置中的首选字体，缺字回落交给 Android 系统字体链。正在拼写的内容总是作为组字（`setComposingText`）写进输入框，与 Apple 自带键盘和 Gboard 一样，候选栏上方的读音行不再重复画它，只留页码和提示；这是固定行为，不读共享偏好 `candidate_preedit_style`，也没有开关（`CandidatePreeditStylePolicy`）。26 键写 Engine 的 `View.preedit`（全拼是按下的字母，双拼按「双拼预编辑」可以是分好词的拼音），光标被点到别处时留在文档里的仍是按下的键。例外照旧画在读音行上：正在拼的词里已经选中的那一段、本地输入模式的名字、全拼 14 键的读音（它的组字是组码字母，不写进输入框）、日语读音和韩语、注音、越南语、藏文、笔画这类方案的组字，以及编辑器长度限制截掉组字、整段组字只能留在键盘上的时候。非法主题、颜色和字体安全回退。自定义主题的候选颜色选择器 `custom_theme.candidate_colors` 只作用于桌面候选窗，Android 候选栏跟随键盘调色板。共享的 `candidate_layout` 只描述桌面候选窗：触屏候选条只有一行高，和 iOS 一样始终横排，释义在候选下面另起一行，更多候选在展开面板里看。偏好热更新成功后立即调整候选字号、字体和调色板，不重建 Engine 会话。字号只接受核心偏好允许的 12–32 范围，字体名称遵循共享的 128 UTF-8 字节和控制字符边界。
+候选 UI 现在消费共享的 `candidate_font_size`、`candidate_preedit_font_size`、`candidate_font_family`、`candidate_english_font`、`candidate_fallback_fonts` 和 `candidate_theme`；候选栏是键盘顶部的一条，按全局主题解析出的键盘调色板（以 `candidate_theme` 的明暗解析）渲染普通候选栏和展开面板，选中候选用强调色加粗，候选按钮、预编辑、页码和英文建议使用设置中的首选字体，缺字回落交给 Android 系统字体链。正在拼写的内容默认作为组字（`setComposingText`）写进输入框，Android 设置里的「拼音显示位置」（共享偏好 `touch_spelling_position`，缺省 `editor`）可以切换为只显示在候选栏；不读桌面候选窗的 `candidate_preedit_style`，它默认是 `pinyin`，拿来当位置开关会让所有用户默认把拼写挪出输入框；候选栏模式不把数字键串写进九键输入框，候选提交后仍由引擎正常上屏。候选栏模式下读音行显示拼音，输入框模式下拼写写入输入框后不重复画它（`CandidatePreeditStylePolicy`）。26 键写 Engine 的 `View.preedit`（全拼是按下的字母，双拼按「双拼预编辑」可以是分好词的拼音），光标被点到别处时留在文档里的仍是按下的键。例外照旧画在读音行上：正在拼的词里已经选中的那一段、本地输入模式的名字、全拼 14 键的读音（它的组字是组码字母，不写进输入框）、日语读音和韩语、注音、越南语、藏文、笔画这类方案的组字，以及编辑器长度限制截掉组字、整段组字只能留在键盘上的时候。非法主题、颜色和字体安全回退。自定义主题的候选颜色选择器 `custom_theme.candidate_colors` 只作用于桌面候选窗，Android 候选栏跟随键盘调色板。共享的 `candidate_layout` 只描述桌面候选窗：触屏候选条只有一行高，和 iOS 一样始终横排，释义在候选下面另起一行，更多候选在展开面板里看。偏好热更新成功后立即调整候选字号、字体和调色板，不重建 Engine 会话。字号只接受核心偏好允许的 12–32 范围，字体名称遵循共享的 128 UTF-8 字节和控制字符边界。
 
 横向候选条在 Engine session、generation 或候选页变化时回到当前页首项；这样翻页或新组字不会沿用上一页的横向偏移，把用户带到旧列表的中段。仅释义/翻译等同一代次的显示重绘保留用户当前滚动位置。候选身份仍由共享 session/generation/index 决定，Android 不自行排序或改写候选内容。
 

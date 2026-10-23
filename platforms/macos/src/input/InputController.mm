@@ -59,6 +59,7 @@
 #include "InputControllerPhysicalKeys.h"
 #include "InputSchemeTraits.h"
 #include "../core/ModifierTap.h"
+#include "../core/VimMode.h"
 #import "../settings/ShuangpinKeymapPanel.h"
 #import "../core/FloatingToolbarPanel.h"
 #import "InputModeHUDPanel.h"
@@ -1019,7 +1020,8 @@ static NSString *MSIMEChinesePunctuationForSmart(unichar character) {
     default: return nil;
     }
 }
-static unichar MSIMEASCIIForSmartChinesePunctuation(unichar character) {
+static unichar MSIMEASCIIForSmartChinesePunctuation(unichar character,
+                                                    const msime::input::PunctuationMarks &marks) {
     switch (character) {
     case 0x3002: return '.'; // 。
     case 0xFF0C: return ','; // ，
@@ -1027,7 +1029,8 @@ static unichar MSIMEASCIIForSmartChinesePunctuation(unichar character) {
     case 0xFF1F: return '?'; // ？
     case 0xFF1B: return ';'; // ；
     case 0xFF1A: return ':'; // ：
-    case 0x3001: return '/'; // 、
+    // 顿号按 View 的顿号开关（enumerationComma 段）取开着的那个键：`\` 优先、`/` 其次；两个都关按归一的 `\`。
+    case 0x3001: return marks.enumeration_comma_backslash ? '\\' : (marks.enumeration_comma_slash ? '/' : '\\');
     case 0x201C: case 0x201D: return '"'; // “ ”
     case 0x2018: case 0x2019: return '\''; // ‘ ’
     case 0x300E: case 0x300F: return '"'; // 『 』
@@ -1062,15 +1065,32 @@ static msime::input::PunctuationMarks MSIMEViewPunctuationMarks(NSDictionary *vi
     if (![marks isKindOfClass:NSDictionary.class]) return {};
     NSString *quotes = [marks[@"quotes"] isKindOfClass:NSString.class] ? marks[@"quotes"] : @"";
     NSString *brackets = [marks[@"brackets"] isKindOfClass:NSString.class] ? marks[@"brackets"] : @"";
-    return msime::input::punctuation_marks_from_view(quotes.UTF8String, brackets.UTF8String);
+    return msime::input::punctuation_marks_from_view(quotes.UTF8String, brackets.UTF8String,
+        ![marks[@"enumeration_comma_backslash"] isEqual:@NO],
+        [marks[@"enumeration_comma_slash"] isEqual:@YES]);
 }
+// `、` 的 ASCII 孪生按出的键算：`/` 出的顿号转回 `/`，`\` 出的转回 `\`——哪个键开着才算数，与直角引号 `MSIMEKeyProducesCornerQuote` 同一条「按出的键算」规则。
+static BOOL MSIMEKeyProducesEnumerationComma(unichar key, unichar mark,
+                                             const msime::input::PunctuationMarks &marks) {
+    if (mark != 0x3001) return NO;
+    return (key == '\\' && marks.enumeration_comma_backslash) ||
+           (key == '/' && marks.enumeration_comma_slash);
+}
+// 文档里读回的中文标点与武装的 ASCII 键是否一对：顿号的合法 ASCII 是开着的顿号键集合，别的标点按单值反查比。
+static BOOL MSIMESmartPunctuationAsciiMatches(unichar chinese, unichar ascii,
+                                              const msime::input::PunctuationMarks &marks) {
+    if (chinese == 0x3001)
+        return MSIMEKeyProducesEnumerationComma(ascii, chinese, marks);
+    return MSIMEASCIIForSmartChinesePunctuation(chinese, marks) == ascii;
+}
+
 static BOOL MSIMEASCIIPunctuation(unichar character) {
     return character > 0x20 && character < 0x7F && !MSIMEASCIIAlphanumeric(character);
 }
 
 static BOOL MSIMESmartPunctuationSpaceKey(unichar character) {
     switch (character) {
-    case '.': case ',': case '!': case '?': case ';': case ':': case '/':
+    case '.': case ',': case '!': case '?': case ';': case ':': case '/': case '\\':
     case '"': case '\'': case '[': case ']': case '<': case '>': case '(': case ')':
         return YES;
     default:
@@ -1624,9 +1644,12 @@ static NSImage *MSIMECandidateLogoImage() {
     unichar ascii = 0;
     if ([commit isKindOfClass:NSString.class] && commit.length) {
         const unichar mark = [commit characterAtIndex:commit.length - 1];
-        ascii = MSIMEASCIIForSmartChinesePunctuation(mark);
+        const auto marks = MSIMEViewPunctuationMarks(_view);
+        ascii = MSIMEASCIIForSmartChinesePunctuation(mark, marks);
         // 直角引号的 ASCII 孪生按出的键算：`{` 出的「转回 `{`，不是样式键 `'`。
         if (ascii && MSIMEKeyProducesCornerQuote(key, mark, MSIMEViewScheme(_view))) ascii = key;
+        // 顿号同理：`/` 出的、`、` 出的各转回自己那个键，关着的键不算顿号来源。
+        if (ascii && MSIMEKeyProducesEnumerationComma(key, mark, marks)) ascii = key;
     }
     if (!_appearance.smartPunctuation || !_appearance.smartPunctuationSpaceConvert || !ascii ||
         _pendingPairedClosing || ![self schemeAllowsSmartPunctuationGestures]) {
@@ -1660,12 +1683,14 @@ static NSImage *MSIMECandidateLogoImage() {
     if (!preceding) {
         // Terminals and proxy stores expose no document text; the shadow is the only evidence of what is on screen, and the rewrite has to be posted.
         const unichar shadow = _smartPunctuationShadowValid ? _smartPunctuationShadow : 0;
-        if (!shadow || MSIMEASCIIForSmartChinesePunctuation(shadow) != mark ||
+        const auto marks = MSIMEViewPunctuationMarks(_view);
+        if (!shadow || !MSIMESmartPunctuationAsciiMatches(shadow, mark, marks) ||
             ![self rewriteUnreadablePreceding:shadow with:mark client:client])
             return NO;
         preceding = shadow;
     } else {
-        if (MSIMEASCIIForSmartChinesePunctuation((unichar)preceding) != mark) return NO;
+        const auto marks = MSIMEViewPunctuationMarks(_view);
+        if (!MSIMESmartPunctuationAsciiMatches((unichar)preceding, mark, marks)) return NO;
         const NSRange selected =
             [client respondsToSelector:@selector(selectedRange)] ? [client selectedRange] : NSMakeRange(NSNotFound, 0);
         if (selected.location == NSNotFound || selected.location < 1) return NO;
@@ -5181,7 +5206,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
         [controller->_voiceOverlay setListening:YES];
         NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] ?: @"zh-CN";
         NSString *socket = MSIMEVoiceProviderSocket();
-        NSDictionary *query = @{ @"language": language.lowercaseString, @"generation": @(controller->_voiceGeneration), @"stream": @([defaults objectForKey:@"MSIMEClientVoiceStreamInlinePreedit"] == nil || [defaults boolForKey:@"MSIMEClientVoiceStreamInlinePreedit"]), @"asr_provider": [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"doubao", @"asr_endpoint": [defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] ?: @"", @"asr_model": [defaults stringForKey:@"MSIMEClientVoiceASRModel"] ?: @"", @"asr_model_path": [defaults stringForKey:@"MSIMEClientVoiceASRModelPath"] ?: @"", @"asr_token": [defaults stringForKey:@"MSIMEClientVoiceASRToken"] ?: @"", @"doubao_boosting_table_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoBoostingTableID"] ?: @"", @"asr_app_key": [defaults stringForKey:@"MSIMEClientVoiceDoubaoAppKey"] ?: @"", @"asr_resource_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoResourceID"] ?: @"", @"polish_enabled": @([defaults boolForKey:@"MSIMEClientVoicePolish"]), @"polish_prompt_id": [defaults stringForKey:@"MSIMEClientVoicePolishPromptID"] ?: @"cleanup", @"polish_provider": [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: MSIMEVoicePolishDefaultProvider, @"polish_model": [defaults stringForKey:@"MSIMEClientVoicePolishModel"] ?: @"", @"polish_endpoint": [defaults stringForKey:@"MSIMEClientVoicePolishEndpoint"] ?: @"", @"polish_token": [defaults stringForKey:@"MSIMEClientVoicePolishToken"] ?: @"", @"polish_prompt_custom_1": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom1"] ?: @"", @"polish_prompt_custom_2": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom2"] ?: @"", @"polish_prompt_custom_3": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom3"] ?: @"" };
+        NSDictionary *query = @{ @"language": language.lowercaseString, @"generation": @(controller->_voiceGeneration), @"stream": @([defaults objectForKey:@"MSIMEClientVoiceStreamInlinePreedit"] == nil || [defaults boolForKey:@"MSIMEClientVoiceStreamInlinePreedit"]), @"asr_provider": [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"doubao", @"asr_endpoint": [defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] ?: @"", @"asr_model": [defaults stringForKey:@"MSIMEClientVoiceASRModel"] ?: @"", @"asr_model_path": [defaults stringForKey:@"MSIMEClientVoiceASRModelPath"] ?: @"", @"asr_token": [defaults stringForKey:@"MSIMEClientVoiceASRToken"] ?: @"", @"doubao_boosting_table_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoBoostingTableID"] ?: @"", @"asr_app_key": [defaults stringForKey:@"MSIMEClientVoiceDoubaoAppKey"] ?: @"", @"asr_resource_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoResourceID"] ?: @"", @"polish_enabled": @([defaults boolForKey:@"MSIMEClientVoicePolish"]), @"polish_prompt_id": [defaults stringForKey:@"MSIMEClientVoicePolishPromptID"] ?: @"cleanup", @"polish_provider": [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: MSIMEVoicePolishDefaultProvider, @"polish_model": [defaults stringForKey:@"MSIMEClientVoicePolishModel"] ?: @"", @"polish_endpoint": [defaults stringForKey:@"MSIMEClientVoicePolishEndpoint"] ?: @"", @"polish_token": [defaults stringForKey:@"MSIMEClientVoicePolishToken"] ?: @"", @"polish_thinking": [defaults stringForKey:@"MSIMEClientVoicePolishThinking"] ?: @"", @"polish_prompt_custom_1": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom1"] ?: @"", @"polish_prompt_custom_2": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom2"] ?: @"", @"polish_prompt_custom_3": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom3"] ?: @"" };
         query = MSIMEVoiceProviderOptions(query, defaults);
         if (socket.length) {
             id token = [controller beginLiveVoiceWithOptions:query socket:socket];
@@ -7160,6 +7185,20 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     const BOOL applicationNavigationKey = ((event.keyCode == 116 || event.keyCode == 121) && ![_appearance navigationEnabled:@"page_up_down"]) ||
         ((event.keyCode == 125 || event.keyCode == 126) && ![_appearance navigationEnabled:@"arrows"]);
     if (MSIMESchemeTrait(_view, msime::mac::scheme::CommitsOnBlur) && applicationNavigationKey && !_panel.isVisible && [_view[@"editing_text"] length]) [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
+    // Vim 模式（共享偏好 vim_mode_apps）：名单命中的前台应用里，无修饰、非长按、无组字的 Esc
+    // 会原样回到应用（MSIME_CANCEL 无事可取消），搭车把水杉切到英文，Vim 用户立刻能按 hjkl。
+    // 判定必须在下面派发 MSIME_CANCEL 之前：组字开着时这次 Esc 归引擎取消组字，不能既取消又切。
+    const BOOL vimListed = event.keyCode == 53 &&
+        [_appearance vimModeEnabledForApplication:[sender respondsToSelector:@selector(bundleIdentifier)]
+                                                       ? [sender bundleIdentifier] : nil];
+    if (msime::mac::VimModeEscapeSwitchesToEnglish(
+            event.keyCode, event.isARepeat,
+            (event.modifierFlags & (NSEventModifierFlagShift | NSEventModifierFlagControl |
+                                    NSEventModifierFlagOption | NSEventModifierFlagCommand)) != 0,
+            [_view[@"editing_text"] length] > 0 || [_view[@"candidates"] count] > 0 ||
+                [_view[@"phrase_prefix"] length] > 0,
+            vimListed, _appearance.englishMode))
+        [self setEnglishInputMode:YES];
     switch (event.keyCode) {
         case 48:
             // With no candidate panel on screen (the caret rect was invalid or there is no screen to show it on) Tab and Shift+Tab are the application's, whatever navigation.tab says. A composition still being edited is finished first, for every scheme and not only a Korean syllable, so the key does not move focus away from marked text that would then dangle in the old field. With nothing composed the session is left alone.
@@ -7763,7 +7802,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         preeditExtra = margin.top + margin.bottom + (preeditVisible && skin.canvas ? skin.canvas->lineGap.value_or(0) : 0);
         bodyRowGap = MSIMECandidateBodyRowGap(skin, preeditVisible, scale);
         _candidateLayoutGeometry = skin.layout;
-        _candidateLayoutFitContent = skin.fitContent;
+        _candidateLayoutFitContent = skin.fitContent || _appearance.candidateWindowFitContent;
         _skinShowsSelectedBar = skin.tokens.showSelectedBar;
         if (skin.layout && skin.layout->padding)
             skin.tokens.pad = static_cast<float>(MSIMESkinLengthValue(skin.layout->padding, font.pointSize, scale, skin.tokens.pad));
@@ -8185,7 +8224,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const BOOL skinDark = [currentTheme isEqual:NSAppearanceNameDarkAqua];
     auto skin = [_appearance candidateWindowSkinForDark:skinDark];
     _candidateLayoutGeometry = skin.layout;
-    _candidateLayoutFitContent = skin.fitContent;
+    _candidateLayoutFitContent = skin.fitContent || _appearance.candidateWindowFitContent;
     if (_renderedCandidateSkin != skin.candidateSkin) _canvasAnimationAnchor = 0;
     _renderedCandidateSkin = skin.candidateSkin;
     _renderedCandidateAnimation = skin.animation;
@@ -8449,7 +8488,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const BOOL skinDark = [currentTheme isEqual:NSAppearanceNameDarkAqua];
     auto skin = [_appearance candidateWindowSkinForDark:skinDark];
     _candidateLayoutGeometry = skin.layout;
-    _candidateLayoutFitContent = skin.fitContent;
+    _candidateLayoutFitContent = skin.fitContent || _appearance.candidateWindowFitContent;
     if (_renderedCandidateSkin != skin.candidateSkin) _canvasAnimationAnchor = 0;
     _renderedCandidateSkin = skin.candidateSkin;
     _renderedCandidateAnimation = skin.animation;

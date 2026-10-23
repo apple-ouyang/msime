@@ -236,6 +236,35 @@ fn single_and_double_helpcodes_filter_the_base() {
         .is_empty());
 }
 
+/// `shuangpin_helpcode_modes.direct` 关闭后，「完整基座 + 末尾裸字母」不再算辅助码：单码 `nihcc` 与双码 `nihcAB` 都按纯拼音读，与辅助码整体关闭一致；打开时维持现有的重排与筛选。
+#[test]
+fn direct_off_reads_trailing_letters_as_plain_pinyin() {
+    let fixture = Fixture::new(HELPCODE_FILTER);
+    let codes = helpcode_filter_keymap();
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+
+    let off = |typed: &str| {
+        let mut request = request(typed, true);
+        request.shuangpin_helpcode_modes.direct = false;
+        request
+    };
+    for typed in ["nihcc", "nihcA", "nihcAB"] {
+        assert_eq!(
+            words(&engine.query(&off(typed), Some(&codes))),
+            words(&engine.query(&request(typed, false), Some(&codes))),
+            "direct off must read {typed} as plain pinyin"
+        );
+    }
+    // 开关确实生效：同一串开着时仍是单码重排 / 双码筛选。
+    assert_eq!(
+        words(&engine.query(&request("nihcc", true), Some(&codes))),
+        ["拟好", "你好", "𠀀方案𠮷", "C语言 2", "GitHub"]
+    );
+    assert!(engine
+        .query(&request("nihcAB", true), Some(&codes))
+        .is_empty());
+}
+
 #[test]
 fn single_helpcode_capacity_includes_whole_and_unmatched_rows() {
     let fixture = Fixture::new(&format!(
@@ -1143,4 +1172,20 @@ fn direct_helpcode_builds_an_unstored_sentence_before_pruning_homophones() {
     assert_eq!(words(&candidates)[0], "他她它");
     assert_eq!(candidates[0].canonical_pinyin, "ta'ta'ta");
     assert_eq!(candidates[0].pinyin, "tartantab");
+}
+
+#[test]
+fn unmatched_trailing_helpcode_keeps_longer_prefix_first() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_f(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_f VALUES('feng''kuang','fk','疯狂',1000);\
+         CREATE TABLE tbl_3_f(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_3_f VALUES('feng''kuang''shui','fks','疯狂水',900);\
+         CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_s VALUES('shui','s','水',800);\
+         CREATE TABLE tbl_4_f(key TEXT,jp TEXT,value TEXT,weight INTEGER);",
+    );
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    let candidates = engine.query(&request("fgkluvu", true), Some(&keymap(&[("水", "ln")])));
+    assert_eq!(words(&candidates)[0], "疯狂水");
 }

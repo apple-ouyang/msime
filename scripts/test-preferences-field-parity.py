@@ -34,6 +34,21 @@ RUST_ONLY: dict[str, set[str]] = {
         "toggle_full_width",
         "toggle_punctuation",
     },
+    "TouchToolbarPreferences": {
+        # 撤销与重做仅在 Android 原生工具栏设置页提供入口，其他宿主保留共享字段，React 设置页不显示。
+        "undo",
+        "redo",
+    },
+    "SentenceAssociationPreferences": {
+        # octagram 搭配调参系数：与 Windows `[association]` 同名七键一致，两边都不进设置页，只在 preferences.json 里手调。
+        "sentence_collocation_weight",
+        "sentence_collocation_max_length",
+        "sentence_collocation_min_length",
+        "sentence_collocation_penalty",
+        "sentence_collocation_non_penalty",
+        "sentence_collocation_weak_penalty",
+        "sentence_collocation_rear_penalty",
+    },
 }
 
 

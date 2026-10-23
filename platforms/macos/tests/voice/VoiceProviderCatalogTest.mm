@@ -14,7 +14,8 @@ int main()
     @autoreleasepool {
         // 顺序属于 macOS；名称和默认值必须实际读取共享目录。
         NSArray *expected = @[@"doubao", @"openai", @"siliconflow", @"groq", @"everyapi",
-                              @"mistral", @"bailian", @"system", @"local"];
+                              @"mistral", @"bailian", @"zhipu", @"minimax", @"custom",
+                              @"system", @"local"];
         NSArray *identifiers = MSIMEVoiceASRProviderIDs();
         NSArray *titles = MSIMEVoiceASRProviderTitles();
         assert([identifiers isEqual:expected]);

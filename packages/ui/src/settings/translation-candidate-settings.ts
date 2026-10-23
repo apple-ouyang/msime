@@ -95,7 +95,10 @@ export function createCandidateTranslationSettings({
     onAccountTranslationChange: (enabled) =>
       enabled
         ? setTranslationProvider("account")
-        : onPreferencesChange({ translation_account: undefined }),
+        : onPreferencesChange({
+            translation_account: undefined,
+            translation_ai: undefined,
+          }),
     onDeviceMissingLanguages: onDeviceMissingLanguages.map(([, label]) => label),
     openSettings,
     onError,

@@ -43,6 +43,8 @@ export interface InputSharedSettingsSectionProps {
   showMixedInputMinimumPrefix?: boolean;
   /** 本版本带临时日文，决定是否列出日文混输开关；见 `MixedInputMoreRowsProps.temporaryJapanese`。缺省为 true。 */
   temporaryJapanese?: boolean;
+  /** 宿主能把快捷短语混进普通候选（`HostCapabilities.quick_phrase_candidates`），决定是否列出快捷短语混输与调频开关。缺省为 false。 */
+  quickPhraseCandidates?: boolean;
   /** 放在「候选与联想」组的「学习选词习惯」之前。 */
   beforeLearning?: ReactNode;
   /** 「候选与联想」组里学习开关之后的行。 */
@@ -80,6 +82,7 @@ export function InputSharedSettingsSection({
   onMixedInputChange,
   showMixedInputMinimumPrefix = true,
   temporaryJapanese = true,
+  quickPhraseCandidates = false,
   beforeLearning,
   afterLearning,
   candidatesMore,
@@ -138,6 +141,7 @@ export function InputSharedSettingsSection({
         <MixedInputMoreRows
           preferences={mixedInput}
           temporaryJapanese={temporaryJapanese}
+          quickPhraseCandidates={quickPhraseCandidates}
           onChange={onMixedInputChange}
         />
       )}
@@ -196,6 +200,16 @@ export function InputSharedSettingsSection({
         "selection",
         <GroupList title={foldIntoMore && !paging ? "选词" : "选词与翻页"}>
           {wordCharacterRows}
+          <SwitchRow
+            title="二三候选"
+            description="开启后，组字时按 ; 选第二个候选、按 ' 选第三个候选；组字中的 ' 不再作为音节分隔符。"
+            checked={preferences.second_third_candidate?.enabled ?? false}
+            onChange={(enabled) =>
+              onPreferencesChange({
+                second_third_candidate: { enabled, keys: "semicolon_quote" },
+              })
+            }
+          />
           <SwitchRow
             title="退格键回退已选候选词"
             description="关闭后，退格只删除剩余拼写，保留已选文字；拼写删空时上屏已选文字。"
